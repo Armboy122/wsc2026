@@ -1,16 +1,28 @@
 #!/usr/bin/env python3
-"""Sync the local PEA knowledge corpus into a Gemini File Search store.
+"""Sync the authoritative PEA knowledge corpus into a Gemini File Search store.
 
-The script keeps a SHA256 source manifest (``knowledge/manifest.json``) that
-maps each corpus-relative path to its content hash and the remote document
+Safety-critical source policy: only files under ``<corpus root>/source/`` are
+ever syncable. The default corpus root is ``<repo>/knowledge``, so the default
+run uploads exactly ``knowledge/source/**``. README files, the manifest,
+hidden files, and non-document files are never uploaded, at any depth. The
+repository intentionally ships no PEA content in ``source/`` (only a
+non-factual placeholder); only lead-approved, authoritative PEA exports may
+be placed there. With no approved export present, a sync run is a no-op and
+the store cannot be populated with fabricated facts.
+
+The script keeps a SHA256 source manifest (default: ``knowledge/manifest.json``)
+that maps each corpus-relative path to its content hash and the remote document
 name. Each run uploads only new or changed sources; unchanged sources are
 touched, and remote documents whose local source disappeared are deleted only
 when both ``--prune`` and ``--yes`` are given.
 
 Flags:
-    --root      corpus root (default: <repo>/knowledge)
-    --manifest  manifest path (default: <corpus root>/manifest.json)
-    --file      limit the run to one corpus-relative path (repeatable)
+    --root      corpus root (default: <repo>/knowledge); only <root>/source/**
+                is syncable. A root without a source/ directory is a usage error.
+    --manifest  manifest path (default: <corpus root>/manifest.json, i.e.
+                knowledge/manifest.json for the default root)
+    --file      limit the run to one corpus-relative path (repeatable), e.g.
+                source/<approved-export>.md
     --store     File Search store resource name (default: $GEMINI_FILE_SEARCH_STORE)
     --dry-run   print the plan only; no uploads, no manifest writes
     --force     re-upload unchanged sources as well
@@ -36,7 +48,12 @@ from datetime import datetime, timezone
 from pathlib import Path
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
+# Corpus root (default): holds source/ (the only syncable subtree), the
+# manifest, and documentation/tests — none of which are ever uploaded except
+# files under source/.
 DEFAULT_CORPUS_ROOT = REPO_ROOT / "knowledge"
+# Only files under <corpus root>/source/** are ever uploaded (fail-closed).
+SOURCE_DIR_NAME = "source"
 MANIFEST_NAME = "manifest.json"
 MANIFEST_SCHEMA_VERSION = 1
 
@@ -45,6 +62,9 @@ ENV_API_KEY = "GEMINI_API_KEY"
 ENV_FALLBACK_API_KEY = "GOOGLE_API_KEY"
 
 ALLOWED_SUFFIXES = {".md", ".markdown", ".txt", ".pdf", ".docx", ".csv", ".html"}
+# Documentation/metadata files that are never uploaded, at any depth
+# (compared case-insensitively).
+EXCLUDED_FILENAMES = {MANIFEST_NAME, "readme.md"}
 
 LRO_POLL_SECONDS = 0.5
 LRO_TIMEOUT_SECONDS = 120.0
@@ -106,21 +126,31 @@ def compute_sha256(path: Path) -> str:
 def discover_sources(corpus_root: Path, only: tuple[str, ...] = ()) -> list[LocalSource]:
     """List syncable sources under ``corpus_root`` (sorted, stable order).
 
-    Hidden files/directories, the manifest itself, and files without an
-    allowed document suffix are skipped. When ``only`` is given, every listed
-    path must resolve to a syncable source or a :class:`UsageError` is raised.
+    Fail-closed source policy: only files inside ``corpus_root/source/`` are
+    syncable; everything else in the corpus (README, docs, tests, metadata)
+    can never be uploaded. Inside ``source/``, hidden files/directories,
+    README and manifest files (any case, any depth), and files without an
+    allowed document suffix are skipped. A corpus root without a ``source/``
+    directory is a :class:`UsageError`, never a silent no-op. Relative paths
+    are corpus-root-relative (``source/...``). When ``only`` is given, every
+    listed path must resolve to a syncable source or a :class:`UsageError`
+    is raised.
     """
+    source_dir = corpus_root / SOURCE_DIR_NAME
+    if not source_dir.is_dir():
+        raise UsageError(
+            f"corpus root {corpus_root} has no {SOURCE_DIR_NAME}/ directory; "
+            f"only {SOURCE_DIR_NAME}/** is syncable"
+        )
     found: list[LocalSource] = []
-    for path in sorted(corpus_root.rglob("*")):
+    for path in sorted(source_dir.rglob("*")):
         if not path.is_file():
             continue
         rel = path.relative_to(corpus_root).as_posix()
         parts = rel.split("/")
         if any(part.startswith(".") for part in parts):
             continue
-        if path.name == MANIFEST_NAME:
-            continue
-        if rel == "README.md":  # corpus documentation, not knowledge content
+        if path.name.lower() in EXCLUDED_FILENAMES:
             continue
         if path.suffix.lower() not in ALLOWED_SUFFIXES:
             continue
@@ -385,15 +415,25 @@ def run_sync(args: argparse.Namespace, provider: object | None = None) -> int:
 def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     parser = argparse.ArgumentParser(
         prog="sync_knowledge.py",
-        description="Sync the PEA knowledge corpus into a Gemini File Search store.",
+        description=(
+            "Sync the authoritative PEA knowledge corpus into a Gemini File Search "
+            "store. Only <root>/source/** is ever uploaded; the repository ships no "
+            "PEA content (lead-approved exports only)."
+        ),
     )
-    parser.add_argument("--root", help="corpus root (default: <repo>/knowledge)")
-    parser.add_argument("--manifest", help="manifest path (default: <corpus root>/manifest.json)")
+    parser.add_argument(
+        "--root",
+        help="corpus root (default: <repo>/knowledge); only <root>/source/** is syncable",
+    )
+    parser.add_argument(
+        "--manifest",
+        help="manifest path (default: <corpus root>/manifest.json, i.e. knowledge/manifest.json)",
+    )
     parser.add_argument(
         "--file",
         action="append",
         metavar="PATH",
-        help="limit the run to this corpus-relative path (repeatable)",
+        help="limit the run to this corpus-relative path, e.g. source/<export>.md (repeatable)",
     )
     parser.add_argument(
         "--store",

@@ -241,3 +241,181 @@ def test_search_normalizes_live_shaped_response(monkeypatch) -> None:
     tool_cfg = captured["config"]["tools"][0]["file_search"]
     assert tool_cfg["file_search_store_names"] == ["fileSearchStores/x"]
     assert tool_cfg["top_k"] == 3
+
+
+# --- is_ready(): bounded live provider verification --------------------------
+
+def _clear_config_env(monkeypatch) -> None:
+    monkeypatch.delenv(ENV_API_KEY, raising=False)
+    monkeypatch.delenv(ENV_FALLBACK_API_KEY, raising=False)
+    monkeypatch.delenv(ENV_STORE, raising=False)
+
+
+def _client_with_store_lookup(store_lookup) -> type:
+    """Factory-returned client whose ``file_search_stores.get`` is ``store_lookup``.
+
+    Instances record the ``api_key`` the factory passed them (``.key``).
+    """
+
+    class Stores:
+        def get(self, **kwargs):
+            return store_lookup(**kwargs)
+
+    class Client:
+        def __init__(self, api_key):
+            self.key = api_key
+            self.file_search_stores = Stores()
+
+    return Client
+
+
+def test_readiness_false_without_config(monkeypatch) -> None:
+    _clear_config_env(monkeypatch)
+    for backend in (
+        make_backend(),  # no key, no store
+        make_backend(api_key="k"),  # key only
+        make_backend(store_name="fileSearchStores/x"),  # store only
+    ):
+        assert backend.is_configured() is False
+        assert asyncio.run(backend.is_ready()) is False
+
+
+def test_readiness_false_without_sdk(monkeypatch) -> None:
+    monkeypatch.setitem(sys.modules, "google", None)  # force ImportError
+    backend = make_backend(api_key="k", store_name="fileSearchStores/x")
+    assert backend.is_configured() is True  # local config looks fine...
+    assert asyncio.run(backend.is_ready()) is False  # ...but no SDK to verify
+    assert asyncio.run(backend.is_ready()) is False  # and it stays bounded
+
+
+def test_readiness_false_when_client_factory_fails() -> None:
+    def broken_factory(api_key: str):
+        raise RuntimeError("client construction failed")
+
+    backend = make_backend(
+        api_key="k", store_name="fileSearchStores/x", client_factory=broken_factory
+    )
+    assert asyncio.run(backend.is_ready()) is False
+
+
+def test_readiness_false_when_store_lookup_fails() -> None:
+    """Revoked credentials / missing store / outage: provider error -> not ready."""
+
+    def lookup(**kwargs):
+        raise RuntimeError("404 fileSearchStore not found")
+
+    client = _client_with_store_lookup(lookup)
+    backend = make_backend(api_key="k", store_name="fileSearchStores/x", client_factory=client)
+    assert asyncio.run(backend.is_ready()) is False
+
+
+def test_readiness_true_on_successful_store_lookup() -> None:
+    seen: dict = {}
+    built: list = []
+
+    def lookup(**kwargs):
+        seen.update(kwargs)
+        return "store"
+
+    client_cls = _client_with_store_lookup(lookup)
+
+    def factory(api_key: str):
+        instance = client_cls(api_key)
+        built.append(instance)
+        return instance
+
+    backend = make_backend(
+        api_key="SECRET-KEY", store_name="fileSearchStores/pea", client_factory=factory
+    )
+    assert asyncio.run(backend.is_ready()) is True
+    # the configured store is verified through the provider's store lookup
+    assert seen == {"name": "fileSearchStores/pea"}
+    # the client factory received the configured key
+    assert built and built[0].key == "SECRET-KEY"
+
+
+def test_readiness_false_on_timeout() -> None:
+    import time
+
+    def lookup(**kwargs):
+        time.sleep(1.0)  # provider outage / hung request
+        return "store"
+
+    client = _client_with_store_lookup(lookup)
+    backend = make_backend(
+        api_key="k",
+        store_name="fileSearchStores/x",
+        client_factory=client,
+        readiness_timeout_seconds=0.05,
+    )
+
+    async def probe():
+        started = time.monotonic()
+        result = await backend.is_ready()
+        return result, time.monotonic() - started
+
+    # measured inside the running loop: the probe's await must be bounded by
+    # the short timeout (teardown of the abandoned worker thread is not part
+    # of the probe)
+    result, elapsed = asyncio.run(probe())
+    assert result is False
+    assert elapsed < 1.0  # bounded by the short timeout
+
+
+def test_readiness_never_leaks_credentials_or_provider_details(caplog) -> None:
+    import logging
+
+    def lookup(**kwargs):
+        raise RuntimeError("401 api_key=SECRET-123 endpoint=https://secret.example")
+
+    client = _client_with_store_lookup(lookup)
+    backend = make_backend(
+        api_key="SECRET-123",
+        store_name="fileSearchStores/secret-store",
+        client_factory=client,
+    )
+    with caplog.at_level(logging.DEBUG, logger="pea_one_agent.gemini_file_search"):
+        assert asyncio.run(backend.is_ready()) is False
+    # no credential, endpoint, or provider exception detail in any log record
+    assert "SECRET-123" not in caplog.text
+    assert "secret.example" not in caplog.text
+    assert "fileSearchStores/secret-store" not in caplog.text
+
+
+def test_search_uses_injected_client_factory(monkeypatch) -> None:
+    """The client-factory seam is honored by search too (semantics unchanged)."""
+    fake_genai = types.ModuleType("google.genai")
+    fake_google = types.ModuleType("google")
+    fake_google.genai = fake_genai
+    captured: dict = {}
+
+    class FakeModels:
+        def generate_content(self, **kwargs):
+            captured.update(kwargs)
+            return make_response(
+                Ctx(uri="https://pea.example/a", title="A", text="t", document_name="doc/a")
+            )
+
+    class FactoryClient:
+        def __init__(self, api_key):
+            captured["api_key"] = api_key
+            self.models = FakeModels()
+
+    fake_genai.types = types.SimpleNamespace(
+        GenerateContentConfig=lambda **kw: kw,
+        Tool=lambda **kw: kw,
+        FileSearch=lambda **kw: kw,
+    )
+    monkeypatch.setitem(sys.modules, "google", fake_google)
+    monkeypatch.setitem(sys.modules, "google.genai", fake_genai)
+
+    backend = make_backend(
+        api_key="k", store_name="fileSearchStores/x", client_factory=FactoryClient
+    )
+    evidence = asyncio.run(backend.search("what are the tiers", 3))
+    assert evidence.result_count == 1
+    assert captured["api_key"] == "k"  # factory received the configured key
+    assert captured["contents"] == "what are the tiers"
+    tool_cfg = captured["config"]["tools"][0]["file_search"]
+    assert tool_cfg["file_search_store_names"] == ["fileSearchStores/x"]
+    assert tool_cfg["top_k"] == 3
