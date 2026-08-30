@@ -1,0 +1,6 @@
+[
+  { "code": "billing", "label": "Billing & Payment" },
+  { "code": "service", "label": "Service Request" },
+  { "code": "safety", "label": "Safety Concern" },
+  { "code": "other", "label": "Other" }
+]
