@@ -1,0 +1,128 @@
+<!doctype html>
+<html lang="th">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="color-scheme" content="light">
+  <meta name="theme-color" content="#2A1D52">
+  <title>PEA One Agent · ระบบสาธิต</title>
+  <meta name="description" content="Static competition demo UI for PEA One Agent — simulated backend only, no production data.">
+  <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='7' fill='%232A1D52'/%3E%3Cpath d='M18 5 9.2 17.6h5.4L13.4 27l8.9-12.6h-5.4L18 5z' fill='%23FFD9A0'/%3E%3C/svg%3E">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Anuphan:wght@400;500;600;700&family=IBM+Plex+Mono:wght@400;600&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="styles.css">
+</head>
+<body>
+  <a class="skip-link" href="#message-input">ข้ามไปยังช่องพิมพ์ข้อความ</a>
+
+  <div class="app">
+    <header class="app-header">
+      <div class="brand">
+        <span class="brand-mark" aria-hidden="true">
+          <svg viewBox="0 0 24 24" width="22" height="22" fill="currentColor"><path d="M13.6 1.6 4.9 13.9h4.9L8.6 22.4l9.1-12.7h-5l.9-8.1z"/></svg>
+        </span>
+        <div class="brand-text">
+          <h1 class="brand-title">PEA One Agent</h1>
+          <p class="brand-sub">ผู้ช่วยบริการลูกค้าไฟฟ้า · ระบบสาธิต</p>
+        </div>
+      </div>
+      <div class="header-actions">
+        <span class="sim-badge" role="status">
+          <span class="sim-dot" aria-hidden="true"></span>
+          SIMULATED BACKEND · ข้อมูลจำลอง
+        </span>
+        <div class="header-buttons">
+          <button id="trace-toggle" class="ghost-btn" type="button" aria-expanded="false" aria-controls="trace-panel">
+            <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><path d="M4 6h16M4 12h10M4 18h7"/><circle cx="18" cy="16" r="3"/></svg>
+            <span>การตรวจสอบ</span>
+          </button>
+          <button id="reset-btn" class="ghost-btn" type="button">
+            <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3 12a9 9 0 1 0 2.6-6.3L3 8"/><path d="M3 3v5h5"/></svg>
+            <span>รีเซ็ต</span>
+          </button>
+        </div>
+      </div>
+    </header>
+
+    <main class="thread" id="thread" role="log" aria-label="บทสนทนา">
+      <section class="notice notice-welcome" id="welcome">
+        <h2>ยินดีต้อนรับสู่ระบบสาธิต</h2>
+        <p>
+          หน้านี้เชื่อมต่อกับ <strong>ข้อมูลจำลอง (Simulated Backend)</strong> เท่านั้น —
+          ไม่มีการเข้าถึงข้อมูลลูกค้าจริง ระบบชำระเงินจริง หรือระบบการผลิตของ กฟภ. ไม่ว่ากรณีใด ๆ
+        </p>
+        <p>
+          การกระทำที่มีผลต่อข้อมูล (ชำระค่าไฟ แจ้งเรื่องร้องเรียน แจ้งไฟดับ)
+          จะแสดงตัวอย่างให้ตรวจสอบก่อน และเกิดขึ้นได้เฉพาะเมื่อคุณกด <strong>ยืนยัน</strong> เท่านั้น
+        </p>
+        <p>เริ่มต้นด้วยปุ่มสถานการณ์สาธิตด้านล่าง หรือพิมพ์คำถามของคุณเอง</p>
+      </section>
+    </main>
+
+    <section class="composer" aria-label="ส่งข้อความ">
+      <div class="prompts" role="group" aria-label="สถานการณ์สาธิต 5 เรื่อง">
+        <button class="prompt-chip" type="button" data-prompt="ค่าไฟฟ้าช่วง On-Peak คิดเป็นเงินกี่บาทต่อหน่วย และครอบคลุมช่วงเวลาใดบ้าง?" title="ค่าไฟฟ้าช่วง On-Peak คิดเป็นเงินกี่บาทต่อหน่วย และครอบคลุมช่วงเวลาใดบ้าง?">
+          <span class="prompt-num" aria-hidden="true">01</span>
+          <span class="prompt-label">ค่าไฟช่วง On-Peak</span>
+        </button>
+        <button class="prompt-chip" type="button" data-prompt="ช่วยตรวจสอบยอดค้างชำระค่าไฟของบัญชีฉัน" title="ช่วยตรวจสอบยอดค้างชำระค่าไฟของบัญชีฉัน">
+          <span class="prompt-num" aria-hidden="true">02</span>
+          <span class="prompt-label">ตรวจยอดค้างชำระ</span>
+        </button>
+        <button class="prompt-chip" type="button" data-prompt="ฉันต้องการชำระค่าไฟ 350 บาท ด้วยบัตร" title="ฉันต้องการชำระค่าไฟ 350 บาท ด้วยบัตร">
+          <span class="prompt-num" aria-hidden="true">03</span>
+          <span class="prompt-label">ชำระค่าไฟ 350 บาท</span>
+        </button>
+        <button class="prompt-chip" type="button" data-prompt="ฉันต้องการแจ้งเรื่องร้องเรียนเรื่องบิลค่าไฟไม่ถูกต้อง" title="ฉันต้องการแจ้งเรื่องร้องเรียนเรื่องบิลค่าไฟไม่ถูกต้อง">
+          <span class="prompt-num" aria-hidden="true">04</span>
+          <span class="prompt-label">แจ้งเรื่องร้องเรียน</span>
+        </button>
+        <button class="prompt-chip" type="button" data-prompt="ฉันต้องการแจ้งไฟดับที่พื้นที่ BKK-01" title="ฉันต้องการแจ้งไฟดับที่พื้นที่ BKK-01">
+          <span class="prompt-num" aria-hidden="true">05</span>
+          <span class="prompt-label">แจ้งไฟดับ BKK-01</span>
+        </button>
+      </div>
+      <form id="composer-form" class="composer-form" novalidate>
+        <label class="visually-hidden" for="message-input">ข้อความถึงผู้ช่วย</label>
+        <textarea id="message-input" rows="1" maxlength="4000" placeholder="พิมพ์ข้อความ เช่น ตรวจสอบยอดค้างชำระค่าไฟ…" autocomplete="off"></textarea>
+        <button type="submit" id="send-btn" class="send-btn" aria-label="ส่งข้อความ">
+          <svg viewBox="0 0 24 24" width="20" height="20" fill="currentColor" aria-hidden="true"><path d="M2.4 20.6 22 12 2.4 3.4l.02 6.78L16 12 2.42 13.82z"/></svg>
+        </button>
+      </form>
+      <p class="composer-meta">การสนทนานี้เป็นการสาธิตบนข้อมูลจำลองทั้งหมด · ไม่มีการแสดงลำดับความคิด (chain-of-thought) ของโมเดล</p>
+    </section>
+  </div>
+
+  <div class="trace-backdrop" id="trace-backdrop" hidden></div>
+  <aside id="trace-panel" class="trace-panel" hidden aria-label="บันทึกการตรวจสอบ (Trace)">
+    <header class="trace-head">
+      <div class="trace-head-titles">
+        <h2>การตรวจสอบ (Trace)</h2>
+        <p class="trace-id mono" id="trace-id-label">— ยังไม่มีรอบการทำงาน —</p>
+      </div>
+      <div class="trace-head-actions">
+        <button id="trace-refresh" class="ghost-btn light" type="button">
+          <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3 12a9 9 0 1 0 2.6-6.3L3 8"/><path d="M3 3v5h5"/></svg>
+          <span>รีเฟรช</span>
+        </button>
+        <button id="trace-close" class="icon-btn" type="button" aria-label="ปิดแผงการตรวจสอบ">
+          <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><path d="M5 5l14 14M19 5 5 19"/></svg>
+        </button>
+      </div>
+    </header>
+    <div class="trace-body">
+      <ol class="trace-events" id="trace-events"></ol>
+      <p class="trace-empty" id="trace-empty">ยังไม่มีเหตุการณ์ — ส่งข้อความเพื่อเริ่มต้น</p>
+      <p class="trace-note">
+        แสดงเฉพาะเหตุการณ์ตามสัญญา (chat / llm / tool / action) ซึ่งระบบหลังบ้านปิดบังข้อมูลอ่อนไหวก่อนจัดเก็บแล้ว —
+        แผงนี้ไม่แสดง chain-of-thought ของโมเดลภายใต้ทุกเงื่อนไข
+      </p>
+    </div>
+  </aside>
+
+  <p class="sr-status" role="status" aria-live="polite" id="sr-status"></p>
+
+  <script src="app.js"></script>
+</body>
+</html>
