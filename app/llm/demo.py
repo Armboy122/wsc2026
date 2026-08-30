@@ -188,7 +188,7 @@ def _payment_method(message: str) -> PaymentMethod | None:
         return PaymentMethod(match.group(1).casefold())
     if re.search(r"\b(?:credit|debit)?\s*card\b|บัตร", message, re.IGNORECASE):
         return PaymentMethod.DEMO_CARD
-    if re.search(r"\b(?:bank(?:\s+transfer)?|wire(?:\s+transfer)?)\b|ธนาคาร|โอน(?:เงิน)?", message, re.IGNORECASE):
+    if re.search(r"\b(?:bank(?:\s+transfer)?|wire\s+transfer)\b|ธนาคาร|โอน(?:เงิน)?", message, re.IGNORECASE):
         return PaymentMethod.DEMO_BANK
     return None
 
