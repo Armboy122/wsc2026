@@ -27,7 +27,7 @@ OMS, Sabuy, and VOC are **SIMULATED**. Gemini File Search is the hosted knowledg
 
 ## Final hardened release evidence
 
-The lead-supplied final run used the reassigned **OpenAI Terra** model. Full `pytest` completed with **129 passed** and **4 deprecation warnings**. The live evaluator at `127.0.0.1:8010` scored all **90 dataset cases plus health** as follows:
+The lead-supplied final run used the reassigned **OpenAI Terra** model. Full `pytest` completed with **130 passed** and **4 deprecation warnings**. The live evaluator at `127.0.0.1:8010` scored all **90 dataset cases plus health** as follows:
 
 | Check | Result |
 |---|---:|

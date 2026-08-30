@@ -46,7 +46,7 @@ The pytest suite additionally proves envelope validation, simulation markers, no
 
 ## Final hardened release evidence
 
-The lead-supplied final evidence used the reassigned **OpenAI Terra** model. Full `pytest` completed with **129 passed** and **4 deprecation warnings**. The live evaluator at `127.0.0.1:8010` evaluated all **90 dataset cases plus health**:
+The lead-supplied final evidence used the reassigned **OpenAI Terra** model. Full `pytest` completed with **130 passed** and **4 deprecation warnings**. The live evaluator at `127.0.0.1:8010` evaluated all **90 dataset cases plus health**:
 
 | Check | Result |
 |---|---:|

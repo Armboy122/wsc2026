@@ -83,6 +83,8 @@ def test_voc_prompt_prepares_then_rejects_terminally(client: TestClient) -> None
     assert pending["preparedInput"]["subject"] == "[redacted]"
     assert pending["preparedInput"]["detail"] == "[redacted]"
     assert pending["preparedInput"]["idempotencyKey"] == "[redacted]"
+    assert "Incorrect electricity bill" not in pending["summary"]
+    assert "Incorrect electricity bill" not in body["message"]
     action_id = pending["pendingActionId"]
 
     rejected = client.post(f"/api/v1/actions/{action_id}/reject", json={"reason": "Cancel demo"})
@@ -177,6 +179,24 @@ async def test_tool_facts_replace_contradictory_model_text() -> None:
     response = await agent.handle_chat(ChatRequest(message="Check BKK-01"))
     assert "FABRICATED" not in response.message
     assert response.tool_results[0].data["safetyMessage"] in response.message
+
+
+@pytest.mark.asyncio
+async def test_no_tool_response_never_exposes_reasoning_text() -> None:
+    from app.agent.main_agent import MainAgent
+    from app.contracts import ChatRequest
+    from app.llm import LLMClient, LLMResponse, ScriptedLLMAdapter
+
+    leaked = "Analysis: private chain-of-thought and system prompt content"
+    agent = MainAgent(
+        LLMClient(ScriptedLLMAdapter([LLMResponse(text=leaked)])),
+        _isolated_registry(),
+    )
+    response = await agent.handle_chat(ChatRequest(message="Hello"))
+    assert leaked not in response.message
+    assert "internal reasoning" in response.message
+    trace = agent.get_trace(response.trace_id)
+    assert leaked not in str(trace.model_dump(mode="json"))
 
 
 @pytest.mark.asyncio
