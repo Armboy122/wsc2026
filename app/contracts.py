@@ -11,10 +11,21 @@ from uuid import UUID
 from pydantic import BaseModel, ConfigDict, Field, TypeAdapter, model_validator
 
 
+def to_camel(value: str) -> str:
+    """Use one JSON naming convention at every external seam."""
+    head, *tail = value.split("_")
+    return head + "".join(part.capitalize() for part in tail)
+
+
 class FrozenModel(BaseModel):
     """Base for every cross-module value object."""
 
-    model_config = ConfigDict(frozen=True, extra="forbid", populate_by_name=True)
+    model_config = ConfigDict(
+        frozen=True,
+        extra="forbid",
+        populate_by_name=True,
+        alias_generator=to_camel,
+    )
 
 
 class ToolName(str, Enum):
