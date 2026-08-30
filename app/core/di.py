@@ -10,10 +10,13 @@ from typing import Any, Protocol, runtime_checkable
 from uuid import UUID
 
 from app.contracts import (
+    ActionDecisionResponse,
+    ChatRequest,
     ChatResponse,
-    PendingAction,
+    ResetResponse,
     ToolCall,
     ToolResult,
+    TraceResponse,
 )
 
 
@@ -21,42 +24,31 @@ from app.contracts import (
 class MainAgent(Protocol):
     """The sole orchestrator called by platform routes."""
 
-    async def handle_chat(
-        self,
-        *,
-        conversation_id: UUID | None,
-        message: str,
-        request_id: UUID | None,
-        trace_id: UUID,
-    ) -> ChatResponse:
+    async def handle_chat(self, request: ChatRequest) -> ChatResponse:
         """Handle a chat message and return a frozen contract response."""
         ...
 
     async def confirm_pending_action(
         self,
-        *,
         pending_action_id: UUID,
-        confirmation_note: str | None,
-        trace_id: UUID,
-    ) -> tuple[PendingAction, ToolResult | None]:
+        confirmation_note: str | None = None,
+    ) -> ActionDecisionResponse:
         """Submit a pending action once; idempotent on repeat calls."""
         ...
 
     async def reject_pending_action(
         self,
-        *,
         pending_action_id: UUID,
         reason: str,
-        trace_id: UUID,
-    ) -> PendingAction:
+    ) -> ActionDecisionResponse:
         """Reject a pending action; terminal and idempotent."""
         ...
 
-    async def get_trace(self, *, trace_id: UUID) -> list[dict[str, Any]]:
+    def get_trace(self, trace_id: UUID) -> TraceResponse:
         """Return ordered, redacted trace events for a trace id."""
         ...
 
-    async def reset_demo(self) -> None:
+    def reset_demo(self) -> ResetResponse:
         """Clear all in-process demo state."""
         ...
 

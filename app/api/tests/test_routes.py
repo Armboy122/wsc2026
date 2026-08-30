@@ -12,12 +12,14 @@ from httpx import ASGITransport, AsyncClient
 
 from app.api.routes import router
 from app.contracts import (
+    ActionDecisionResponse,
     ChatResponse,
     PendingAction,
     PendingActionStatus,
     ToolAction,
     ToolName,
     TraceEventKind,
+    TraceResponse,
 )
 from app.core.di import agent_service
 from app.core.startup import create_platform_app
@@ -29,29 +31,27 @@ class ScriptedMainAgent:
     name = "scripted"
 
     def __init__(self) -> None:
-        self.traces: dict[uuid.UUID, list[dict[str, Any]]] = {}
+        self.traces: dict[uuid.UUID, TraceResponse] = {}
         self.pending: dict[uuid.UUID, PendingAction] = {}
         self.conversations: dict[uuid.UUID, list[str]] = {}
 
-    async def handle_chat(
-        self,
-        *,
-        conversation_id: uuid.UUID | None,
-        message: str,
-        request_id: uuid.UUID | None,
-        trace_id: uuid.UUID,
-    ) -> ChatResponse:
-        convo = conversation_id or uuid.uuid4()
+    async def handle_chat(self, request: Any) -> ChatResponse:
+        convo = getattr(request, "conversation_id", None) or uuid.uuid4()
+        trace_id = uuid.uuid4()
+        message = getattr(request, "message", "ack")
         self.conversations.setdefault(convo, []).append(message)
-        self.traces.setdefault(trace_id, []).append(
-            {
-                "event_id": uuid.uuid4(),
-                "trace_id": trace_id,
-                "sequence": 1,
-                "at": datetime.now(UTC),
-                "kind": TraceEventKind.CHAT_RECEIVED,
-                "data": {"message_redacted": True},
-            }
+        self.traces[trace_id] = TraceResponse(
+            trace_id=trace_id,
+            events=(
+                {
+                    "event_id": uuid.uuid4(),
+                    "trace_id": trace_id,
+                    "sequence": 1,
+                    "at": datetime.now(UTC),
+                    "kind": TraceEventKind.CHAT_RECEIVED,
+                    "data": {"message_redacted": True},
+                },
+            ),
         )
         return ChatResponse(
             conversation_id=convo,
@@ -61,16 +61,12 @@ class ScriptedMainAgent:
 
     async def confirm_pending_action(
         self,
-        *,
         pending_action_id: uuid.UUID,
-        confirmation_note: str | None,
-        trace_id: uuid.UUID,
-    ) -> tuple[PendingAction, Any]:
+        confirmation_note: str | None = None,
+    ) -> ActionDecisionResponse:
         action = self.pending.get(pending_action_id)
         if action is None:
             raise KeyError(pending_action_id)
-        if action.status == PendingActionStatus.REJECTED:
-            raise ValueError("already rejected")
         from app.contracts import ToolResult, ToolResultStatus
 
         submission_result = ToolResult(
@@ -85,29 +81,39 @@ class ScriptedMainAgent:
             update={"status": PendingActionStatus.SUBMITTED, "submission_result": submission_result}
         )
         self.pending[pending_action_id] = confirmed
-        return confirmed, submission_result
+        return ActionDecisionResponse(
+            pending_action=confirmed,
+            tool_result=submission_result,
+            trace_id=uuid.uuid4(),
+        )
 
     async def reject_pending_action(
         self,
-        *,
         pending_action_id: uuid.UUID,
         reason: str,
-        trace_id: uuid.UUID,
-    ) -> PendingAction:
+    ) -> ActionDecisionResponse:
         action = self.pending.get(pending_action_id)
         if action is None:
             raise KeyError(pending_action_id)
         rejected = action.model_copy(update={"status": PendingActionStatus.REJECTED})
         self.pending[pending_action_id] = rejected
-        return rejected
+        return ActionDecisionResponse(
+            pending_action=rejected,
+            tool_result=None,
+            trace_id=uuid.uuid4(),
+        )
 
-    async def get_trace(self, *, trace_id: uuid.UUID) -> list[dict[str, Any]]:
-        return self.traces.get(trace_id, [])
+    def get_trace(self, trace_id: uuid.UUID) -> TraceResponse:
+        trace = self.traces.get(trace_id)
+        if trace is None:
+            raise LookupError(trace_id)
+        return trace
 
-    async def reset_demo(self) -> None:
+    def reset_demo(self) -> Any:
         self.traces.clear()
         self.pending.clear()
         self.conversations.clear()
+        return {"reset": True}
 
 
 @pytest.fixture
@@ -205,16 +211,19 @@ async def test_get_trace_not_found(client: AsyncClient) -> None:
 async def test_get_trace_found(client: AsyncClient) -> None:
     agent = agent_service.agent
     trace_id = uuid.uuid4()
-    agent.traces[trace_id] = [
-        {
-            "event_id": uuid.uuid4(),
-            "trace_id": trace_id,
-            "sequence": 1,
-            "at": datetime.now(UTC),
-            "kind": TraceEventKind.CHAT_RECEIVED,
-            "data": {},
-        }
-    ]
+    agent.traces[trace_id] = TraceResponse(
+        trace_id=trace_id,
+        events=(
+            {
+                "event_id": uuid.uuid4(),
+                "trace_id": trace_id,
+                "sequence": 1,
+                "at": datetime.now(UTC),
+                "kind": TraceEventKind.CHAT_RECEIVED,
+                "data": {},
+            },
+        ),
+    )
     response = await client.get(f"/api/v1/traces/{trace_id}")
     assert response.status_code == 200
     assert response.json()["traceId"] == str(trace_id)
