@@ -7,7 +7,6 @@ and never invoke tools directly.
 from __future__ import annotations
 
 import uuid
-
 from fastapi import APIRouter, Request, status
 
 from app.contracts import (
@@ -29,20 +28,9 @@ logger = get_logger(__name__)
 router = APIRouter()
 
 
-def _new_trace_id() -> uuid.UUID:
-    return uuid.uuid4()
-
-
 @router.post("/api/v1/chat", response_model=ChatResponse, status_code=status.HTTP_200_OK)
 async def chat(request: Request, body: ChatRequest) -> ChatResponse:
-    trace_id = _new_trace_id()
-    logger.info("chat_received", extra={"trace_id": str(trace_id)})
-    return await agent_service.agent.handle_chat(
-        conversation_id=body.conversation_id,
-        message=body.message,
-        request_id=body.request_id,
-        trace_id=trace_id,
-    )
+    return await agent_service.agent.handle_chat(body)
 
 
 @router.post(
@@ -55,16 +43,9 @@ async def confirm_pending_action(
     pending_action_id: uuid.UUID,
     body: ConfirmActionRequest,
 ) -> ActionDecisionResponse:
-    trace_id = _new_trace_id()
-    pending_action, tool_result = await agent_service.agent.confirm_pending_action(
-        pending_action_id=pending_action_id,
+    return await agent_service.agent.confirm_pending_action(
+        pending_action_id,
         confirmation_note=body.confirmation_note,
-        trace_id=trace_id,
-    )
-    return ActionDecisionResponse(
-        pending_action=pending_action,
-        tool_result=tool_result,
-        trace_id=trace_id,
     )
 
 
@@ -78,31 +59,23 @@ async def reject_pending_action(
     pending_action_id: uuid.UUID,
     body: RejectActionRequest,
 ) -> ActionDecisionResponse:
-    trace_id = _new_trace_id()
-    pending_action = await agent_service.agent.reject_pending_action(
-        pending_action_id=pending_action_id,
+    return await agent_service.agent.reject_pending_action(
+        pending_action_id,
         reason=body.reason,
-        trace_id=trace_id,
-    )
-    return ActionDecisionResponse(
-        pending_action=pending_action,
-        tool_result=None,
-        trace_id=trace_id,
     )
 
 
 @router.get("/api/v1/traces/{trace_id}", response_model=TraceResponse)
 async def get_trace(request: Request, trace_id: uuid.UUID) -> TraceResponse:
-    events = await agent_service.agent.get_trace(trace_id=trace_id)
-    if not events:
-        raise NotFoundException(detail=f"trace {trace_id} not found")
-    return TraceResponse(trace_id=trace_id, events=events)
+    try:
+        return agent_service.agent.get_trace(trace_id)
+    except LookupError as exc:
+        raise NotFoundException(detail="trace not found") from exc
 
 
 @router.post("/api/v1/reset", response_model=ResetResponse)
 async def reset_demo(request: Request) -> ResetResponse:
-    await agent_service.agent.reset_demo()
-    return ResetResponse(reset=True)
+    return agent_service.agent.reset_demo()
 
 
 @router.get("/health", response_model=HealthResponse)
