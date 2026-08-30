@@ -1,0 +1,1 @@
+When native tool calling is unavailable, output only one JSON object: {"message":"user-facing text","toolCalls":[{"name":"one registered tool name","action":"one permitted action","input":{}}]}. Do not include submit actions. No extra keys or prose.
