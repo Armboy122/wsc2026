@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import asyncio
 import json
 from datetime import UTC, datetime
 from typing import Any
@@ -28,6 +29,7 @@ from app.contracts import (
     ToolResultStatus,
     TraceEventKind,
     TraceResponse,
+    validate_tool_input,
 )
 from app.llm import LLMClient, LLMMessage, LLMRequest, LLMResponse, ToolDefinition
 
@@ -39,10 +41,12 @@ _SUBMIT_ACTIONS = frozenset({
 })
 _TOOL_CATALOGUE = (
     ToolDefinition(ToolName.KNOWLEDGE, "Search hosted PEA knowledge", ("search",)),
-    ToolDefinition(ToolName.SABUY, "Read account data or prepare a payment", ("get_account_summary", "prepare_payment", "submit_payment")),
-    ToolDefinition(ToolName.VOC, "List complaint categories or prepare a case", ("list_categories", "prepare_case", "submit_case")),
-    ToolDefinition(ToolName.OMS, "Read outage status or prepare an outage report", ("get_outage_status", "prepare_outage_report", "submit_outage_report")),
+    ToolDefinition(ToolName.SABUY, "Read account data or prepare a payment", ("get_account_summary", "prepare_payment")),
+    ToolDefinition(ToolName.VOC, "List complaint categories or prepare a case", ("list_categories", "prepare_case")),
+    ToolDefinition(ToolName.OMS, "Read outage status or prepare an outage report", ("get_outage_status", "prepare_outage_report")),
 )
+_SAFE_PREVIEW_FIELDS = frozenset({"accountRef", "amountThb", "paymentMethod", "category", "contactChannel", "areaCode"})
+_MULTI_PREPARE_MESSAGE = "I couldn’t safely prepare more than one proposed action in a single chat. Please make one request at a time."
 
 
 class NotFoundError(LookupError):
@@ -71,6 +75,8 @@ class MainAgent:
         self._pending_actions = pending_actions or PendingActionStore()
         self._traces = traces or TraceStore()
         self._call_inputs: dict[UUID, dict[str, Any]] = {}
+        self._confirmation_tasks: dict[UUID, asyncio.Task[ActionDecisionResponse]] = {}
+        self._reset_generation = 0
 
     async def handle_chat(self, request: ChatRequest) -> ChatResponse:
         conversation_id = request.conversation_id or uuid4()
@@ -98,23 +104,36 @@ class MainAgent:
                 self._traces.append(trace_id, TraceEventKind.ERROR, {"stage": "tool_limit", "maximum": _MAX_TOOL_STEPS})
                 final_text = "I couldn’t complete that request because it required too many tool steps."
                 break
+            if sum(call.action in PREPARE_TO_SUBMIT for call in calls) > 1:
+                self._traces.append(trace_id, TraceEventKind.ERROR, {"stage": "multi_prepare_policy"})
+                final_text = _MULTI_PREPARE_MESSAGE
+                break
 
+            prepared = False
             for call in calls:
                 result = await self._execute_chat_call(call, conversation_id, trace_id)
                 all_results.append(result)
                 history += (LLMMessage("tool", _result_message(result)),)
-
+                if result.status is ToolResultStatus.SUCCESS and result.action in PREPARE_TO_SUBMIT:
+                    prepared = True
+                    break
+            if prepared:
+                break
         else:  # pragma: no cover - guarded above; keeps the hard limit explicit
             final_text = "I couldn’t complete that request within the tool-step limit."
 
-        self._conversations.append(conversation_id, LLMMessage("user", request.message))
-        self._conversations.append(conversation_id, LLMMessage("assistant", final_text or _default_message(all_results)))
         pending = self._create_pending_from_results(conversation_id, trace_id, all_results)
         citations = tuple(citation for result in all_results if result.status is ToolResultStatus.SUCCESS for citation in result.citations)
         message = _authoritative_message(final_text, all_results, pending)
+        self._conversations.append(conversation_id, LLMMessage("user", request.message))
+        self._conversations.append(conversation_id, LLMMessage("assistant", message))
         return ChatResponse(conversation_id=conversation_id, trace_id=trace_id, message=message, citations=citations, pending_action=pending, tool_results=tuple(all_results))
 
     async def confirm_pending_action(self, pending_action_id: UUID, confirmation_note: str | None = None) -> ActionDecisionResponse:
+        task = self._confirmation_tasks.get(pending_action_id)
+        if task is not None:
+            return await asyncio.shield(task)
+
         pending = self._require_pending(pending_action_id)
         trace_id = self._require_pending_trace(pending_action_id)
         if pending.status in {PendingActionStatus.SUBMITTED, PendingActionStatus.FAILED}:
@@ -127,9 +146,27 @@ class MainAgent:
         confirmed = pending.model_copy(update={"status": PendingActionStatus.CONFIRMED, "updated_at": _now()})
         self._pending_actions.update(confirmed)
         self._traces.append(trace_id, TraceEventKind.ACTION_CONFIRMED, {"pendingActionId": str(pending_action_id), "hasNote": bool(confirmation_note)})
-        call = ToolCall(call_id=uuid4(), name=confirmed.tool_name, action=confirmed.submit_action, input=SubmitPreparedActionInput(pending_action_id=pending_action_id, idempotency_key=confirmed.idempotency_key).model_dump(by_alias=True))
+        generation = self._reset_generation
+        task = asyncio.create_task(self._submit_confirmed_action(pending_action_id, confirmed, trace_id, generation))
+        self._confirmation_tasks[pending_action_id] = task
+        return await asyncio.shield(task)
+
+    async def _submit_confirmed_action(self, pending_action_id: UUID, confirmed: PendingAction, trace_id: UUID, generation: int) -> ActionDecisionResponse:
+        if generation != self._reset_generation:
+            raise asyncio.CancelledError
+        call = ToolCall(
+            call_id=uuid4(),
+            name=confirmed.tool_name,
+            action=confirmed.submit_action,
+            input=SubmitPreparedActionInput(
+                pending_action_id=pending_action_id,
+                idempotency_key=confirmed.idempotency_key,
+            ).model_dump(by_alias=True),
+        )
         self._traces.append(trace_id, TraceEventKind.ACTION_SUBMITTED, {"pendingActionId": str(pending_action_id), "action": call.action.value})
         result = await self._execute_internal(call, confirmed.conversation_id, trace_id)
+        if generation != self._reset_generation:
+            raise asyncio.CancelledError
         status = PendingActionStatus.SUBMITTED if result.status is ToolResultStatus.SUCCESS else PendingActionStatus.FAILED
         terminal = confirmed.model_copy(update={"status": status, "updated_at": _now(), "submission_result": result})
         self._pending_actions.update(terminal)
@@ -154,6 +191,11 @@ class MainAgent:
         return trace
 
     def reset_demo(self) -> ResetResponse:
+        self._reset_generation += 1
+        for task in self._confirmation_tasks.values():
+            if not task.done():
+                task.cancel()
+        self._confirmation_tasks.clear()
         self._tools.reset()
         self._conversations.clear()
         self._pending_actions.clear()
@@ -175,25 +217,35 @@ class MainAgent:
         return result
 
     def _create_pending_from_results(self, conversation_id: UUID, trace_id: UUID, results: list[ToolResult]) -> PendingAction | None:
-        for result in reversed(results):
-            if result.status is not ToolResultStatus.SUCCESS or result.action not in PREPARE_TO_SUBMIT:
-                continue
-            raw_input = self._call_inputs.get(result.call_id, {})
-            idempotency_key = raw_input.get("idempotencyKey")
-            if not isinstance(idempotency_key, str):
-                continue
-            now = _now()
-            pending = PendingAction(
-                pending_action_id=uuid4(), conversation_id=conversation_id, tool_name=result.name,
-                prepare_action=result.action, submit_action=PREPARE_TO_SUBMIT[result.action],
-                prepared_input=_redact_prepared_input(raw_input), summary=str((result.data or {}).get("summary", "Prepared action")),
-                status=PendingActionStatus.PENDING_CONFIRMATION, idempotency_key=idempotency_key,
-                created_at=now, updated_at=now,
-            )
-            self._pending_actions.put(pending, trace_id)
-            self._traces.append(trace_id, TraceEventKind.ACTION_PREPARED, {"pendingActionId": str(pending.pending_action_id), "action": result.action.value})
-            return pending
-        return None
+        prepared = [result for result in results if result.status is ToolResultStatus.SUCCESS and result.action in PREPARE_TO_SUBMIT]
+        if len(prepared) > 1:
+            self._traces.append(trace_id, TraceEventKind.ERROR, {"stage": "multi_prepare_policy"})
+            return None
+        if not prepared:
+            return None
+        result = prepared[0]
+        raw_input = self._call_inputs.get(result.call_id, {})
+        try:
+            prepared_input = validate_tool_input(ToolCall(
+                call_id=result.call_id,
+                name=result.name,
+                action=result.action,
+                input=raw_input,
+            )).model_dump(by_alias=True)
+        except ValidationError:  # pragma: no cover - a successful registry result is already validated
+            return None
+        idempotency_key = prepared_input["idempotencyKey"]
+        now = _now()
+        pending = PendingAction(
+            pending_action_id=uuid4(), conversation_id=conversation_id, tool_name=result.name,
+            prepare_action=result.action, submit_action=PREPARE_TO_SUBMIT[result.action],
+            prepared_input=_redact_prepared_input(prepared_input), summary=str((result.data or {}).get("summary", "Prepared action")),
+            status=PendingActionStatus.PENDING_CONFIRMATION, idempotency_key=idempotency_key,
+            created_at=now, updated_at=now,
+        )
+        self._pending_actions.put(pending, trace_id)
+        self._traces.append(trace_id, TraceEventKind.ACTION_PREPARED, {"pendingActionId": str(pending.pending_action_id), "action": result.action.value})
+        return pending
 
     def _require_pending(self, pending_action_id: UUID) -> PendingAction:
         pending = self._pending_actions.get(pending_action_id)
@@ -224,7 +276,8 @@ def _calls_from_response(response: LLMResponse) -> tuple[tuple[ToolCall, ...], s
 
 
 def _redact_prepared_input(data: dict[str, Any]) -> dict[str, Any]:
-    return {key: ("[redacted]" if "token" in key.lower() else value) for key, value in data.items()}
+    """Expose only the fixed confirmation-preview fields; keep every other key redacted."""
+    return {key: value if key in _SAFE_PREVIEW_FIELDS else "[redacted]" for key, value in data.items()}
 
 
 def _result_message(result: ToolResult) -> str:
@@ -240,13 +293,32 @@ def _default_message(results: list[ToolResult]) -> str:
 
 
 def _authoritative_message(text: str, results: list[ToolResult], pending: PendingAction | None) -> str:
+    if not results:
+        return text or _default_message(results)
+
     safety = next((str((result.data or {}).get("safetyMessage")) for result in results if result.name is ToolName.OMS and result.status is ToolResultStatus.SUCCESS and (result.data or {}).get("safetyMessage")), None)
+    facts = _result_facts(results)
     if pending:
-        text = text or pending.summary
-        text = f"{text}\n\nPlease explicitly confirm this proposed action to submit it."
-    if safety and not text.startswith(safety):
-        return f"{safety}\n\n{text}".strip()
-    return text or _default_message(results)
+        facts.append("Please explicitly confirm this proposed action to submit it.")
+    message = "\n\n".join(facts) or _default_message(results)
+    return f"{safety}\n\n{message}".strip() if safety and not message.startswith(safety) else message
+
+
+def _result_facts(results: list[ToolResult]) -> list[str]:
+    """Format only validated result data; planner prose is never used after a tool call."""
+    facts: list[str] = []
+    for result in results:
+        if result.status is ToolResultStatus.ERROR:
+            facts.append("I couldn’t complete part of that request because a required service was unavailable.")
+            continue
+        data = result.data or {}
+        if result.name is ToolName.KNOWLEDGE and isinstance(data.get("answerContext"), str):
+            facts.append(data["answerContext"] if result.citations else "I couldn’t provide a sourced answer for that request.")
+        elif isinstance(data.get("summary"), str):
+            facts.append(data["summary"])
+        else:
+            facts.append(json.dumps(data, default=str, sort_keys=True))
+    return facts
 
 
 def _now() -> datetime:
