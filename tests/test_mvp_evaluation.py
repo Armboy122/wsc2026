@@ -98,7 +98,10 @@ def test_prepare_confirm_is_idempotent_and_trace_ordered(client: TestClient) -> 
 
 
 def test_reject_is_terminal_and_confirm_returns_conflict(client: TestClient) -> None:
-    response = post_chat(client, "Prepare an outage report for BKK-01; location: 12 Sukhumvit Road; symptoms: no power in the building")
+    response = post_chat(
+        client,
+        "Prepare an outage report for BKK-01; location: 12 Sukhumvit Road; symptoms: no power in the building",
+    )
     assert response.status_code == 200
     pending = response.json().get("pendingAction")
     assert pending is not None
