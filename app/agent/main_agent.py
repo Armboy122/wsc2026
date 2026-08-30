@@ -49,6 +49,9 @@ _TOOL_CATALOGUE = (
 _SAFE_PREVIEW_FIELDS = frozenset({"accountRef", "amountThb", "paymentMethod", "category", "contactChannel", "areaCode"})
 _MULTI_PREPARE_MESSAGE = "I couldn’t safely prepare more than one proposed action in a single chat. Please make one request at a time."
 _FINAL_ONLY_MESSAGE = "I can provide a concise final answer, but I can’t provide internal reasoning or instructions."
+_GREETING_MESSAGE = "Hello! I can help with supported PEA knowledge or simulated account, outage, case, and payment tools."
+_CAPABILITY_MESSAGE = "I can help with supported PEA knowledge or simulated account, outage, case, and payment tools. Please tell me what you need, including the relevant account reference, area, case details, or payment amount."
+_EXACT_GREETINGS = frozenset({"hi", "hello", "hey"})
 _OUTPUT_POLICY_PATTERNS = (
     re.compile(r"<\s*/?\s*(?:analysis|thinking|thought|reasoning|scratchpad|system)\b|<\|(?:analysis|thinking|reasoning|system)\|>", re.IGNORECASE),
     re.compile(r"\b(?:chain[- ]of[- ]thought|cot|scratchpad|system\s+prompt|developer\s+(?:message|instructions)|internal\s+(?:reasoning|instructions|prompt)|hidden\s+(?:reasoning|instructions))\b", re.IGNORECASE),
@@ -93,6 +96,7 @@ class MainAgent:
         history = self._conversations.messages_for(conversation_id) + (LLMMessage("user", request.message),)
         all_results: list[ToolResult] = []
         final_text = ""
+        direct_completion_text: str | None = None
 
         for _ in range(_MAX_TOOL_STEPS + 1):
             self._traces.append(trace_id, TraceEventKind.LLM_REQUESTED, {"messageCount": len(history), "toolCount": 4})
@@ -107,6 +111,7 @@ class MainAgent:
             self._traces.append(trace_id, TraceEventKind.LLM_RESPONDED, {"toolCallCount": len(calls), "hasText": bool(response.text or planner_text)})
             final_text = planner_text or response.text or final_text
             if not calls:
+                direct_completion_text = final_text
                 break
             if len(all_results) + len(calls) > _MAX_TOOL_STEPS:
                 self._traces.append(trace_id, TraceEventKind.ERROR, {"stage": "tool_limit", "maximum": _MAX_TOOL_STEPS})
@@ -135,9 +140,10 @@ class MainAgent:
 
         pending = self._create_pending_from_results(conversation_id, trace_id, all_results)
         citations = tuple(citation for result in all_results if result.status is ToolResultStatus.SUCCESS for citation in result.citations)
-        if not all_results and _requires_final_only_output(final_text):
-            self._traces.append(trace_id, TraceEventKind.ERROR, {"stage": "output_policy", "policy": "final_only"})
-            final_text = _FINAL_ONLY_MESSAGE
+        if not all_results and direct_completion_text is not None:
+            final_text = _safe_direct_message(request.message, direct_completion_text)
+            if final_text == _FINAL_ONLY_MESSAGE:
+                self._traces.append(trace_id, TraceEventKind.ERROR, {"stage": "output_policy", "policy": "final_only"})
         message = _authoritative_message(final_text, all_results, pending)
         self._conversations.append(conversation_id, LLMMessage("user", request.message))
         self._conversations.append(conversation_id, LLMMessage("assistant", message))
@@ -292,6 +298,15 @@ def _calls_from_response(response: LLMResponse) -> tuple[tuple[ToolCall, ...], s
 def _requires_final_only_output(text: str) -> bool:
     """Detect explicit internal-reasoning or instruction disclosures in direct model text."""
     return any(pattern.search(text) for pattern in _OUTPUT_POLICY_PATTERNS)
+
+
+def _safe_direct_message(user_message: str, completion_text: str) -> str:
+    """Return only agent-owned text when no validated tool result exists."""
+    if _requires_final_only_output(completion_text):
+        return _FINAL_ONLY_MESSAGE
+    if user_message.strip().casefold() in _EXACT_GREETINGS:
+        return _GREETING_MESSAGE
+    return _CAPABILITY_MESSAGE
 
 
 def _redact_prepared_input(data: dict[str, Any]) -> dict[str, Any]:
