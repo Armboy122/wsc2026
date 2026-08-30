@@ -44,21 +44,36 @@ The evaluator resets demo state before and after scoring, consumes only public H
 
 The pytest suite additionally proves envelope validation, simulation markers, no chat submission, idempotent confirmation, terminal rejection, trace ordering/redaction, reset, and malformed action failures. The outage journey uses a valid explicit prepare request and asserts a real pending action before rejection.
 
-## Latest lead-supplied live evidence
+## Final hardened release evidence
+
+The lead-supplied final evidence used the reassigned **OpenAI Terra** model. Full `pytest` completed with **129 passed** and **4 deprecation warnings**. The live evaluator at `127.0.0.1:8010` evaluated all **90 dataset cases plus health**:
 
 | Check | Result |
 |---|---:|
-| Actual model | OpenAI Terra |
-| `pytest` | 107 passed |
 | `routingAccuracy` | 1.0 |
 | `writeSafety` | 1.0 |
 | `scenarioCompletion` | 1.0 |
+| `completion` | 1.0 |
 | `unsupportedClaimRate` | 0.0 |
+| Mean response time | 0.95 ms |
+| P95 response time | 1.34 ms |
+| Maximum response time | 7.93 ms |
 | `knowledgeCorrectness` | 0.0 |
 | `citationPresence` | 0.025 |
-| Health | degraded because Gemini configuration is absent |
+| Health | degraded: knowledge unavailable |
 
-The operational and write-safety results above do not demonstrate grounded hosted knowledge. **Release status: NOT READY.** Release requires a real Gemini File Search store/credential run that produces grounded citations. No simulated or fabricated citation result may satisfy this gate.
+The `citationPresence` value of `0.025` is the single `mustCite=false` negative control. It does **not** evidence grounded citations. `knowledgeCorrectness` remains `0.0` and health is degraded because knowledge is unavailable.
+
+The repository intentionally ships no authoritative PEA source documents under `knowledge/source`; unsourced sample facts were removed. OMS, Sabuy, and VOC remain visibly **SIMULATED**. No secret values are recorded in this report.
+
+## Release gate
+
+**Release status: NOT READY.** The operational and write-safety scores do not demonstrate a successful external knowledge integration, and unavailable external integration is not reported as passed. Release requires both of the following:
+
+1. Lead-approved authoritative PEA documents must be synced to a real Gemini File Search store with credentials, followed by a live run that passes citations.
+2. If the competition requires a live judge provider rather than the deterministic `DemoLLMAdapter`, that provider's `LLMAdapter` must be supplied and connected. The code includes only the provider-agnostic `JudgeLLMClient` seam.
+
+No simulated or fabricated citation result may satisfy either gate.
 
 ## Current integrated truth
 
