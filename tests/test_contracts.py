@@ -200,6 +200,24 @@ async def test_no_tool_response_never_exposes_reasoning_text() -> None:
 
 
 @pytest.mark.asyncio
+async def test_no_tool_response_never_exposes_ungrounded_facts() -> None:
+    from app.agent.main_agent import MainAgent
+    from app.contracts import ChatRequest
+    from app.llm import LLMClient, LLMResponse, ScriptedLLMAdapter
+
+    fabricated = "The official electricity tariff is exactly 1.23 THB per kWh."
+    agent = MainAgent(
+        LLMClient(ScriptedLLMAdapter([LLMResponse(text=fabricated)])),
+        _isolated_registry(),
+    )
+    response = await agent.handle_chat(ChatRequest(message="Tell me a made-up fact"))
+    assert fabricated not in response.message
+    assert "supported PEA knowledge" in response.message
+    assert "simulated account" in response.message
+    assert fabricated not in str(agent.get_trace(response.trace_id).model_dump(mode="json"))
+
+
+@pytest.mark.asyncio
 async def test_multiple_prepare_calls_fail_closed_before_tool_execution() -> None:
     from uuid import uuid4
 
