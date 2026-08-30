@@ -713,7 +713,19 @@
 
   els.promptChips.forEach((chip) => {
     chip.addEventListener('click', () => {
-      sendMessage(chip.dataset.prompt || chip.textContent.trim());
+      const prompt = chip.dataset.prompt || chip.textContent.trim();
+      if (chip.hasAttribute('data-prefill')) {
+        /* Insert a skeleton the presenter completes — nothing is sent and no
+         * complaint facts are invented by the UI. */
+        els.input.value = prompt;
+        autosize();
+        els.input.focus();
+        const end = els.input.value.length;
+        els.input.setSelectionRange(end, end);
+        announce('แทรกแบบฟอร์มเรื่องร้องเรียนแล้ว กรุณากรอกหัวเรื่องและรายละเอียดของคุณ แล้วจึงกดส่ง');
+        return;
+      }
+      sendMessage(prompt);
     });
   });
 

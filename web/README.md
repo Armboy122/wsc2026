@@ -38,8 +38,12 @@ StaticFiles mount) — the same origin then serves both the page and the API.
 
 - **Conversation**: user/assistant bubbles with timestamps, auto-scroll, typing indicator.
 - **Input & send**: auto-growing textarea (max 4,000 chars per contract), Enter to send,
-  Shift+Enter for newline, five scripted prompt buttons (knowledge · Sabuy read · Sabuy
-  write · VOC case · OMS outage report — one journey per tool family).
+  Shift+Enter for newline, and five scripted prompt buttons aligned with the deterministic
+  demo journeys: hosted-knowledge search (On-Peak tariff), Sabuy account read (PEA-1001),
+  Sabuy payment prepare (350 บาท · PEA-1001), VOC case template, and a multi-tool OMS
+  outage status + knowledge check (BKK-01 + safety policy). The VOC button inserts the
+  `Complaint; subject: ...; detail: ...` skeleton into the composer instead of sending, so
+  the complaint subject and detail always come from the presenter — the UI invents no facts.
 - **Loading / error states**: busy lock during a round-trip, normalized error notices for
   404/409/422/5xx and network failure; FastAPI `detail` payloads are decoded into a
   user-safe message.

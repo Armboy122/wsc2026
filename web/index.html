@@ -62,30 +62,30 @@
 
     <section class="composer" aria-label="ส่งข้อความ">
       <div class="prompts" role="group" aria-label="สถานการณ์สาธิต 5 เรื่อง">
-        <button class="prompt-chip" type="button" data-prompt="ค่าไฟฟ้าช่วง On-Peak คิดเป็นเงินกี่บาทต่อหน่วย และครอบคลุมช่วงเวลาใดบ้าง?" title="ค่าไฟฟ้าช่วง On-Peak คิดเป็นเงินกี่บาทต่อหน่วย และครอบคลุมช่วงเวลาใดบ้าง?">
+        <button class="prompt-chip" type="button" data-prompt="ค้นหาข้อมูลอัตราค่าไฟ On-Peak และช่วงเวลาที่ใช้" title="ค้นหาข้อมูลอัตราค่าไฟ On-Peak และช่วงเวลาที่ใช้">
           <span class="prompt-num" aria-hidden="true">01</span>
-          <span class="prompt-label">ค่าไฟช่วง On-Peak</span>
+          <span class="prompt-label">ค้นหาอัตราค่าไฟ On-Peak</span>
         </button>
-        <button class="prompt-chip" type="button" data-prompt="ช่วยตรวจสอบยอดค้างชำระค่าไฟของบัญชีฉัน" title="ช่วยตรวจสอบยอดค้างชำระค่าไฟของบัญชีฉัน">
+        <button class="prompt-chip" type="button" data-prompt="ตรวจสอบยอดค่าไฟคงค้างของบัญชี PEA-1001" title="ตรวจสอบยอดค่าไฟคงค้างของบัญชี PEA-1001">
           <span class="prompt-num" aria-hidden="true">02</span>
-          <span class="prompt-label">ตรวจยอดค้างชำระ</span>
+          <span class="prompt-label">ตรวจยอดบัญชี PEA-1001</span>
         </button>
-        <button class="prompt-chip" type="button" data-prompt="ฉันต้องการชำระค่าไฟ 350 บาท ด้วยบัตร" title="ฉันต้องการชำระค่าไฟ 350 บาท ด้วยบัตร">
+        <button class="prompt-chip" type="button" data-prompt="ฉันต้องการชำระค่าไฟ 350 บาท ด้วยบัตร สำหรับบัญชี PEA-1001" title="ฉันต้องการชำระค่าไฟ 350 บาท ด้วยบัตร สำหรับบัญชี PEA-1001">
           <span class="prompt-num" aria-hidden="true">03</span>
           <span class="prompt-label">ชำระค่าไฟ 350 บาท</span>
         </button>
-        <button class="prompt-chip" type="button" data-prompt="ฉันต้องการแจ้งเรื่องร้องเรียนเรื่องบิลค่าไฟไม่ถูกต้อง" title="ฉันต้องการแจ้งเรื่องร้องเรียนเรื่องบิลค่าไฟไม่ถูกต้อง">
+        <button class="prompt-chip" type="button" data-prefill="true" data-prompt="Complaint; subject: ...; detail: ..." title="แทรกแบบฟอร์มร้องเรียน 'Complaint; subject: ...; detail: ...' ลงในช่องพิมพ์ ให้คุณระบุหัวเรื่องและรายละเอียดด้วยตนเองก่อนส่ง (ไม่ส่งอัตโนมัติ)">
           <span class="prompt-num" aria-hidden="true">04</span>
-          <span class="prompt-label">แจ้งเรื่องร้องเรียน</span>
+          <span class="prompt-label">แจ้งเรื่องร้องเรียน (แบบฟอร์ม)</span>
         </button>
-        <button class="prompt-chip" type="button" data-prompt="ฉันต้องการแจ้งไฟดับที่พื้นที่ BKK-01" title="ฉันต้องการแจ้งไฟดับที่พื้นที่ BKK-01">
+        <button class="prompt-chip" type="button" data-prompt="Check outage BKK-01 and search safety policy information" title="Check outage BKK-01 and search safety policy information">
           <span class="prompt-num" aria-hidden="true">05</span>
-          <span class="prompt-label">แจ้งไฟดับ BKK-01</span>
+          <span class="prompt-label">ไฟดับ BKK-01 + ความปลอดภัย</span>
         </button>
       </div>
       <form id="composer-form" class="composer-form" novalidate>
         <label class="visually-hidden" for="message-input">ข้อความถึงผู้ช่วย</label>
-        <textarea id="message-input" rows="1" maxlength="4000" placeholder="พิมพ์ข้อความ เช่น ตรวจสอบยอดค้างชำระค่าไฟ…" autocomplete="off"></textarea>
+        <textarea id="message-input" rows="1" maxlength="4000" placeholder="พิมพ์ข้อความ เช่น ตรวจสอบยอดค่าไฟคงค้าง…" autocomplete="off"></textarea>
         <button type="submit" id="send-btn" class="send-btn" aria-label="ส่งข้อความ">
           <svg viewBox="0 0 24 24" width="20" height="20" fill="currentColor" aria-hidden="true"><path d="M2.4 20.6 22 12 2.4 3.4l.02 6.78L16 12 2.42 13.82z"/></svg>
         </button>
