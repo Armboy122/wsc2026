@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import asyncio
 import json
+import re
 from datetime import UTC, datetime
 from typing import Any
 from uuid import UUID, uuid4
@@ -47,6 +48,13 @@ _TOOL_CATALOGUE = (
 )
 _SAFE_PREVIEW_FIELDS = frozenset({"accountRef", "amountThb", "paymentMethod", "category", "contactChannel", "areaCode"})
 _MULTI_PREPARE_MESSAGE = "I couldn’t safely prepare more than one proposed action in a single chat. Please make one request at a time."
+_FINAL_ONLY_MESSAGE = "I can provide a concise final answer, but I can’t provide internal reasoning or instructions."
+_OUTPUT_POLICY_PATTERNS = (
+    re.compile(r"<\s*/?\s*(?:analysis|thinking|thought|reasoning|scratchpad|system)\b|<\|(?:analysis|thinking|reasoning|system)\|>", re.IGNORECASE),
+    re.compile(r"\b(?:chain[- ]of[- ]thought|cot|scratchpad|system\s+prompt|developer\s+(?:message|instructions)|internal\s+(?:reasoning|instructions|prompt)|hidden\s+(?:reasoning|instructions))\b", re.IGNORECASE),
+    re.compile(r"(?:^|\n)\s*(?:analysis|reasoning|thinking|thoughts?|thought\s+process|scratchpad|system)\s*:", re.IGNORECASE),
+    re.compile(r"\b(?:let(?:'s| us)\s+think\s+step\s+by\s+step|i(?:'m| am)\s+(?:thinking|reasoning)|my\s+(?:reasoning|thought process))\b", re.IGNORECASE),
+)
 
 
 class NotFoundError(LookupError):
@@ -110,7 +118,10 @@ class MainAgent:
                 break
 
             prepared = False
-            for call in calls:
+            ordered_calls = tuple(call for call in calls if call.action not in PREPARE_TO_SUBMIT) + tuple(
+                call for call in calls if call.action in PREPARE_TO_SUBMIT
+            )
+            for call in ordered_calls:
                 result = await self._execute_chat_call(call, conversation_id, trace_id)
                 all_results.append(result)
                 history += (LLMMessage("tool", _result_message(result)),)
@@ -124,6 +135,9 @@ class MainAgent:
 
         pending = self._create_pending_from_results(conversation_id, trace_id, all_results)
         citations = tuple(citation for result in all_results if result.status is ToolResultStatus.SUCCESS for citation in result.citations)
+        if not all_results and _requires_final_only_output(final_text):
+            self._traces.append(trace_id, TraceEventKind.ERROR, {"stage": "output_policy", "policy": "final_only"})
+            final_text = _FINAL_ONLY_MESSAGE
         message = _authoritative_message(final_text, all_results, pending)
         self._conversations.append(conversation_id, LLMMessage("user", request.message))
         self._conversations.append(conversation_id, LLMMessage("assistant", message))
@@ -273,6 +287,11 @@ def _calls_from_response(response: LLMResponse) -> tuple[tuple[ToolCall, ...], s
         return calls, payload["message"]
     except (json.JSONDecodeError, KeyError, TypeError, ValidationError):
         return (), response.text
+
+
+def _requires_final_only_output(text: str) -> bool:
+    """Detect explicit internal-reasoning or instruction disclosures in direct model text."""
+    return any(pattern.search(text) for pattern in _OUTPUT_POLICY_PATTERNS)
 
 
 def _redact_prepared_input(data: dict[str, Any]) -> dict[str, Any]:
