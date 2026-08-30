@@ -61,7 +61,10 @@ class DemoLLMAdapter:
             return LLMResponse(text="I can only use the published PEA demo tools and cannot perform that request.")
 
         wants_categories = any(term in text for term in ("category", "categories", "case types", "หมวด"))
-        payment_requested = payment_method is not None or bool(re.search(r"\bprepare\b[^;\n]{0,30}\bpayment\b|\bpay\b[^;\n]{0,40}\baccount\b", text))
+        payment_requested = payment_method is not None or bool(re.search(
+            r"\bprepare\b[^;\n]{0,30}\bpayment\b|\bpay\b[^;\n]{0,40}\baccount\b|(?:ต้องการ)?(?:ชำระ|จ่าย)(?:ค่าไฟ|เงิน)?",
+            text,
+        ))
         report_requested = any(term in text for term in ("report", "file an outage", "fallen wire", "downed line", "sparks", "แจ้งไฟ", "แจ้งเหตุ")) and bool(location or symptoms)
         case_requested = (not wants_categories and bool(subject and detail) and any(term in text for term in ("complaint", "complain", "case", "service report", "ร้องเรียน")))
         status_requested = bool(area_code) and (any(term in text for term in ("status", "check outage", "planned outage", "power normal", "outage near")) or ("outage" in text and not report_requested))
@@ -181,7 +184,13 @@ def _recognised_area_code(message: str) -> str | None:
 
 def _payment_method(message: str) -> PaymentMethod | None:
     match = re.search(r"\bpaymentmethod\s*:\s*(demo_card|demo_bank)\b", message, re.IGNORECASE)
-    return PaymentMethod(match.group(1).casefold()) if match else None
+    if match:
+        return PaymentMethod(match.group(1).casefold())
+    if re.search(r"\b(?:credit|debit)?\s*card\b|บัตร", message, re.IGNORECASE):
+        return PaymentMethod.DEMO_CARD
+    if re.search(r"\b(?:bank(?:\s+transfer)?|wire(?:\s+transfer)?)\b|ธนาคาร|โอน(?:เงิน)?", message, re.IGNORECASE):
+        return PaymentMethod.DEMO_BANK
+    return None
 
 
 def _append_plan(
