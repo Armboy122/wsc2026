@@ -54,7 +54,7 @@ class DemoLLMAdapter:
         wants_payment = any(term in text for term in ("pay", "payment", "ชำระ", "จ่ายบิล"))
         wants_knowledge = any(term in text for term in ("knowledge", "policy", "tariff", "rate", "search", "ค้นหา", "ข้อมูล"))
         wants_account = wants_payment or any(term in text for term in ("account", "balance", "bill", "ยอด"))
-        wants_report = any(term in text for term in ("report outage", "report a power", "แจ้งไฟ", "แจ้งเหตุ"))
+        wants_report = any(term in text for term in ("report outage", "outage report", "report a power", "แจ้งไฟ", "แจ้งเหตุ"))
         wants_outage = wants_report or any(term in text for term in ("outage", "power status", "ไฟดับ", "ไฟฟ้า"))
         wants_case = any(term in text for term in ("complaint", "complain", "case", "ร้องเรียน"))
         wants_categories = any(term in text for term in ("category", "categories", "หมวด"))
