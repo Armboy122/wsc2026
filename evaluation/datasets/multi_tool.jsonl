@@ -1,0 +1,10 @@
+{"id":"M01","query":"show balance A-100 and outage BKK-01","expectedActions":["get_account_summary","get_outage_status"]}
+{"id":"M02","query":"check account A-101 and list complaint categories","expectedActions":["get_account_summary","list_categories"]}
+{"id":"M03","query":"outage CNX-02 and safety guidance","expectedActions":["get_outage_status","search"]}
+{"id":"M04","query":"billing policy and balance A-102","expectedActions":["search","get_account_summary"]}
+{"id":"M05","query":"prepare payment A-100 and show account summary","expectedActions":["prepare_payment","get_account_summary"]}
+{"id":"M06","query":"report outage PKN-03 and get outage status","expectedActions":["prepare_outage_report","get_outage_status"]}
+{"id":"M07","query":"service complaint and billing policy","expectedActions":["prepare_case","search"]}
+{"id":"M08","query":"account A-103, outage BKK-01, and categories","expectedActions":["get_account_summary","get_outage_status","list_categories"]}
+{"id":"M09","query":"payment channels and demo payment A-104","expectedActions":["search","prepare_payment"]}
+{"id":"M10","query":"safety policy and outage report NMA-04","expectedActions":["search","prepare_outage_report"]}
