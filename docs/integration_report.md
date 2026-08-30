@@ -27,6 +27,8 @@ The pytest suite additionally proves envelope validation, simulation markers, no
 
 `app.main` is present and composes one Main Agent with exactly four registered tools. The deterministic demo adapter is available offline; Gemini readiness may be degraded when credentials/configuration are absent, which is an explicit environment state rather than a fake knowledge success.
 
+Evaluation repair traceability: executed by OpenAI Luna; commit `07419b1` is preserved.
+
 Run from the repository root:
 
 ```bash
