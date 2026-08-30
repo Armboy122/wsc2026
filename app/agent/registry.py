@@ -51,7 +51,16 @@ class ToolRegistry:
             missing = self._required_names - frozenset(by_name)
             extra = frozenset(by_name) - self._required_names
             raise ValueError(f"registry must contain exactly four frozen tools; missing={missing}, extra={extra}")
+        for name, tool in by_name.items():
+            if name is not ToolName.KNOWLEDGE and not callable(getattr(tool, "reset", None)):
+                raise ValueError(f"operational tool must be resettable: {name.value}")
         self._tools = by_name
+
+    def reset(self) -> None:
+        """Reset every operational tool exactly once for a fresh demo run."""
+        for name, tool in self._tools.items():
+            if name is not ToolName.KNOWLEDGE:
+                tool.reset()  # type: ignore[attr-defined]  # Validated at registration.
 
     @property
     def names(self) -> frozenset[ToolName]:
