@@ -1,0 +1,23 @@
+[
+  {
+    "areaCode": "BKK-01",
+    "status": "normal",
+    "updatedAt": "2026-08-30T06:00:00Z",
+    "estimatedRestoreAt": null,
+    "safetyMessage": "No outage is reported in this area. Always stay clear of downed power lines and report any hazard to PEA."
+  },
+  {
+    "areaCode": "CNX-02",
+    "status": "planned_outage",
+    "updatedAt": "2026-08-30T07:30:00Z",
+    "estimatedRestoreAt": "2026-08-30T12:00:00Z",
+    "safetyMessage": "A planned outage is scheduled in this area. Turn off sensitive appliances and treat all lines as live until power is restored."
+  },
+  {
+    "areaCode": "HKT-03",
+    "status": "unplanned_outage",
+    "updatedAt": "2026-08-30T09:15:00Z",
+    "estimatedRestoreAt": "2026-08-30T11:00:00Z",
+    "safetyMessage": "An unplanned outage is affecting this area. Stay away from downed lines and use flashlights instead of candles."
+  }
+]

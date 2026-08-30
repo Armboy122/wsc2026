@@ -1,0 +1,23 @@
+[
+  {
+    "accountRef": "PEA-1001",
+    "customerDisplayName": "Somchai Jaidee",
+    "outstandingBalanceThb": "1250.50",
+    "dueDate": "2026-09-15",
+    "paymentStatus": "current"
+  },
+  {
+    "accountRef": "PEA-1002",
+    "customerDisplayName": "Anong Srisuk",
+    "outstandingBalanceThb": "3480.00",
+    "dueDate": "2026-08-28",
+    "paymentStatus": "overdue"
+  },
+  {
+    "accountRef": "PEA-1003",
+    "customerDisplayName": "Wichai Thongdee",
+    "outstandingBalanceThb": "0.00",
+    "dueDate": null,
+    "paymentStatus": "paid"
+  }
+]
