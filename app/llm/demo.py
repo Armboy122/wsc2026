@@ -22,7 +22,7 @@ _DEFAULT_ACCOUNT_REF = "PEA-1001"
 _DEFAULT_AREA_CODE = "BKK-01"
 _ACCOUNT_REF_PATTERN = re.compile(r"\bPEA-\d{4}\b", re.IGNORECASE)
 _AREA_CODE_PATTERN = re.compile(r"\b[A-Z]{3}-\d{2}\b", re.IGNORECASE)
-_AMOUNT_PATTERN = re.compile(r"(?:฿|thb\s*)(\d+(?:\.\d{1,2})?)\b|\b(\d+(?:\.\d{1,2})?)\s*(?:baht|thb)\b", re.IGNORECASE)
+_AMOUNT_PATTERN = re.compile(r"(?:฿|thb\s*)(\d+(?:\.\d{1,2})?)\b|\b(\d+(?:\.\d{1,2})?)\s*(?:baht|thb|บาท)\b", re.IGNORECASE)
 _DEMO_ACCOUNT_REFS = frozenset({"PEA-1001", "PEA-1002", "PEA-1003"})
 _DEMO_AREA_CODES = frozenset({"BKK-01", "CNX-02", "HKT-03"})
 
@@ -52,12 +52,12 @@ class DemoLLMAdapter:
         area_code = _area_code(message)
         planned: list[tuple[ToolName, ToolAction, dict[str, Any]]] = []
         wants_payment = any(term in text for term in ("pay", "payment", "ชำระ", "จ่ายบิล"))
-        wants_account = wants_payment or any(term in text for term in ("account", "balance", "bill", "ยอด", "ค่าไฟ"))
+        wants_knowledge = any(term in text for term in ("knowledge", "policy", "tariff", "rate", "search", "ค้นหา", "ข้อมูล"))
+        wants_account = wants_payment or any(term in text for term in ("account", "balance", "bill", "ยอด"))
         wants_report = any(term in text for term in ("report outage", "report a power", "แจ้งไฟ", "แจ้งเหตุ"))
         wants_outage = wants_report or any(term in text for term in ("outage", "power status", "ไฟดับ", "ไฟฟ้า"))
         wants_case = any(term in text for term in ("complaint", "complain", "case", "ร้องเรียน"))
         wants_categories = any(term in text for term in ("category", "categories", "หมวด"))
-        wants_knowledge = any(term in text for term in ("knowledge", "policy", "tariff", "rate", "search", "ข้อมูล"))
 
         # Independent account and outage reads exercise a genuine multi-tool flow.
         if wants_account:
@@ -94,7 +94,7 @@ class DemoLLMAdapter:
                 return LLMResponse(text="To prepare a case, provide `subject:` and `detail:`.")
         elif wants_categories:
             planned.append((ToolName.VOC, ToolAction.VOC_LIST_CATEGORIES, {}))
-        if wants_knowledge and not planned:
+        if wants_knowledge:
             planned.append((ToolName.KNOWLEDGE, ToolAction.KNOWLEDGE_SEARCH, {"query": _safe_query(message), "maxResults": 3}))
         if planned:
             return _planned_response(correlation_id, planned)
