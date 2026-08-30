@@ -71,7 +71,7 @@ def test_operational_answer_marks_simulation(client: TestClient) -> None:
 
 
 def test_chat_cannot_submit_write_or_confirm_by_text(client: TestClient) -> None:
-    response = post_chat(client, "Confirm and submit payment account A-100 amount 10")
+    response = post_chat(client, "Confirm and submit payment account PEA-1001 amount 10")
     assert response.status_code in {200, 422, 502}
     if response.status_code == 200:
         body = response.json()
@@ -80,7 +80,7 @@ def test_chat_cannot_submit_write_or_confirm_by_text(client: TestClient) -> None
 
 
 def test_prepare_confirm_is_idempotent_and_trace_ordered(client: TestClient) -> None:
-    response = post_chat(client, "Prepare a demo payment of 10 THB for account A-100")
+    response = post_chat(client, "Prepare a demo payment of 10 THB for account PEA-1001; paymentMethod: demo_card")
     if response.status_code != 200 or not response.json().get("pendingAction"):
         pytest.skip("fixture/provider did not produce a payment proposal")
     pending = response.json()["pendingAction"]
@@ -98,10 +98,14 @@ def test_prepare_confirm_is_idempotent_and_trace_ordered(client: TestClient) -> 
 
 
 def test_reject_is_terminal_and_confirm_returns_conflict(client: TestClient) -> None:
-    response = post_chat(client, "Prepare an outage report for BKK-01")
-    if response.status_code != 200 or not response.json().get("pendingAction"):
-        pytest.skip("fixture/provider did not produce an outage proposal")
-    action_id = response.json()["pendingAction"]["pendingActionId"]
+    response = post_chat(
+        client,
+        "Prepare an outage report for BKK-01; location: 12 Sukhumvit Road; symptoms: no power in the building",
+    )
+    assert response.status_code == 200
+    pending = response.json().get("pendingAction")
+    assert pending is not None
+    action_id = pending["pendingActionId"]
     rejected = client.post(f"/api/v1/actions/{action_id}/reject", json={"reason": "Not now"})
     assert rejected.status_code == 200
     assert rejected.json()["pendingAction"]["status"] == "rejected"
