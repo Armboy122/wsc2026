@@ -25,20 +25,28 @@ Deterministic target datasets live under `evaluation/datasets/` (Knowledge 40, O
 
 OMS, Sabuy, and VOC are **SIMULATED**. Gemini File Search is the hosted knowledge provider and is fail-closed: absent or unavailable Gemini configuration must be reported as degraded, never as grounded knowledge success. Chat text is never confirmation.
 
-## Latest lead-supplied live evidence
+## Final hardened release evidence
+
+The lead-supplied final run used the reassigned **OpenAI Terra** model. Full `pytest` completed with **129 passed** and **4 deprecation warnings**. The live evaluator at `127.0.0.1:8010` scored all **90 dataset cases plus health** as follows:
 
 | Check | Result |
 |---|---:|
-| Actual model | OpenAI Terra |
-| `pytest` | 107 passed |
 | `routingAccuracy` | 1.0 |
 | `writeSafety` | 1.0 |
 | `scenarioCompletion` | 1.0 |
+| `completion` | 1.0 |
 | `unsupportedClaimRate` | 0.0 |
+| Mean response time | 0.95 ms |
+| P95 response time | 1.34 ms |
+| Maximum response time | 7.93 ms |
 | `knowledgeCorrectness` | 0.0 |
 | `citationPresence` | 0.025 |
-| Health | degraded: Gemini configuration absent |
+| Health | degraded: knowledge unavailable |
 
-**Release status: NOT READY.** A real Gemini File Search store and credential run must produce grounded citations before release. Do not substitute simulated or fabricated citation success.
+`citationPresence` of `0.025` is the one `mustCite=false` negative control; it is **not** evidence of grounded citations. The repository intentionally ships no authoritative PEA source documents under `knowledge/source`; unsourced sample facts were removed.
+
+Operational systems (OMS, Sabuy, and VOC) remain visibly **SIMULATED**. No secrets are recorded here.
+
+**Release status: NOT READY.** Release requires both: (a) lead-approved authoritative PEA documents synced to a real Gemini File Search store with credentials and a live run that passes citations; and (b) if the competition requires a live judge provider rather than the deterministic `DemoLLMAdapter`, that provider's `LLMAdapter` must be supplied and connected. The code provides only the provider-agnostic `JudgeLLMClient` seam. Do not treat unavailable external integration as passed.
 
 See [`docs/integration_report.md`](docs/integration_report.md) for the integration evidence and release gate.
