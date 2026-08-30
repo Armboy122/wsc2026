@@ -154,6 +154,7 @@ class MainAgent:
         return trace
 
     def reset_demo(self) -> ResetResponse:
+        self._tools.reset()
         self._conversations.clear()
         self._pending_actions.clear()
         self._traces.clear()
