@@ -1,0 +1,10 @@
+{"id":"V01","query":"list complaint categories","expectedAction":"list_categories"}
+{"id":"V02","query":"what VOC categories exist","expectedAction":"list_categories"}
+{"id":"V03","query":"complaint about billing","expectedAction":"prepare_case"}
+{"id":"V04","query":"report poor service","expectedAction":"prepare_case"}
+{"id":"V05","query":"report electrical safety issue","expectedAction":"prepare_case"}
+{"id":"V06","query":"file a complaint about service","expectedAction":"prepare_case"}
+{"id":"V07","query":"show available case types","expectedAction":"list_categories"}
+{"id":"V08","query":"I want to submit a billing case","expectedAction":"prepare_case"}
+{"id":"V09","query":"complaint category list please","expectedAction":"list_categories"}
+{"id":"V10","query":"report another issue","expectedAction":"prepare_case"}

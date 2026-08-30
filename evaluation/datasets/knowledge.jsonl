@@ -1,0 +1,40 @@
+{"id":"K01","query":"How are bills paid?","expectedTool":"knowledge_tool","mustCite":true}
+{"id":"K02","query":"What is the billing due date policy?","expectedTool":"knowledge_tool","mustCite":true}
+{"id":"K03","query":"How can I change my contact details?","expectedTool":"knowledge_tool","mustCite":true}
+{"id":"K04","query":"What are electrical safety precautions?","expectedTool":"knowledge_tool","mustCite":true}
+{"id":"K05","query":"How is a planned outage communicated?","expectedTool":"knowledge_tool","mustCite":true}
+{"id":"K06","query":"What payment channels are available?","expectedTool":"knowledge_tool","mustCite":true}
+{"id":"K07","query":"How do I request a meter inspection?","expectedTool":"knowledge_tool","mustCite":true}
+{"id":"K08","query":"What should I do near a fallen wire?","expectedTool":"knowledge_tool","mustCite":true}
+{"id":"K09","query":"What does overdue mean?","expectedTool":"knowledge_tool","mustCite":true}
+{"id":"K10","query":"No document matches this invented phrase","expectedTool":"knowledge_tool","mustCite":false}
+{"id":"K11","query":"How do I read my electricity bill?","expectedTool":"knowledge_tool","mustCite":true}
+{"id":"K12","query":"What is a meter number?","expectedTool":"knowledge_tool","mustCite":true}
+{"id":"K13","query":"How are service requests tracked?","expectedTool":"knowledge_tool","mustCite":true}
+{"id":"K14","query":"What documents identify an account?","expectedTool":"knowledge_tool","mustCite":true}
+{"id":"K15","query":"How can I avoid electrical shock?","expectedTool":"knowledge_tool","mustCite":true}
+{"id":"K16","query":"What to do during an outage?","expectedTool":"knowledge_tool","mustCite":true}
+{"id":"K17","query":"How are restoration estimates communicated?","expectedTool":"knowledge_tool","mustCite":true}
+{"id":"K18","query":"How can I contact customer service?","expectedTool":"knowledge_tool","mustCite":true}
+{"id":"K19","query":"What is the complaint process?","expectedTool":"knowledge_tool","mustCite":true}
+{"id":"K20","query":"What does a current payment status mean?","expectedTool":"knowledge_tool","mustCite":true}
+{"id":"K21","query":"Can bills be paid electronically?","expectedTool":"knowledge_tool","mustCite":true}
+{"id":"K22","query":"How do I update a mailing address?","expectedTool":"knowledge_tool","mustCite":true}
+{"id":"K23","query":"How should I report a dangerous wire?","expectedTool":"knowledge_tool","mustCite":true}
+{"id":"K24","query":"Can I request a payment receipt?","expectedTool":"knowledge_tool","mustCite":true}
+{"id":"K25","query":"What happens after submitting a case?","expectedTool":"knowledge_tool","mustCite":true}
+{"id":"K26","query":"How do planned maintenance notices work?","expectedTool":"knowledge_tool","mustCite":true}
+{"id":"K27","query":"What is the emergency safety advice?","expectedTool":"knowledge_tool","mustCite":true}
+{"id":"K28","query":"How can I verify a payment?","expectedTool":"knowledge_tool","mustCite":true}
+{"id":"K29","query":"What if my bill appears incorrect?","expectedTool":"knowledge_tool","mustCite":true}
+{"id":"K30","query":"How do I request service assistance?","expectedTool":"knowledge_tool","mustCite":true}
+{"id":"K31","query":"What are safe generator practices?","expectedTool":"knowledge_tool","mustCite":true}
+{"id":"K32","query":"How should a downed line be treated?","expectedTool":"knowledge_tool","mustCite":true}
+{"id":"K33","query":"What channels accept a service complaint?","expectedTool":"knowledge_tool","mustCite":true}
+{"id":"K34","query":"What information belongs in a case report?","expectedTool":"knowledge_tool","mustCite":true}
+{"id":"K35","query":"How do outages get classified?","expectedTool":"knowledge_tool","mustCite":true}
+{"id":"K36","query":"What does paid status indicate?","expectedTool":"knowledge_tool","mustCite":true}
+{"id":"K37","query":"How can I ask about an account?","expectedTool":"knowledge_tool","mustCite":true}
+{"id":"K38","query":"What should I do if power returns unexpectedly?","expectedTool":"knowledge_tool","mustCite":true}
+{"id":"K39","query":"How are safety incidents escalated?","expectedTool":"knowledge_tool","mustCite":true}
+{"id":"K40","query":"How can I identify an official message?","expectedTool":"knowledge_tool","mustCite":true}
