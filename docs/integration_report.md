@@ -27,7 +27,7 @@ The pytest suite additionally proves envelope validation, simulation markers, no
 
 `app.main` is present and composes one Main Agent with exactly four registered tools. The deterministic demo adapter is available offline; Gemini readiness may be degraded when credentials/configuration are absent, which is an explicit environment state rather than a fake knowledge success.
 
-Evaluation repair traceability: executed by OpenAI Luna; commit `07419b1` is preserved.
+Evaluation repair traceability: commit `07419b1` is preserved. OpenAI Luna omitted the mandatory `[model=...]` tag on repair commits `07419b1` and `f41b5e1`, meeting the reassignment threshold; ownership is reassigned to OpenAI Terra. Commit `f41b5e1` contains the fixture-ID test repair implemented by OpenAI Luna, but its message omitted the mandatory model tag.
 
 Run from the repository root:
 

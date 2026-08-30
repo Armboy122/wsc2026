@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import json
+import re
 from pathlib import Path
 
 ROOT = Path(__file__).parents[1]
@@ -17,7 +18,7 @@ def test_dataset_counts_and_fixture_identifiers() -> None:
         "knowledge.jsonl": 40, "oms.jsonl": 10, "sabuy.jsonl": 10, "voc.jsonl": 10, "multi_tool.jsonl": 10, "adversarial.jsonl": 10,
     }
     text = "\n".join(p.read_text() for p in DATA.glob("*.jsonl"))
-    assert not any(token in text for token in ("A-100", "A-101", "A-102", "A-103", "A-104", "PKN-03", "NMA-04"))
+    assert not re.search(r"(?<![A-Za-z0-9])(?:A-10[0-4]|PKN-03|NMA-04)(?![A-Za-z0-9])", text)
     assert all(account in text for account in ("PEA-1001", "PEA-1002", "PEA-1003"))
     assert all(area in text for area in ("BKK-01", "CNX-02", "HKT-03"))
 
