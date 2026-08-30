@@ -1,10 +1,10 @@
 {"id":"O01","query":"outage status for BKK-01","expectedAction":"get_outage_status"}
 {"id":"O02","query":"is power normal in CNX-02","expectedAction":"get_outage_status"}
-{"id":"O03","query":"report a power outage in BKK-01","expectedAction":"prepare_outage_report"}
-{"id":"O04","query":"there is a fallen wire in PKN-03","expectedAction":"prepare_outage_report"}
-{"id":"O05","query":"planned outage status for NMA-04","expectedAction":"get_outage_status"}
+{"id":"O03","query":"report a power outage in BKK-01; location: 12 Sukhumvit Road; symptoms: no power in the building","expectedAction":"prepare_outage_report"}
+{"id":"O04","query":"there is a fallen wire in HKT-03; location: 8 Nimman Road; symptoms: fallen wire across the sidewalk","expectedAction":"prepare_outage_report"}
+{"id":"O05","query":"planned outage status for HKT-03","expectedAction":"get_outage_status"}
 {"id":"O06","query":"check outage CNX-02","expectedAction":"get_outage_status"}
-{"id":"O07","query":"file an outage report BKK-01","expectedAction":"prepare_outage_report"}
-{"id":"O08","query":"status of outage area PKN-03","expectedAction":"get_outage_status"}
-{"id":"O09","query":"report sparks at NMA-04","expectedAction":"prepare_outage_report"}
-{"id":"O10","query":"outage near me","expectedAction":"get_outage_status"}
+{"id":"O07","query":"file an outage report for BKK-01; location: PEA service gate; symptoms: sparks and intermittent power","expectedAction":"prepare_outage_report"}
+{"id":"O08","query":"status of outage area HKT-03","expectedAction":"get_outage_status"}
+{"id":"O09","query":"report sparks at CNX-02; location: market entrance; symptoms: visible sparks from utility pole","expectedAction":"prepare_outage_report"}
+{"id":"O10","query":"outage near me in BKK-01","expectedAction":"get_outage_status"}

@@ -1,10 +1,10 @@
-{"id":"S01","query":"show account balance A-100","expectedAction":"get_account_summary"}
-{"id":"S02","query":"what is due on account A-101","expectedAction":"get_account_summary"}
-{"id":"S03","query":"pay 10 THB on account A-100","expectedAction":"prepare_payment"}
-{"id":"S04","query":"make a demo bank payment for A-101","expectedAction":"prepare_payment"}
-{"id":"S05","query":"is A-102 overdue","expectedAction":"get_account_summary"}
-{"id":"S06","query":"prepare payment of 25 for A-102","expectedAction":"prepare_payment"}
-{"id":"S07","query":"account summary A-103","expectedAction":"get_account_summary"}
-{"id":"S08","query":"pay my bill A-103","expectedAction":"prepare_payment"}
-{"id":"S09","query":"balance for A-104","expectedAction":"get_account_summary"}
-{"id":"S10","query":"use demo card to pay A-104","expectedAction":"prepare_payment"}
+{"id":"S01","query":"show account balance PEA-1001","expectedAction":"get_account_summary"}
+{"id":"S02","query":"what is due on account PEA-1002","expectedAction":"get_account_summary"}
+{"id":"S03","query":"prepare payment of 10 THB on account PEA-1001; paymentMethod: demo_card","expectedAction":"prepare_payment"}
+{"id":"S04","query":"prepare a demo bank payment for account PEA-1002 amount 15 THB; paymentMethod: demo_bank","expectedAction":"prepare_payment"}
+{"id":"S05","query":"is PEA-1003 overdue","expectedAction":"get_account_summary"}
+{"id":"S06","query":"prepare payment of 25 THB for account PEA-1003; paymentMethod: demo_card","expectedAction":"prepare_payment"}
+{"id":"S07","query":"account summary PEA-1002","expectedAction":"get_account_summary"}
+{"id":"S08","query":"prepare payment for account PEA-1001 amount 5 THB; paymentMethod: demo_bank","expectedAction":"prepare_payment"}
+{"id":"S09","query":"balance for PEA-1003","expectedAction":"get_account_summary"}
+{"id":"S10","query":"prepare demo card payment for account PEA-1002 amount 20 THB; paymentMethod: demo_card","expectedAction":"prepare_payment"}

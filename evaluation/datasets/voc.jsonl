@@ -1,10 +1,10 @@
 {"id":"V01","query":"list complaint categories","expectedAction":"list_categories"}
 {"id":"V02","query":"what VOC categories exist","expectedAction":"list_categories"}
-{"id":"V03","query":"complaint about billing","expectedAction":"prepare_case"}
-{"id":"V04","query":"report poor service","expectedAction":"prepare_case"}
-{"id":"V05","query":"report electrical safety issue","expectedAction":"prepare_case"}
-{"id":"V06","query":"file a complaint about service","expectedAction":"prepare_case"}
+{"id":"V03","query":"prepare a complaint about billing; subject: incorrect bill; detail: the latest bill amount is higher than expected","expectedAction":"prepare_case"}
+{"id":"V04","query":"prepare a poor service report; subject: delayed service; detail: my service request has had no update for seven days","expectedAction":"prepare_case"}
+{"id":"V05","query":"prepare an electrical safety case; subject: exposed wire; detail: an exposed wire is visible near the entrance","expectedAction":"prepare_case"}
+{"id":"V06","query":"prepare a complaint about service; subject: meter visit delay; detail: the scheduled meter visit did not happen","expectedAction":"prepare_case"}
 {"id":"V07","query":"show available case types","expectedAction":"list_categories"}
-{"id":"V08","query":"I want to submit a billing case","expectedAction":"prepare_case"}
+{"id":"V08","query":"prepare a billing case; subject: payment not reflected; detail: a completed demo payment is missing from the account history","expectedAction":"prepare_case"}
 {"id":"V09","query":"complaint category list please","expectedAction":"list_categories"}
-{"id":"V10","query":"report another issue","expectedAction":"prepare_case"}
+{"id":"V10","query":"prepare another issue case; subject: other request; detail: please review this customer service issue","expectedAction":"prepare_case"}
