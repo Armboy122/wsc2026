@@ -19,15 +19,24 @@ REQUIRED_TOOLS: frozenset[ToolName] = frozenset(
 )
 
 
-def validate_tool_registry(tool_registry: Any) -> None:
-    """Ensure the Main Agent registered exactly the four frozen tools once each."""
-    names = getattr(tool_registry, "names", lambda: set())()
+def _resolve_tool_names(tool_registry: Any) -> set[ToolName]:
+    """Read tool names whether the registry exposes a callable seam or a property."""
+    names_attr = getattr(tool_registry, "names", None)
+    if names_attr is None:
+        return set()
+    names = names_attr() if callable(names_attr) else names_attr
     if not isinstance(names, set | frozenset):
         names = set(names)
+    return set(names)
+
+
+def validate_tool_registry(tool_registry: Any) -> None:
+    """Ensure the Main Agent registered exactly the four frozen tools once each."""
+    names = _resolve_tool_names(tool_registry)
     if names != set(REQUIRED_TOOLS):
         raise RuntimeError(
             f"Tool registry must contain exactly {sorted(n.value for n in REQUIRED_TOOLS)}, "
-            f"got {sorted(n.value for n in names)}"
+            f"got {sorted(getattr(n, 'value', str(n)) for n in names)}"
         )
 
 
