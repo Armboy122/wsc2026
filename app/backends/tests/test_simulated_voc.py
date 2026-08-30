@@ -21,16 +21,22 @@ def test_list_categories_returns_fixture_categories():
 
 def test_prepare_case_has_no_side_effect():
     backend = SimulatedVocBackend()
+    subject = "Wrong bill amount"
+    detail = "My latest bill looks too high."
     out = backend.prepare_case(
         VocCategory.BILLING,
-        "Wrong bill amount",
-        "My latest bill looks too high.",
+        subject,
+        detail,
         ContactChannel.EMAIL,
         "k1",
     )
     assert out["category"] == "billing"
-    assert out["subject"] == "Wrong bill amount"
-    assert out["summary"]
+    assert out["subject"] == subject
+    # The confirmation summary must be PII-safe and category-only: it must
+    # never expose the user-supplied subject or detail.
+    assert out["summary"] == "Prepare a billing case."
+    assert subject not in out["summary"]
+    assert detail not in out["summary"]
     # Preparing must not create a case.
     assert backend._cases == {}
 

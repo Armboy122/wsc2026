@@ -51,7 +51,7 @@ class SimulatedVocBackend:
             "detail": detail,
             "contactChannel": contact_channel.value,
         }
-        summary = f"Prepare a {category.value} case: {subject}."
+        summary = f"Prepare a {category.value} case."
         return {
             "category": category.value,
             "subject": subject,
