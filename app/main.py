@@ -17,6 +17,7 @@ from app.agent.main_agent import InvalidActionStateError, MainAgent, NotFoundErr
 from app.agent.registry import ToolRegistry
 from app.api.routes import router
 from app.backends.gemini_file_search import GeminiFileSearchKnowledgeBackend
+from app.core.config import load_settings
 from app.core.di import adapter_service, agent_service
 from app.core.errors import ConflictException, NotFoundException, platform_exception_handler
 from app.core.startup import create_platform_app, startup_event
@@ -34,7 +35,7 @@ class _KnowledgeReadiness:
         self._backend = backend
 
     async def ready(self) -> bool:
-        return self._backend.is_configured()
+        return await self._backend.is_ready()
 
 
 async def _not_found_handler(request: Request, exc: NotFoundError) -> JSONResponse:
@@ -54,7 +55,19 @@ async def _conflict_handler(
     )
 
 
-knowledge_backend = GeminiFileSearchKnowledgeBackend()
+settings = load_settings()
+if settings.llm_adapter_name != "demo":
+    raise RuntimeError(f"Unsupported LLM adapter: {settings.llm_adapter_name}")
+if settings.knowledge_backend_name != "gemini_file_search":
+    raise RuntimeError(
+        f"Unsupported knowledge backend: {settings.knowledge_backend_name}"
+    )
+
+knowledge_backend = GeminiFileSearchKnowledgeBackend(
+    api_key=settings.gemini_api_key,
+    store_name=settings.file_search_store,
+    model=settings.file_search_model,
+)
 llm_adapter = DemoLLMAdapter()
 tool_registry = ToolRegistry(
     [
@@ -70,7 +83,7 @@ agent_service.set_agent(main_agent)
 adapter_service.set_llm(llm_adapter)
 adapter_service.set_knowledge(_KnowledgeReadiness(knowledge_backend))
 
-app = create_platform_app()
+app = create_platform_app(settings)
 app.include_router(router)
 app.add_exception_handler(NotFoundError, _not_found_handler)
 app.add_exception_handler(InvalidActionStateError, _conflict_handler)

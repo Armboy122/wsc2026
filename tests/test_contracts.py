@@ -79,6 +79,10 @@ def test_voc_prompt_prepares_then_rejects_terminally(client: TestClient) -> None
     )
     pending = body["pendingAction"]
     assert pending["prepareAction"] == "prepare_case"
+    assert pending["preparedInput"]["category"] == "billing"
+    assert pending["preparedInput"]["subject"] == "[redacted]"
+    assert pending["preparedInput"]["detail"] == "[redacted]"
+    assert pending["preparedInput"]["idempotencyKey"] == "[redacted]"
     action_id = pending["pendingActionId"]
 
     rejected = client.post(f"/api/v1/actions/{action_id}/reject", json={"reason": "Cancel demo"})
@@ -117,3 +121,142 @@ def test_reset_clears_trace_and_pending_state(client: TestClient) -> None:
     assert client.post("/api/v1/reset", json={}).status_code == 200
     assert client.get(f"/api/v1/traces/{trace_id}").status_code == 404
     assert client.post(f"/api/v1/actions/{action_id}/confirm", json={}).status_code == 404
+
+
+def _isolated_registry():
+    from app.agent.registry import ToolRegistry
+    from app.backends.gemini_file_search import GeminiFileSearchKnowledgeBackend
+    from app.tools.knowledge_tool import KnowledgeTool
+    from app.tools.oms_tool import OmsTool
+    from app.tools.sabuy_tool import SabuyTool
+    from app.tools.voc_tool import VocTool
+
+    return ToolRegistry(
+        [
+            KnowledgeTool(GeminiFileSearchKnowledgeBackend()),
+            SabuyTool(),
+            VocTool(),
+            OmsTool(),
+        ]
+    )
+
+
+def test_llm_catalogue_never_advertises_internal_submit_actions() -> None:
+    from app.agent.main_agent import _TOOL_CATALOGUE
+
+    advertised = {action for tool in _TOOL_CATALOGUE for action in tool.actions}
+    assert not advertised.intersection(
+        {"submit_payment", "submit_case", "submit_outage_report"}
+    )
+
+
+@pytest.mark.asyncio
+async def test_tool_facts_replace_contradictory_model_text() -> None:
+    from uuid import uuid4
+
+    from app.agent.main_agent import MainAgent
+    from app.contracts import ChatRequest, ToolAction, ToolCall, ToolName
+    from app.llm import LLMClient, LLMResponse, ScriptedLLMAdapter
+
+    adapter = ScriptedLLMAdapter(
+        [
+            LLMResponse(
+                tool_calls=(
+                    ToolCall(
+                        call_id=uuid4(),
+                        name=ToolName.OMS,
+                        action=ToolAction.OMS_OUTAGE_STATUS,
+                        input={"areaCode": "BKK-01"},
+                    ),
+                )
+            ),
+            LLMResponse(text="FABRICATED: the area is unsafe and all lines are de-energized."),
+        ]
+    )
+    agent = MainAgent(LLMClient(adapter), _isolated_registry())
+    response = await agent.handle_chat(ChatRequest(message="Check BKK-01"))
+    assert "FABRICATED" not in response.message
+    assert response.tool_results[0].data["safetyMessage"] in response.message
+
+
+@pytest.mark.asyncio
+async def test_multiple_prepare_calls_fail_closed_before_tool_execution() -> None:
+    from uuid import uuid4
+
+    from app.agent.main_agent import MainAgent
+    from app.contracts import ChatRequest, ToolAction, ToolCall, ToolName
+    from app.llm import LLMClient, LLMResponse, ScriptedLLMAdapter
+
+    adapter = ScriptedLLMAdapter(
+        [
+            LLMResponse(
+                tool_calls=(
+                    ToolCall(
+                        call_id=uuid4(),
+                        name=ToolName.SABUY,
+                        action=ToolAction.SABUY_PREPARE_PAYMENT,
+                        input={
+                            "accountRef": "PEA-1001",
+                            "amountThb": "10.00",
+                            "paymentMethod": "demo_card",
+                            "idempotencyKey": "multi-prepare-payment",
+                        },
+                    ),
+                    ToolCall(
+                        call_id=uuid4(),
+                        name=ToolName.OMS,
+                        action=ToolAction.OMS_PREPARE_OUTAGE_REPORT,
+                        input={
+                            "areaCode": "BKK-01",
+                            "locationNote": "Demo location",
+                            "symptoms": "Demo symptoms",
+                            "idempotencyKey": "multi-prepare-outage",
+                        },
+                    ),
+                )
+            )
+        ]
+    )
+    agent = MainAgent(LLMClient(adapter), _isolated_registry())
+    response = await agent.handle_chat(ChatRequest(message="Prepare two writes"))
+    assert response.pending_action is None
+    assert response.tool_results == ()
+    assert "one proposed action" in response.message
+
+
+@pytest.mark.asyncio
+async def test_concurrent_confirms_share_one_submission(monkeypatch: pytest.MonkeyPatch) -> None:
+    import asyncio
+
+    from app.agent.main_agent import MainAgent
+    from app.contracts import ChatRequest, ToolAction
+    from app.llm import DemoLLMAdapter, LLMClient
+
+    agent = MainAgent(LLMClient(DemoLLMAdapter()), _isolated_registry())
+    chat_response = await agent.handle_chat(
+        ChatRequest(
+            message="Pay 10 THB for account PEA-1001; paymentMethod: demo_card"
+        )
+    )
+    pending_id = chat_response.pending_action.pending_action_id
+    original_execute = agent._execute_internal
+    entered = asyncio.Event()
+    release = asyncio.Event()
+    submit_calls = 0
+
+    async def delayed_execute(call, conversation_id, trace_id):
+        nonlocal submit_calls
+        if call.action is ToolAction.SABUY_SUBMIT_PAYMENT:
+            submit_calls += 1
+            entered.set()
+            await release.wait()
+        return await original_execute(call, conversation_id, trace_id)
+
+    monkeypatch.setattr(agent, "_execute_internal", delayed_execute)
+    first_task = asyncio.create_task(agent.confirm_pending_action(pending_id))
+    await entered.wait()
+    second_task = asyncio.create_task(agent.confirm_pending_action(pending_id))
+    release.set()
+    first, second = await asyncio.gather(first_task, second_task)
+    assert first == second
+    assert submit_calls == 1
