@@ -21,7 +21,7 @@ import asyncio
 import logging
 import os
 from dataclasses import dataclass
-from typing import Any
+from typing import Any, Callable
 
 from app.contracts import Citation, ToolErrorCode
 
@@ -34,6 +34,14 @@ ENV_MODEL = "GEMINI_FILE_SEARCH_MODEL"
 
 DEFAULT_MODEL = "gemini-2.5-flash"
 DEFAULT_TIMEOUT_SECONDS = 30.0
+# The readiness probe uses its own short bound: a startup health check must
+# never wait as long as a full retrieval does.
+DEFAULT_READINESS_TIMEOUT_SECONDS = 5.0
+
+# Injectable client-factory seam (deterministic tests): receives the
+# configured API key and returns a provider client. Production builds the
+# real ``google.genai.Client`` instead.
+ClientFactory = Callable[[str], Any]
 
 # Frozen contract limits (app/contracts.py: Citation, KnowledgeSearchOutput).
 MAX_ANSWER_CONTEXT_CHARS = 4000
@@ -169,9 +177,16 @@ def normalize_grounding(response: Any, *, max_results: int) -> GroundedEvidence:
 class GeminiFileSearchKnowledgeBackend:
     """Narrow seam over Gemini File Search Hosted RAG.
 
-    One public operation: ``search(query, max_results) -> GroundedEvidence``.
+    Public operations:
+
+    - ``search(query, max_results) -> GroundedEvidence`` — hosted retrieval;
+    - ``is_ready() -> bool`` — bounded, live provider readiness probe;
+    - ``is_configured() -> bool`` — cheap local configuration check only.
+
     The SDK client is constructed lazily per call so configuration (env vars)
     is read fresh and provider failures stay inside the typed-error boundary.
+    A ``client_factory`` may be injected to swap client construction for
+    deterministic tests; production always uses the real provider client.
     Provider default chunking applies: no chunking configuration is ever sent.
     """
 
@@ -182,6 +197,8 @@ class GeminiFileSearchKnowledgeBackend:
         store_name: str | None = None,
         model: str | None = None,
         timeout_seconds: float = DEFAULT_TIMEOUT_SECONDS,
+        readiness_timeout_seconds: float = DEFAULT_READINESS_TIMEOUT_SECONDS,
+        client_factory: ClientFactory | None = None,
     ) -> None:
         self._api_key = (
             api_key
@@ -193,6 +210,8 @@ class GeminiFileSearchKnowledgeBackend:
         )
         self._model = model if model is not None else os.environ.get(ENV_MODEL) or DEFAULT_MODEL
         self._timeout_seconds = timeout_seconds
+        self._readiness_timeout_seconds = readiness_timeout_seconds
+        self._client_factory = client_factory
 
     @property
     def store_name(self) -> str | None:
@@ -205,8 +224,53 @@ class GeminiFileSearchKnowledgeBackend:
         return self._model
 
     def is_configured(self) -> bool:
-        """True when an API key and a store are available (cheap readiness probe)."""
+        """True when an API key and a store are available (cheap local check)."""
         return bool(self._api_key and self._store_name)
+
+    async def is_ready(self) -> bool:
+        """Bounded readiness probe against the live provider.
+
+        Unlike :meth:`is_configured` (a cheap local check), this verifies the
+        configured File Search store through the real provider client, so
+        revoked credentials, a missing store, a missing SDK, or a provider
+        outage all report ``False``. The probe is read-only, bounded by
+        ``readiness_timeout_seconds``, and never surfaces credentials,
+        endpoints, or provider exception details — it only returns ``False``.
+        """
+        if not self._api_key or not self._store_name:
+            return False
+        try:
+            await asyncio.wait_for(
+                asyncio.to_thread(self._verify_store_sync),
+                timeout=self._readiness_timeout_seconds,
+            )
+        except Exception:  # provider failure boundary: never leak details
+            logger.debug("knowledge readiness probe failed (details redacted)")
+            return False
+        return True
+
+    def _make_client(self) -> Any:
+        """Construct the provider client through the (injectable) seam.
+
+        Without an injected ``client_factory`` the optional ``google-genai``
+        SDK is imported lazily and the real client is constructed, so a
+        missing SDK surfaces as ``ImportError`` (classified as
+        "not configured" by the callers).
+        """
+        if self._client_factory is not None:
+            return self._client_factory(self._api_key)
+        from google import genai  # lazy: optional provider dependency
+        return genai.Client(api_key=self._api_key)
+
+    def _verify_store_sync(self) -> None:
+        """Read-only, live verification that the configured store exists.
+
+        ``file_search_stores.get`` is the provider's store lookup: it
+        succeeds only when the credentials are valid and the configured
+        File Search store exists and is reachable.
+        """
+        client = self._make_client()
+        client.file_search_stores.get(name=self._store_name)
 
     async def search(self, query: str, max_results: int) -> GroundedEvidence:
         """Run hosted retrieval and normalize grounding into frozen output.
@@ -232,14 +296,14 @@ class GeminiFileSearchKnowledgeBackend:
         return evidence
 
     def _search_sync(self, query: str, max_results: int) -> GroundedEvidence:
+        if not self._api_key or not self._store_name:
+            raise KnowledgeBackendError(ToolErrorCode.UNAVAILABLE, USER_SAFE_NOT_CONFIGURED)
         try:
             from google import genai  # lazy: optional provider dependency
         except ImportError as exc:
             raise KnowledgeBackendError(ToolErrorCode.UNAVAILABLE, USER_SAFE_NOT_CONFIGURED) from exc
-        if not self._api_key or not self._store_name:
-            raise KnowledgeBackendError(ToolErrorCode.UNAVAILABLE, USER_SAFE_NOT_CONFIGURED)
         try:
-            client = genai.Client(api_key=self._api_key)
+            client = self._make_client()
             response = client.models.generate_content(
                 model=self._model,
                 contents=query,
