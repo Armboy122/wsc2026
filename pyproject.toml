@@ -1,0 +1,12 @@
+[project]
+name = "pea-one-agent"
+version = "0.1.0"
+description = "PEA One Agent hackathon contract baseline"
+requires-python = ">=3.11"
+dependencies = [
+  "fastapi>=0.115,<1.0",
+  "pydantic>=2.8,<3.0",
+]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
