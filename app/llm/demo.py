@@ -289,7 +289,30 @@ def _can_reuse_knowledge_context(message: str) -> bool:
 
 
 def _wants_categories(text: str) -> bool:
-    return any(term in text for term in ("category", "categories", "case types", "หมวด"))
+    if any(term in text for term in (
+        "complaint category",
+        "complaint categories",
+        "case types",
+        "หมวดร้องเรียน",
+        "ประเภทเรื่องร้องเรียน",
+        "หัวข้อร้องเรียน",
+    )):
+        return True
+    asks_for_topics = any(term in text for term in (
+        "category",
+        "categories",
+        "หมวด",
+        "ประเภทเรื่อง",
+        "หัวข้ออะไรบ้าง",
+        "หัวจ้ออะไรบ้าง",
+    ))
+    has_voc_context = any(term in text for term in (
+        "voc",
+        "complain",
+        "complaint",
+        "ร้องเรียน",
+    ))
+    return asks_for_topics and has_voc_context
 
 
 def _payment_requested(text: str, payment_method: PaymentMethod | None) -> bool:
@@ -340,7 +363,10 @@ def _case_requested(
         or "service report" in text
         or "เรื่องร้องเรียน" in text
         or "ต้องการร้องเรียน" in text
+        or "อยากร้องเรียน" in text
         or "ขอร้องเรียน" in text
+        or "ร้องเรียนการ" in text
+        or "ร้องเรียนเรื่อง" in text
         or "แจ้งปัญหาบริการ" in text
         or "แจ้งปัญหาการบริการ" in text
         or bool(re.search(r"(?:^|\n)ร้องเรียน(?:$|\n|;)", text))
@@ -540,15 +566,28 @@ def _requested_amount(message: str) -> str | None:
 
 
 def _case_category(message: str) -> VocCategory:
+    if any(term in message for term in (
+        "stakeholder",
+        "feedback",
+        "ผู้มีส่วนได้ส่วนเสีย",
+        "เสนอแนะ",
+        "ข้อคิดเห็น",
+    )):
+        return VocCategory.STAKEHOLDER_FEEDBACK
     if any(term in message for term in ("compliment", "praise", "ชื่นชม")):
         return VocCategory.COMPLIMENT
     if any(term in message for term in ("safety", "danger", "hazard", "อันตราย", "เบาะแส")):
         return VocCategory.TIP_OFF
     if any(term in message for term in ("partner", "vendor", "operation", "คู่ค้า", "ดำเนินงาน")):
         return VocCategory.OPERATIONS
-    if any(term in message for term in ("stakeholder", "feedback", "ผู้มีส่วนได้ส่วนเสีย", "ข้อคิดเห็น")):
-        return VocCategory.STAKEHOLDER_FEEDBACK
-    if any(term in message for term in ("outage", "voltage", "ไฟดับ", "ไฟตก", "แรงดัน")):
+    if any(term in message for term in (
+        "outage",
+        "voltage",
+        "คุณภาพไฟฟ้า",
+        "ไฟดับ",
+        "ไฟตก",
+        "แรงดัน",
+    )):
         return VocCategory.POWER_QUALITY
     return VocCategory.SERVICE
 

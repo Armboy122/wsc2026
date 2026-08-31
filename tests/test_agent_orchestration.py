@@ -59,6 +59,53 @@ async def test_incomplete_voc_intent_asks_for_case_details_without_tool_call() -
 
 
 @pytest.mark.asyncio
+async def test_voc_intake_uses_plain_language_and_shows_category_choices() -> None:
+    response = await _agent().handle_chat(
+        ChatRequest(message="อยากร้องเรียนการให้บริการหน่อยครับ")
+    )
+
+    assert response.tool_results == ()
+    assert response.pending_action is None
+    assert "เลือกประเภทเรื่อง" in response.message
+    assert "แจ้งปัญหาด้านบริการ" in response.message
+    assert "หัวข้อ" in response.message
+    assert "รายละเอียด" in response.message
+    assert "`" not in response.message
+
+
+@pytest.mark.asyncio
+async def test_voc_category_follow_up_is_human_readable_not_json() -> None:
+    agent = _agent()
+    first = await agent.handle_chat(
+        ChatRequest(message="อยากร้องเรียนการให้บริการหน่อยครับ")
+    )
+    response = await agent.handle_chat(
+        ChatRequest(
+            conversationId=first.conversation_id,
+            message="มีหัวจ้ออะไรบ้างครับ",
+        )
+    )
+
+    assert [result.action.value for result in response.tool_results] == ["list_categories"]
+    assert "ประเภทเรื่องที่เลือกได้" in response.message
+    assert "1. แจ้งปัญหาคุณภาพไฟฟ้า" in response.message
+    assert "6. ชื่นชม เสนอแนะ ข้อคิดเห็น" in response.message
+    assert "power_quality" not in response.message
+    assert "{" not in response.message
+    assert "\\u0e" not in response.message
+
+
+@pytest.mark.asyncio
+async def test_generic_topic_question_does_not_route_to_voc_without_complaint_context() -> None:
+    response = await _agent().handle_chat(
+        ChatRequest(message="มีหัวข้ออะไรบ้างเกี่ยวกับค่าไฟ")
+    )
+
+    assert [result.action.value for result in response.tool_results] == ["search"]
+    assert all(result.name.value != "voc_tool" for result in response.tool_results)
+
+
+@pytest.mark.asyncio
 async def test_incomplete_payment_intent_asks_for_missing_payment_inputs() -> None:
     response = await _agent().handle_chat(ChatRequest(message="ต้องการชำระค่าไฟ"))
 
@@ -115,6 +162,38 @@ async def test_voc_follow_up_completes_the_intent_from_conversation_history() ->
     assert [result.action.value for result in second.tool_results] == ["prepare_case"]
     assert second.pending_action is not None
     assert second.pending_action.prepared_input["category"] == "service"
+    assert second.message.startswith("เตรียมเรื่องร้องเรียนประเภท แจ้งปัญหาด้านบริการ")
+    assert " service" not in second.message
+    assert " service" not in second.pending_action.summary
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    ("category_label", "expected_category"),
+    [
+        ("แจ้งปัญหาคุณภาพไฟฟ้า", "power_quality"),
+        ("ชื่นชม เสนอแนะ ข้อคิดเห็น", "stakeholder_feedback"),
+    ],
+)
+async def test_voc_category_choice_is_used_when_preparing_case(
+    category_label: str,
+    expected_category: str,
+) -> None:
+    agent = _agent()
+    first = await agent.handle_chat(ChatRequest(message="อยากร้องเรียนครับ"))
+    response = await agent.handle_chat(
+        ChatRequest(
+            conversationId=first.conversation_id,
+            message=(
+                f"{category_label}; subject: ทดสอบหัวข้อ; detail: ทดสอบรายละเอียด; "
+                "contactName: สมชาย ใจดี; contactPhone: 0812345678; "
+                "location: ถนนสุขุมวิท"
+            ),
+        )
+    )
+
+    assert response.pending_action is not None
+    assert response.pending_action.prepared_input["category"] == expected_category
 
 
 @pytest.mark.asyncio
@@ -131,7 +210,7 @@ async def test_voc_follow_up_asks_step_by_step_for_missing_fields() -> None:
     )
     assert second.tool_results == ()
     assert second.pending_action is None
-    assert "contactName" in second.message
+    assert "ชื่อผู้ร้องเรียน" in second.message
 
     # เพิ่มชื่อ → ต้องถามเบอร์โทรก่อน
     third = await agent.handle_chat(
@@ -141,7 +220,7 @@ async def test_voc_follow_up_asks_step_by_step_for_missing_fields() -> None:
         )
     )
     assert third.tool_results == ()
-    assert "contactPhone" in third.message
+    assert "เบอร์โทร" in third.message
 
     # เพิ่มเบอร์โทร → ต้องถามสถานที่ก่อน
     fourth = await agent.handle_chat(
@@ -151,7 +230,7 @@ async def test_voc_follow_up_asks_step_by_step_for_missing_fields() -> None:
         )
     )
     assert fourth.tool_results == ()
-    assert "location" in fourth.message
+    assert "สถานที่" in fourth.message
 
     # ครบทุกฟิลด์ → เตรียมเคส
     fifth = await agent.handle_chat(
@@ -219,7 +298,7 @@ async def test_voc_tracking_without_key_asks_for_inputs() -> None:
     )
     assert response.tool_results == ()
     assert response.pending_action is None
-    assert "trackingKey" in response.message
+    assert "คีย์ติดตาม" in response.message
 
 
 @pytest.mark.asyncio
@@ -440,8 +519,9 @@ async def test_provider_failure_during_voc_intake_keeps_the_clarification_flow()
     )
 
     assert "บริการผู้ช่วยไม่พร้อมใช้งาน" not in second.message
-    assert "subject:" in second.message
-    assert "detail:" in second.message
+    assert "หัวข้อ" in second.message
+    assert "รายละเอียด" in second.message
+    assert "`" not in second.message
     assert second.tool_results == ()
 
 

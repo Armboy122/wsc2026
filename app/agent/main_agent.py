@@ -67,6 +67,18 @@ _FINAL_ONLY_MESSAGE = "ผมสามารถตอบคำถามแบบ
 _GREETING_MESSAGE = "สวัสดีครับ ผมช่วยค้นหาความรู้ PEA และใช้เครื่องมือจำลองสำหรับบัญชี ไฟฟ้าขัดข้อง เรื่องร้องเรียน และการชำระเงินได้ครับ"
 _CAPABILITY_MESSAGE = "ผมช่วยค้นหาความรู้ PEA และใช้เครื่องมือจำลองสำหรับบัญชี ไฟฟ้าขัดข้อง เรื่องร้องเรียน และการชำระเงินได้ครับ กรุณาบอกสิ่งที่ต้องการ พร้อมข้อมูลบัญชี พื้นที่ รายละเอียดเรื่อง หรือจำนวนเงินที่เกี่ยวข้องครับ"
 _KNOWLEDGE_ESCALATION_MESSAGE = "ยังไม่พบคำตอบที่มีแหล่งอ้างอิงเพียงพอ เดี๋ยวผมขอส่งต่อคำถามนี้ให้เจ้าหน้าที่ช่วยตรวจสอบครับ"
+_VOC_CATEGORY_LABELS = {
+    "power_quality": "แจ้งปัญหาคุณภาพไฟฟ้า",
+    "service": "แจ้งปัญหาด้านบริการ",
+    "compliment": "ชื่นชม",
+    "tip_off": "แจ้งเบาะแส",
+    "operations": "แจ้งปัญหาการดำเนินงาน",
+    "stakeholder_feedback": "ชื่นชม เสนอแนะ ข้อคิดเห็น",
+}
+_VOC_CATEGORY_CHOICES = "\n".join(
+    f"{index}. {label}"
+    for index, label in enumerate(_VOC_CATEGORY_LABELS.values(), start=1)
+)
 _DIRECT_RESPONSE_MESSAGES = {
     DirectResponseKind.GREETING: _GREETING_MESSAGE,
     DirectResponseKind.UNSUPPORTED: "ขออภัยครับ คำขอนี้ยังไม่รองรับด้วยความสามารถและเครื่องมือของ PEA One Agent ในขณะนี้",
@@ -74,11 +86,15 @@ _DIRECT_RESPONSE_MESSAGES = {
     DirectResponseKind.ACCOUNT_REF: "ได้ครับ กรุณาระบุหมายเลขบัญชีเดโม เช่น `PEA-1001` เพื่อตรวจสอบข้อมูลบัญชีครับ",
     DirectResponseKind.OUTAGE_REPORT_INPUTS: "ได้ครับ กรุณาระบุพื้นที่ที่รู้จัก พร้อมรายละเอียด `location:` และ `symptoms:` เพื่อเตรียมแจ้งเหตุไฟฟ้าขัดข้องครับ",
     DirectResponseKind.OUTAGE_STATUS_AREA: "ได้ครับ กรุณาระบุรหัสพื้นที่เดโม เช่น `BKK-01` เพื่อตรวจสอบสถานะไฟฟ้าขัดข้องครับ",
-    DirectResponseKind.VOC_DETAILS: "ได้ครับ ต้องการร้องเรียนเรื่องใด กรุณาระบุหัวข้อ (`subject:`) และรายละเอียด (`detail:`) เพื่อให้ผมเตรียมเรื่องร้องเรียนให้ครับ",
-    DirectResponseKind.VOC_CONTACT_NAME: "ได้ครับ กรุณาระบุชื่อผู้แจ้ง (`contactName: ...`) เพื่อให้ผมเตรียมเรื่องร้องเรียนให้ครับ",
-    DirectResponseKind.VOC_CONTACT_PHONE: "ได้ครับ กรุณาระบุเบอร์โทรติดต่อ (`contactPhone: ...`) เพื่อให้ผมเตรียมเรื่องร้องเรียนให้ครับ",
-    DirectResponseKind.VOC_LOCATION: "ได้ครับ กรุณาระบุสถานที่เกิดเหตุ (`location: ...`) เพื่อให้ผมเตรียมเรื่องร้องเรียนให้ครับ",
-    DirectResponseKind.VOC_TRACKING_INPUTS: "ได้ครับ กรุณาระบุเลขเรื่อง (`vocId: ...`) และคีย์ติดตาม (`trackingKey: ...`) ที่ได้รับหลังส่งเรื่อง เพื่อตรวจสอบสถานะเรื่องร้องเรียนครับ",
+    DirectResponseKind.VOC_DETAILS: (
+        "ได้ครับ กรุณาระบุโดยเลือกประเภทเรื่องที่ต้องการแจ้ง:\n"
+        f"{_VOC_CATEGORY_CHOICES}\n\n"
+        "จากนั้นบอกหัวข้อและรายละเอียดของเรื่องได้เลยครับ"
+    ),
+    DirectResponseKind.VOC_CONTACT_NAME: "ได้ครับ กรุณาระบุชื่อผู้ร้องเรียนเพื่อให้ผมเตรียมเรื่องให้ครับ",
+    DirectResponseKind.VOC_CONTACT_PHONE: "ได้ครับ กรุณาระบุเบอร์โทรที่สะดวกให้เจ้าหน้าที่ติดต่อกลับครับ",
+    DirectResponseKind.VOC_LOCATION: "ได้ครับ กรุณาระบุสถานที่เกิดเหตุหรือพื้นที่ที่เกี่ยวข้องครับ",
+    DirectResponseKind.VOC_TRACKING_INPUTS: "ได้ครับ กรุณาระบุเลขเรื่องและคีย์ติดตามที่ได้รับหลังส่งเรื่อง เพื่อตรวจสอบสถานะครับ",
 }
 _EXACT_GREETINGS = frozenset({"hi", "hello", "hey"})
 _OUTPUT_POLICY_PATTERNS = (
@@ -463,11 +479,44 @@ def _result_facts(results: list[ToolResult]) -> list[str]:
                 if result.citations
                 else _KNOWLEDGE_ESCALATION_MESSAGE
             )
+        elif result.name is ToolName.VOC:
+            facts.append(_voc_result_fact(result.action, data))
         elif isinstance(data.get("summary"), str):
             facts.append(data["summary"])
         else:
             facts.append(json.dumps(data, default=str, sort_keys=True))
     return facts
+
+
+def _voc_result_fact(action: ToolAction, data: dict[str, Any]) -> str:
+    """แปลงผล VOC ที่เชื่อถือได้เป็นภาษาผู้ใช้ โดยไม่เปิดเผย payload ภายใน"""
+    if action is ToolAction.VOC_LIST_CATEGORIES:
+        categories = data.get("categories")
+        if isinstance(categories, list):
+            labels = [
+                item.get("label")
+                for item in categories
+                if isinstance(item, dict) and isinstance(item.get("label"), str)
+            ]
+            if labels:
+                choices = "\n".join(
+                    f"{index}. {label}" for index, label in enumerate(labels, start=1)
+                )
+                return (
+                    "ประเภทเรื่องที่เลือกได้มีดังนี้:\n"
+                    f"{choices}\n\n"
+                    "พิมพ์ชื่อประเภทเรื่องที่ต้องการได้เลยครับ"
+                )
+    if action is ToolAction.VOC_GET_CASE:
+        voc_id = data.get("vocId")
+        status = data.get("status")
+        category = _VOC_CATEGORY_LABELS.get(str(data.get("category")), "ไม่ระบุประเภท")
+        if isinstance(voc_id, str) and isinstance(status, str):
+            status_label = "ส่งเรื่องแล้ว" if status == "submitted" else status
+            return f"เรื่องร้องเรียนเลขที่ {voc_id} มีสถานะ {status_label} ประเภท {category} ครับ"
+    if isinstance(data.get("summary"), str):
+        return data["summary"]
+    return "ดำเนินการเรื่องร้องเรียนเรียบร้อยแล้วครับ"
 
 
 def _now() -> datetime:

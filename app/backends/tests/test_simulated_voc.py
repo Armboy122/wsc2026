@@ -52,7 +52,8 @@ def test_prepare_case_has_no_side_effect():
     assert out["subject"] == subject
     # สรุปสำหรับการยืนยันต้องปลอดภัยจาก PII และระบุเฉพาะหมวดหมู่
     # โดยต้องไม่เปิดเผยหัวข้อ รายละเอียด ชื่อ หรือเบอร์โทรที่ผู้ใช้ระบุ
-    assert out["summary"] == "เตรียมเคสหมวดหมู่ service"
+    assert out["summary"] == "เตรียมเรื่องร้องเรียนประเภท แจ้งปัญหาด้านบริการ"
+    assert "service" not in out["summary"]
     assert subject not in out["summary"]
     assert detail not in out["summary"]
     # การเตรียมข้อมูลต้องยังไม่สร้างเคส

@@ -61,7 +61,10 @@ class SimulatedVocBackend:
             "location": location,
             "contactChannel": contact_channel.value,
         }
-        summary = f"เตรียมเคสหมวดหมู่ {category.value}"
+        category_label = next(
+            item["label"] for item in self._categories if item["code"] == category.value
+        )
+        summary = f"เตรียมเรื่องร้องเรียนประเภท {category_label}"
         return {
             "category": category.value,
             "subject": subject,
