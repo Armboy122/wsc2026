@@ -16,10 +16,10 @@ Main Agent, Knowledge และ Judge เลือก provider/model แยก�
 
 ```dotenv
 MAIN_LLM_PROVIDER=gemini
-MAIN_LLM_MODEL=gemini-2.5-flash
+MAIN_LLM_MODEL=gemini-3.5-flash-lite
 
 KNOWLEDGE_LLM_PROVIDER=gemini
-KNOWLEDGE_LLM_MODEL=gemini-3.5-flash
+KNOWLEDGE_LLM_MODEL=gemini-3.5-flash-lite
 GEMINI_API_KEY=your-google-ai-key
 
 JUDGE_LLM_PROVIDER=demo

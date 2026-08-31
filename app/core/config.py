@@ -39,7 +39,7 @@ class Settings:
     main_llm: LLMRuntimeSettings = field(default_factory=LLMRuntimeSettings)
     knowledge_llm: LLMRuntimeSettings = field(
         default_factory=lambda: LLMRuntimeSettings(
-            provider="gemini", model="gemini-3.5-flash"
+            provider="gemini", model="gemini-3.5-flash-lite"
         )
     )
     judge_llm: LLMRuntimeSettings = field(default_factory=LLMRuntimeSettings)
@@ -54,7 +54,7 @@ class Settings:
         / "knowledge"
         / "source"
     )
-    gemini_long_context_model: str = "gemini-3.5-flash"
+    gemini_long_context_model: str = "gemini-3.5-flash-lite"
 
     @classmethod
     def from_env(cls, environ: dict[str, str] | None = None) -> Settings:
@@ -71,7 +71,7 @@ class Settings:
         ).rstrip("/")
         maxplus_model = env.get("MAXPLUS_MODEL", "deepseek-v4-flash-0731")
         gemini_long_context_model = env.get(
-            "GEMINI_LONG_CONTEXT_MODEL", "gemini-3.5-flash"
+            "GEMINI_LONG_CONTEXT_MODEL", "gemini-3.5-flash-lite"
         )
 
         def _llm_settings(
@@ -79,7 +79,7 @@ class Settings:
             *,
             default_provider: str = "demo",
             legacy_provider_key: str | None = None,
-            gemini_model: str = "gemini-2.5-flash",
+            gemini_model: str = "gemini-3.5-flash-lite",
         ) -> LLMRuntimeSettings:
             provider = (
                 _get(f"{prefix}_LLM_PROVIDER")

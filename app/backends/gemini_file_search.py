@@ -31,7 +31,7 @@ ENV_FALLBACK_API_KEY = "GOOGLE_API_KEY"
 ENV_STORE = "GEMINI_FILE_SEARCH_STORE"
 ENV_MODEL = "GEMINI_FILE_SEARCH_MODEL"
 
-DEFAULT_MODEL = "gemini-2.5-flash"
+DEFAULT_MODEL = "gemini-3.5-flash-lite"
 DEFAULT_TIMEOUT_SECONDS = 30.0
 # ตัวตรวจสอบความพร้อมมีขีดจำกัดเวลาสั้นของตนเอง การตรวจสุขภาพเมื่อเริ่มต้น
 # ต้องไม่รอนานเท่าการค้นคืนแบบเต็ม

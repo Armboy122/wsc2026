@@ -44,6 +44,7 @@ class MaxPlusDeepSeekAdapter:
         payload = {
             "model": self._model,
             "temperature": 0,
+            "thinking": {"type": "disabled"},
             "messages": [
                 {"role": "system", "content": SYSTEM_PROMPT},
                 {"role": "system", "content": tool_catalogue(request)},
