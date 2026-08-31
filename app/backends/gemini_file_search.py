@@ -22,6 +22,7 @@ import logging
 import os
 from dataclasses import dataclass
 from typing import Any, Callable
+from urllib.parse import quote
 
 from app.contracts import Citation, ToolErrorCode
 
@@ -48,6 +49,14 @@ MAX_ANSWER_CONTEXT_CHARS = 4000
 MAX_SNIPPET_CHARS = 1000
 MAX_TITLE_CHARS = 500
 MAX_URI_CHARS = 2000
+
+# Explicit non-web scheme for provider reference URIs synthesized when the
+# live Gemini 3.6 File Search grounding shape carries no document uri. It is
+# stable, credential-free, and never masquerades as a public web URL.
+PROVIDER_URI_SCHEME = "gemini-file-search://"
+
+# custom_metadata key the sync pipeline stamps on every File Search document.
+CORPUS_REL_PATH_KEY = "corpus_rel_path"
 
 # User-safe, credential-free messages.
 USER_SAFE_NOT_CONFIGURED = (
@@ -105,6 +114,35 @@ def _first_int(value: Any, name: str) -> int | None:
     return None
 
 
+def _custom_metadata_value(context: Any, key: str) -> str:
+    """First non-empty ``string_value`` for ``key`` in a context's custom_metadata.
+
+    Structural (attribute or dict access) so the SDK ``CustomMetadata`` type
+    is not required at import time; missing or malformed entries yield ``""``.
+    """
+    for item in getattr(context, "custom_metadata", None) or []:
+        if isinstance(item, dict):
+            item_key = item.get("key")
+            value = item.get("string_value")
+        else:
+            item_key = getattr(item, "key", None)
+            value = getattr(item, "string_value", None)
+        if item_key == key and isinstance(value, str) and value.strip():
+            return value.strip()
+    return ""
+
+
+def _provider_reference_uri(store: str, title: str) -> str:
+    """Stable, non-secret provider reference URI for a store + document title.
+
+    Used only when the provider gave no real ``uri``. Both components are
+    URL-quoted (``safe=""``) so separators and non-ASCII names cannot alter
+    the structure, and the explicit ``gemini-file-search://`` scheme marks it
+    as a hosted-store reference, never a public web URL.
+    """
+    return PROVIDER_URI_SCHEME + quote(store, safe="") + "/" + quote(title, safe="")
+
+
 def _grounding_contexts(response: Any) -> list[Any]:
     """Collect File Search grounding contexts from a provider response.
 
@@ -139,20 +177,34 @@ def normalize_grounding(response: Any, *, max_results: int) -> GroundedEvidence:
     Rules (CONTRACTS.md, ``knowledge_tool.search``):
     - no usable grounding -> empty ``answerContext``, ``resultCount`` 0, no citations;
     - citations are capped at ``max_results`` and deduplicated by source + page;
-    - a chunk without a source URI or excerpt text is unusable evidence and skipped.
+    - a chunk without excerpt text is unusable evidence and skipped;
+    - a real provider ``uri`` is always preferred verbatim;
+    - live Gemini 3.6 File Search chunks carry no ``uri``/``document_name``, only
+      ``text``/``title``/``file_search_store``/``custom_metadata``: when both the
+      store and title are present, a stable non-secret ``gemini-file-search://``
+      reference URI is synthesized; otherwise the chunk fails closed and is skipped;
+    - the stamped ``corpus_rel_path`` custom metadata (falling back to the
+      document title) is the user-visible source identity for those chunks.
     """
     citations: list[Citation] = []
     seen: set[tuple[str, int | None]] = set()
     for context in _grounding_contexts(response):
-        uri = _first_text(context, "uri")
-        if not uri:
-            continue
         snippet = _first_text(context, "text")
         if not snippet:
             continue
+        title = _first_text(context, "title")
+        corpus_rel_path = _custom_metadata_value(context, CORPUS_REL_PATH_KEY)
+        uri = _first_text(context, "uri")
+        if not uri:
+            store = _first_text(context, "file_search_store")
+            if not store or not title:
+                continue  # fail closed: no real uri and no stable store/title pair
+            uri = _provider_reference_uri(store, title)
         page = _first_int(context, "page_number")
-        source_id = _first_text(context, "document_name") or (
-            f"{uri}#page-{page}" if page is not None else uri
+        source_id = (
+            _first_text(context, "document_name")
+            or corpus_rel_path
+            or (f"{uri}#page-{page}" if page is not None else uri)
         )
         key = (source_id, page)
         if key in seen:
@@ -161,7 +213,7 @@ def normalize_grounding(response: Any, *, max_results: int) -> GroundedEvidence:
         citations.append(
             Citation(
                 source_id=_clip(source_id, MAX_URI_CHARS),
-                title=_clip(_first_text(context, "title") or uri, MAX_TITLE_CHARS),
+                title=_clip(corpus_rel_path or title or uri, MAX_TITLE_CHARS),
                 uri=_clip(uri, MAX_URI_CHARS),
                 snippet=_clip(snippet, MAX_SNIPPET_CHARS),
                 page=page,
