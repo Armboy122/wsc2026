@@ -18,7 +18,7 @@ def test_default_settings() -> None:
     assert settings.knowledge_provider == "gemini"
     assert settings.maxplus_api_key is None
     assert settings.maxplus_base_url == "https://api.maxplus-ai.cc/v1"
-    assert settings.maxplus_model == "gpt-5.4-mini"
+    assert settings.maxplus_model == "deepseek-v4-flash-0731"
     assert settings.knowledge_source_root == (
         Path(__file__).resolve().parents[3] / "knowledge" / "source"
     )

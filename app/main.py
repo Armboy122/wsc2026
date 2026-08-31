@@ -24,7 +24,7 @@ from app.core.config import load_settings
 from app.core.di import adapter_service, agent_service
 from app.core.errors import ConflictException, NotFoundException, platform_exception_handler
 from app.core.startup import create_platform_app, startup_event
-from app.llm import DemoLLMAdapter, LLMClient
+from app.llm import DemoLLMAdapter, LLMClient, MaxPlusDeepSeekAdapter
 from app.tools.knowledge_tool import KnowledgeTool
 from app.tools.oms_tool import OmsTool
 from app.tools.sabuy_tool import SabuyTool
@@ -59,7 +59,7 @@ async def _conflict_handler(
 
 
 settings = load_settings()
-if settings.llm_adapter_name != "demo":
+if settings.llm_adapter_name not in {"demo", "maxplus_openai"}:
     raise RuntimeError(f"ไม่รองรับ LLM adapter: {settings.llm_adapter_name}")
 if settings.knowledge_backend_name != "full_document":
     raise RuntimeError(
@@ -76,7 +76,15 @@ knowledge_backend = FullDocumentKnowledgeBackend(
     provider=settings.knowledge_provider,
     base_url=(settings.maxplus_base_url if _using_maxplus else None),
 )
-llm_adapter = DemoLLMAdapter()
+llm_adapter = (
+    MaxPlusDeepSeekAdapter(
+        api_key=settings.maxplus_api_key,
+        base_url=settings.maxplus_base_url,
+        model=settings.maxplus_model,
+    )
+    if settings.llm_adapter_name == "maxplus_openai"
+    else DemoLLMAdapter()
+)
 tool_registry = ToolRegistry(
     [
         KnowledgeTool(knowledge_backend),

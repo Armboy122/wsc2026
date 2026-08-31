@@ -3,6 +3,7 @@
 from app.llm.adapter import LLMAdapter, LLMUnavailableError
 from app.llm.client import JudgeLLMClient, LLMClient
 from app.llm.demo import DemoLLMAdapter
+from app.llm.maxplus import MaxPlusDeepSeekAdapter
 from app.llm.models import (
     DirectResponseKind,
     KnowledgeConversationContext,
@@ -24,6 +25,7 @@ __all__ = [
     "LLMRequest",
     "LLMResponse",
     "LLMUnavailableError",
+    "MaxPlusDeepSeekAdapter",
     "ScriptedLLMAdapter",
     "ToolDefinition",
 ]

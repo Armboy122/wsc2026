@@ -32,7 +32,7 @@ class Settings:
     gemini_api_key: str | None = None
     maxplus_api_key: str | None = None
     maxplus_base_url: str = "https://api.maxplus-ai.cc/v1"
-    maxplus_model: str = "gpt-5.4-mini"
+    maxplus_model: str = "deepseek-v4-flash-0731"
     knowledge_source_root: Path = field(
         default_factory=lambda: Path(__file__).resolve().parents[2]
         / "knowledge"
@@ -68,7 +68,7 @@ class Settings:
             maxplus_base_url=env.get(
                 "MAXPLUS_BASE_URL", "https://api.maxplus-ai.cc/v1"
             ).rstrip("/"),
-            maxplus_model=env.get("MAXPLUS_MODEL", "gpt-5.4-mini"),
+            maxplus_model=env.get("MAXPLUS_MODEL", "deepseek-v4-flash-0731"),
             knowledge_source_root=Path(
                 env.get(
                     "KNOWLEDGE_SOURCE_ROOT",
