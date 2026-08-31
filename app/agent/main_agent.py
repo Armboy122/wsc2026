@@ -32,7 +32,15 @@ from app.contracts import (
     TraceResponse,
     validate_tool_input,
 )
-from app.llm import DirectResponseKind, LLMClient, LLMMessage, LLMRequest, LLMResponse, ToolDefinition
+from app.llm import (
+    DirectResponseKind,
+    KnowledgeConversationContext,
+    LLMClient,
+    LLMMessage,
+    LLMRequest,
+    LLMResponse,
+    ToolDefinition,
+)
 
 _MAX_TOOL_STEPS = 6
 _SUBMIT_ACTIONS = frozenset({
@@ -41,7 +49,7 @@ _SUBMIT_ACTIONS = frozenset({
     ToolAction.OMS_SUBMIT_OUTAGE_REPORT,
 })
 _TOOL_CATALOGUE = (
-    ToolDefinition(ToolName.KNOWLEDGE, "ค้นหาความรู้ PEA จากบริการโฮสต์", ("search",)),
+    ToolDefinition(ToolName.KNOWLEDGE, "ตอบความรู้ PEA จากข้อความฉบับเต็มของไฟล์ที่เลือก", ("search",)),
     ToolDefinition(ToolName.SABUY, "อ่านข้อมูลบัญชีหรือเตรียมการชำระเงิน", ("get_account_summary", "prepare_payment")),
     ToolDefinition(ToolName.VOC, "แสดง 6 หมวด VOC ของ PEA: ปัญหาคุณภาพไฟฟ้า บริการ ชื่นชม เบาะแส ปัญหาการดำเนินงาน และข้อคิดเห็นผู้มีส่วนได้ส่วนเสีย หรือเตรียมเคส", ("list_categories", "prepare_case")),
     ToolDefinition(ToolName.OMS, "อ่านสถานะไฟฟ้าขัดข้องหรือเตรียมรายงานไฟฟ้าขัดข้อง", ("get_outage_status", "prepare_outage_report")),
@@ -96,6 +104,7 @@ class MainAgent:
         self._traces = traces or TraceStore()
         self._call_inputs: dict[UUID, dict[str, Any]] = {}
         self._confirmation_tasks: dict[UUID, asyncio.Task[ActionDecisionResponse]] = {}
+        self._knowledge_contexts: dict[UUID, KnowledgeConversationContext] = {}
         self._reset_generation = 0
 
     async def handle_chat(self, request: ChatRequest) -> ChatResponse:
@@ -111,7 +120,14 @@ class MainAgent:
         for _ in range(_MAX_TOOL_STEPS + 1):
             self._traces.append(trace_id, TraceEventKind.LLM_REQUESTED, {"messageCount": len(history), "toolCount": 4})
             try:
-                response = await self._llm.complete(LLMRequest(history, _TOOL_CATALOGUE, trace_id))
+                response = await self._llm.complete(
+                    LLMRequest(
+                        history,
+                        _TOOL_CATALOGUE,
+                        trace_id,
+                        self._knowledge_contexts.get(conversation_id),
+                    )
+                )
             except Exception as error:
                 self._traces.append(trace_id, TraceEventKind.ERROR, {"stage": "llm", "type": type(error).__name__})
                 final_text = "ขณะนี้ไม่สามารถดำเนินการตามคำขอได้ เนื่องจากบริการผู้ช่วยไม่พร้อมใช้งานครับ"
@@ -157,6 +173,19 @@ class MainAgent:
                 self._traces.append(trace_id, TraceEventKind.ERROR, {"stage": "output_policy", "policy": "final_only"})
         message = _authoritative_message(final_text, all_results, pending)
         self._conversations.append(conversation_id, LLMMessage("user", request.message))
+        knowledge_context = next(
+            (
+                context
+                for result in reversed(all_results)
+                if (context := _knowledge_context_from_result(request.message, result))
+                is not None
+            ),
+            None,
+        )
+        if knowledge_context is None:
+            self._knowledge_contexts.pop(conversation_id, None)
+        else:
+            self._knowledge_contexts[conversation_id] = knowledge_context
         self._conversations.append(conversation_id, LLMMessage("assistant", message))
         return ChatResponse(conversation_id=conversation_id, trace_id=trace_id, message=message, citations=citations, pending_action=pending, tool_results=tuple(all_results))
 
@@ -232,6 +261,7 @@ class MainAgent:
         self._pending_actions.clear()
         self._traces.clear()
         self._call_inputs.clear()
+        self._knowledge_contexts.clear()
         return ResetResponse()
 
     async def _execute_chat_call(self, call: ToolCall, conversation_id: UUID, trace_id: UUID) -> ToolResult:
@@ -347,6 +377,31 @@ def _result_message(result: ToolResult) -> str:
     if result.status is ToolResultStatus.ERROR:
         return json.dumps({"status": "error", "error": result.error.message if result.error else "ข้อผิดพลาดที่ไม่ทราบสาเหตุ"})
     return json.dumps({"status": "success", "data": result.data, "citations": [citation.model_dump(by_alias=True) for citation in result.citations]}, default=str)
+
+
+def _knowledge_context_from_result(
+    question: str, result: ToolResult
+) -> KnowledgeConversationContext | None:
+    """สร้าง context ต่อเนื่องเฉพาะ Knowledge ที่สำเร็จและมี citation จริง"""
+    data = result.data or {}
+    if (
+        result.name is not ToolName.KNOWLEDGE
+        or result.status is not ToolResultStatus.SUCCESS
+        or not isinstance(data.get("answerContext"), str)
+        or not data["answerContext"].strip()
+        or not result.citations
+    ):
+        return None
+    sources = tuple(
+        dict.fromkeys(
+            f"{citation.source_id} ({citation.title})"
+            for citation in result.citations
+        )
+    )
+    return KnowledgeConversationContext(
+        previous_question=" ".join(question.split())[:500],
+        sources=sources,
+    )
 
 
 def _default_message(results: list[ToolResult]) -> str:

@@ -28,10 +28,19 @@ class ToolDefinition:
 
 
 @dataclass(frozen=True, slots=True)
+class KnowledgeConversationContext:
+    """หัวข้อ Knowledge turn ล่าสุดที่มีหลักฐานและใช้ได้กับคำถามถัดไปหนึ่งรอบ"""
+
+    previous_question: str
+    sources: tuple[str, ...]
+
+
+@dataclass(frozen=True, slots=True)
 class LLMRequest:
     messages: tuple[LLMMessage, ...]
     tools: tuple[ToolDefinition, ...]
     correlation_id: UUID
+    knowledge_context: KnowledgeConversationContext | None = None
 
 
 class DirectResponseKind(str, Enum):

@@ -189,7 +189,9 @@ class FullDocumentKnowledgeBackend:
         ]
         prompt = (
             "Select documents relevant to the Thai user query. You only know this catalog, "
-            "not document contents. Return JSON only, exactly {\"sourceIds\":[...]} with no "
+            "not document contents. A follow-up query may contain a current question plus prior "
+            "document/topic context; select for the current question and use prior context only "
+            "to disambiguate it. Return JSON only, exactly {\"sourceIds\":[...]} with no "
             f"more than {max_results} unique sourceIds. Query: {query}\nCatalog: "
             + json.dumps(metadata, ensure_ascii=False)
         )
@@ -229,6 +231,8 @@ class FullDocumentKnowledgeBackend:
         )
         prompt = (
             "Answer the Thai user directly and completely using only the full documents below. "
+            "If the query labels a current question and prior context, answer only the current "
+            "question; use the prior context solely to identify what it refers to. "
             "Do not provide links or a summary. Return JSON only exactly in this shape: "
             "{\"answer\":string,\"citations\":[{\"sourceId\":string,\"snippet\":string}]}. "
             "Every citation snippet must be copied verbatim from its cited source. "

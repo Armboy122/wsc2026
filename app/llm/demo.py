@@ -15,7 +15,13 @@ from typing import Any
 from uuid import NAMESPACE_URL, UUID, uuid5
 
 from app.contracts import ContactChannel, PaymentMethod, ToolAction, ToolCall, ToolName, VocCategory
-from app.llm.models import DirectResponseKind, LLMMessage, LLMRequest, LLMResponse
+from app.llm.models import (
+    DirectResponseKind,
+    KnowledgeConversationContext,
+    LLMMessage,
+    LLMRequest,
+    LLMResponse,
+)
 
 _ACCOUNT_REF_PATTERN = re.compile(r"\bPEA-\d{4}\b", re.IGNORECASE)
 _AREA_CODE_PATTERN = re.compile(r"\b[A-Z]{3}-\d{2}\b", re.IGNORECASE)
@@ -40,7 +46,10 @@ class DemoLLMAdapter:
         tool_messages = tuple(message for message in current_messages if message.role == "tool")
         if tool_messages:
             return self._after_tools(current_messages, tool_messages, request.correlation_id)
-        return self._plan(_planning_message(request.messages, user_index), request.correlation_id)
+        return self._plan(
+            _planning_message(request.messages, user_index, request.knowledge_context),
+            request.correlation_id,
+        )
 
     def _plan(self, message: str, correlation_id: UUID) -> LLMResponse:
         text = message.casefold()
@@ -59,24 +68,15 @@ class DemoLLMAdapter:
         if _is_unsafe_or_unknown_request(text):
             return _direct_response(DirectResponseKind.UNSUPPORTED)
 
-        wants_categories = any(term in text for term in ("category", "categories", "case types", "หมวด"))
-        payment_requested = payment_method is not None or bool(re.search(
-            r"\bprepare\b[^;\n]{0,30}\bpayment\b|\bpay\b[^;\n]{0,40}\baccount\b|\b(?:want to (?:make )?|make (?:a )?)payment\b|(?:ต้องการ)?(?:ชำระ|จ่าย)(?:ค่าไฟ|เงิน)?",
+        wants_categories = _wants_categories(text)
+        payment_requested = _payment_requested(text, payment_method)
+        report_requested = _outage_report_requested(
+            text, has_details=bool(location or symptoms)
+        )
+        case_requested = _case_requested(
             text,
-        ))
-        report_requested = (
-            bool(location or symptoms)
-            and any(term in text for term in ("report", "file an outage", "fallen wire", "downed line", "sparks", "แจ้งไฟ", "แจ้งเหตุ", "รายงาน", "ไฟฟ้าดับ", "ไฟดับ"))
-        ) or any(term in text for term in ("file an outage", "report an outage", "ต้องการแจ้งไฟ", "ขอแจ้งไฟ", "ต้องการแจ้งเหตุ"))
-        case_requested = not wants_categories and (
-            bool(re.search(r"\bcomplain\b", text))
-            or "service report" in text
-            or "เรื่องร้องเรียน" in text
-            or "ต้องการร้องเรียน" in text
-            or "ขอร้องเรียน" in text
-            or bool(re.search(r"(?:^|\n)ร้องเรียน(?:$|\n|;)", text))
-            or bool(re.search(r"\bprepare\b[^;\n]{0,40}\b(?:complaint|case)\b", text))
-            or bool(subject and detail and any(term in text for term in ("complaint", "case", "ร้องเรียน")))
+            wants_categories=wants_categories,
+            has_details=bool(subject and detail),
         )
         status_marked = any(term in text for term in (
             "status", "check outage", "planned outage", "power normal", "outage near",
@@ -185,9 +185,14 @@ def _latest_user_index(messages: tuple[LLMMessage, ...]) -> int | None:
     return next((index for index in range(len(messages) - 1, -1, -1) if messages[index].role == "user"), None)
 
 
-def _planning_message(messages: tuple[LLMMessage, ...], user_index: int) -> str:
-    """รวมทุกคำตอบในรอบขอข้อมูลปัจจุบันกับเจตนาตั้งต้น"""
-    user_messages = [messages[user_index].content]
+def _planning_message(
+    messages: tuple[LLMMessage, ...],
+    user_index: int,
+    knowledge_context: KnowledgeConversationContext | None,
+) -> str:
+    """รวม clarification chain หรือบริบท Knowledge ที่ตรวจสอบแล้วกับคำถามปัจจุบัน"""
+    current_message = messages[user_index].content
+    user_messages = [current_message]
     cursor = user_index - 1
     while cursor >= 1:
         assistant = messages[cursor]
@@ -201,7 +206,167 @@ def _planning_message(messages: tuple[LLMMessage, ...], user_index: int) -> str:
             break
         user_messages.append(messages[previous_user_index].content)
         cursor = previous_user_index - 1
-    return "\n".join(reversed(user_messages))
+    if len(user_messages) > 1:
+        return "\n".join(reversed(user_messages))
+
+    if knowledge_context and _can_reuse_knowledge_context(current_message):
+        current_context = " ".join(current_message.split())[:450]
+        source_context = "; ".join(knowledge_context.sources)[:300]
+        previous_context = " ".join(knowledge_context.previous_question.split())[:120]
+        return (
+            f"คำถามปัจจุบันที่ต้องตอบ: {current_context}\n"
+            f"บริบทเอกสารจากรอบก่อน: {source_context}\n"
+            f"คำถามก่อนหน้าเพื่อระบุหัวข้อเท่านั้น: {previous_context}"
+        )
+    return current_message
+
+
+
+def _can_reuse_knowledge_context(message: str) -> bool:
+    """รับเฉพาะคำถามต่อเนื่องหรือคำถาม PEA โดยไม่ใช้ deny-list แบบเปิดกว้าง"""
+    text = " ".join(message.casefold().split())
+    if (
+        not text
+        or _is_greeting(text)
+        or _is_unsafe_or_unknown_request(text)
+        or _has_explicit_operational_intent(message)
+    ):
+        return False
+    if _is_pea_knowledge_request(text):
+        return True
+    if any(
+        reference in text
+        for reference in (
+            "กรณีนี้",
+            "อันนี้",
+            "ดังกล่าว",
+            "เรื่องนี้",
+            "บริการนี้",
+            "เอกสารนี้",
+            "ผู้ขอ",
+            "เจ้าของบ้าน",
+            "ผู้ยื่น",
+            "it",
+            "this",
+            "that",
+            "the applicant",
+        )
+    ):
+        return True
+    return bool(
+        re.search(
+            r"^(?:แล้ว\s*)?(?:ต้อง)?(?:ยื่น|เตรียม|ติดต่อ|ดำเนินการ|สมัคร)"
+            r"|^(?:แล้ว\s*)?(?:มี)?(?:ค่าใช้จ่าย|ค่าธรรมเนียม|ระยะเวลา)"
+            r"|^(?:แล้ว\s*)?ต้องทำอะไร(?:ต่อ|เพิ่ม)?"
+            r"|^(?:ถ้า|กรณี)"
+            r"|^(?:where|when|what else|how much)\b",
+            text,
+            re.IGNORECASE,
+        )
+    )
+
+
+def _wants_categories(text: str) -> bool:
+    return any(term in text for term in ("category", "categories", "case types", "หมวด"))
+
+
+def _payment_requested(text: str, payment_method: PaymentMethod | None) -> bool:
+    return payment_method is not None or bool(
+        re.search(
+            r"\bprepare\b[^;\n]{0,30}\bpayment\b"
+            r"|\bpay\b[^;\n]{0,40}\baccount\b"
+            r"|\b(?:want to (?:make )?|make (?:a )?)payment\b"
+            r"|(?:ต้องการ|ขอ)?(?:ชำระ|จ่าย)(?:ค่าไฟ|เงิน)?",
+            text,
+        )
+    )
+
+
+def _outage_report_requested(text: str, *, has_details: bool) -> bool:
+    detail_markers = (
+        "report",
+        "file an outage",
+        "fallen wire",
+        "downed line",
+        "sparks",
+        "แจ้งไฟ",
+        "แจ้งเหตุ",
+        "รายงาน",
+        "ไฟฟ้าดับ",
+        "ไฟดับ",
+    )
+    direct_markers = (
+        "file an outage",
+        "report an outage",
+        "ต้องการแจ้งไฟ",
+        "ขอแจ้งไฟ",
+        "ต้องการแจ้งเหตุ",
+        "ขอแจ้งปัญหาไฟฟ้า",
+        "แจ้งปัญหาไฟฟ้า",
+        "ไฟฟ้ามีปัญหา",
+    )
+    return (has_details and any(term in text for term in detail_markers)) or any(
+        term in text for term in direct_markers
+    )
+
+
+def _case_requested(
+    text: str, *, wants_categories: bool, has_details: bool
+) -> bool:
+    return not wants_categories and (
+        bool(re.search(r"\bcomplain\b", text))
+        or "service report" in text
+        or "เรื่องร้องเรียน" in text
+        or "ต้องการร้องเรียน" in text
+        or "ขอร้องเรียน" in text
+        or "แจ้งปัญหาบริการ" in text
+        or "แจ้งปัญหาการบริการ" in text
+        or bool(re.search(r"(?:^|\n)ร้องเรียน(?:$|\n|;)", text))
+        or bool(re.search(r"\bprepare\b[^;\n]{0,40}\b(?:complaint|case)\b", text))
+        or (has_details and any(term in text for term in ("complaint", "case", "ร้องเรียน")))
+    )
+
+
+def _has_explicit_operational_intent(message: str) -> bool:
+    """ใช้ predicate ชุดเดียวกับ planner เพื่อกัน intent ใหม่ออกจาก Knowledge context"""
+    text = message.casefold()
+    wants_categories = _wants_categories(text)
+    has_case_details = bool(
+        _labelled_value(message, "subject", 140)
+        and _labelled_value(message, "detail", 2000)
+    )
+    return (
+        _recognised_account_ref(message) is not None
+        or _recognised_area_code(message) is not None
+        or _payment_requested(text, _payment_method(message))
+        or _outage_report_requested(
+            text,
+            has_details=bool(
+                _labelled_value(message, "location", 500)
+                or _labelled_value(message, "symptoms", 1000)
+            ),
+        )
+        or _case_requested(
+            text,
+            wants_categories=wants_categories,
+            has_details=has_case_details,
+        )
+        or wants_categories
+        or any(
+            term in text
+            for term in (
+                "outage status",
+                "check outage",
+                "power status",
+                "สถานะไฟ",
+                "ตรวจสอบไฟ",
+                "account balance",
+                "account summary",
+                "ยอดคงเหลือ",
+                "ยอดบัญชี",
+            )
+        )
+    )
 
 
 def _planned_response(correlation_id: UUID, planned: list[tuple[ToolName, ToolAction, dict[str, Any]]]) -> LLMResponse:
