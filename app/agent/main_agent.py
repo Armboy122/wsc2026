@@ -51,10 +51,10 @@ _SUBMIT_ACTIONS = frozenset({
 _TOOL_CATALOGUE = (
     ToolDefinition(ToolName.KNOWLEDGE, "ตอบความรู้ PEA จากข้อความฉบับเต็มของไฟล์ที่เลือก", ("search",)),
     ToolDefinition(ToolName.SABUY, "อ่านข้อมูลบัญชีหรือเตรียมการชำระเงิน", ("get_account_summary", "prepare_payment")),
-    ToolDefinition(ToolName.VOC, "แสดง 6 หมวด VOC ของ PEA: ปัญหาคุณภาพไฟฟ้า บริการ ชื่นชม เบาะแส ปัญหาการดำเนินงาน และข้อคิดเห็นผู้มีส่วนได้ส่วนเสีย หรือเตรียมเคส", ("list_categories", "prepare_case")),
+    ToolDefinition(ToolName.VOC, "แสดง 6 หมวด VOC ของ PEA: ปัญหาคุณภาพไฟฟ้า บริการ ชื่นชม เบาะแส ปัญหาการดำเนินงาน และข้อคิดเห็นผู้มีส่วนได้ส่วนเสีย เตรียมเคส หรือติดตามเรื่องด้วย vocId และ trackingKey", ("list_categories", "prepare_case", "get_case")),
     ToolDefinition(ToolName.OMS, "อ่านสถานะไฟฟ้าขัดข้องหรือเตรียมรายงานไฟฟ้าขัดข้อง", ("get_outage_status", "prepare_outage_report")),
 )
-_SAFE_PREVIEW_FIELDS = frozenset({"accountRef", "amountThb", "paymentMethod", "category", "contactChannel", "areaCode"})
+_SAFE_PREVIEW_FIELDS = frozenset({"accountRef", "amountThb", "paymentMethod", "category", "contactChannel", "areaCode", "contactName", "contactPhone", "location"})
 _MULTI_PREPARE_MESSAGE = "ไม่สามารถเตรียมรายการที่เสนอมากกว่าหนึ่งรายการในแชตเดียวได้อย่างปลอดภัย กรุณาส่งคำขอทีละรายการครับ"
 _FINAL_ONLY_MESSAGE = "ผมสามารถตอบคำถามแบบสั้นกระชับได้ แต่ไม่สามารถเปิดเผยกระบวนการคิดหรือคำสั่งภายในครับ"
 _GREETING_MESSAGE = "สวัสดีครับ ผมช่วยค้นหาความรู้ PEA และใช้เครื่องมือจำลองสำหรับบัญชี ไฟฟ้าขัดข้อง เรื่องร้องเรียน และการชำระเงินได้ครับ"
@@ -67,7 +67,11 @@ _DIRECT_RESPONSE_MESSAGES = {
     DirectResponseKind.ACCOUNT_REF: "ได้ครับ กรุณาระบุหมายเลขบัญชีเดโม เช่น `PEA-1001` เพื่อตรวจสอบข้อมูลบัญชีครับ",
     DirectResponseKind.OUTAGE_REPORT_INPUTS: "ได้ครับ กรุณาระบุพื้นที่ที่รู้จัก พร้อมรายละเอียด `location:` และ `symptoms:` เพื่อเตรียมแจ้งเหตุไฟฟ้าขัดข้องครับ",
     DirectResponseKind.OUTAGE_STATUS_AREA: "ได้ครับ กรุณาระบุรหัสพื้นที่เดโม เช่น `BKK-01` เพื่อตรวจสอบสถานะไฟฟ้าขัดข้องครับ",
-    DirectResponseKind.VOC_DETAILS: "ได้ครับ ต้องการร้องเรียนด้านบริการเรื่องใด กรุณาระบุหัวข้อ (`subject:`) และรายละเอียด (`detail:`) เพื่อให้ผมเตรียมเรื่องร้องเรียนให้ครับ",
+    DirectResponseKind.VOC_DETAILS: "ได้ครับ ต้องการร้องเรียนเรื่องใด กรุณาระบุหัวข้อ (`subject:`) และรายละเอียด (`detail:`) เพื่อให้ผมเตรียมเรื่องร้องเรียนให้ครับ",
+    DirectResponseKind.VOC_CONTACT_NAME: "ได้ครับ กรุณาระบุชื่อผู้แจ้ง (`contactName: ...`) เพื่อให้ผมเตรียมเรื่องร้องเรียนให้ครับ",
+    DirectResponseKind.VOC_CONTACT_PHONE: "ได้ครับ กรุณาระบุเบอร์โทรติดต่อ (`contactPhone: ...`) เพื่อให้ผมเตรียมเรื่องร้องเรียนให้ครับ",
+    DirectResponseKind.VOC_LOCATION: "ได้ครับ กรุณาระบุสถานที่เกิดเหตุ (`location: ...`) เพื่อให้ผมเตรียมเรื่องร้องเรียนให้ครับ",
+    DirectResponseKind.VOC_TRACKING_INPUTS: "ได้ครับ กรุณาระบุเลขเรื่อง (`vocId: ...`) และคีย์ติดตาม (`trackingKey: ...`) ที่ได้รับหลังส่งเรื่อง เพื่อตรวจสอบสถานะเรื่องร้องเรียนครับ",
 }
 _EXACT_GREETINGS = frozenset({"hi", "hello", "hey"})
 _OUTPUT_POLICY_PATTERNS = (

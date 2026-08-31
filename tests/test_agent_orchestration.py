@@ -7,7 +7,7 @@ import pytest
 from app.agent.main_agent import MainAgent
 from app.agent.registry import ToolRegistry
 from app.backends.full_document_knowledge import GroundedEvidence, KnowledgeBackendError
-from app.contracts import ChatRequest, Citation, ToolErrorCode
+from app.contracts import ChatRequest, Citation, ToolErrorCode, ToolResultStatus
 from app.llm import DemoLLMAdapter, LLMClient
 from app.tools.knowledge_tool import KnowledgeTool
 from app.tools.oms_tool import OmsTool
@@ -108,13 +108,60 @@ async def test_voc_follow_up_completes_the_intent_from_conversation_history() ->
     second = await agent.handle_chat(
         ChatRequest(
             conversationId=first.conversation_id,
-            message="subject: เจ้าหน้าที่ให้บริการล่าช้า; detail: รอเจ็ดวันแล้วยังไม่มีการติดต่อกลับ",
+            message="subject: เจ้าหน้าที่ให้บริการล่าช้า; detail: รอเจ็ดวันแล้วยังไม่มีการติดต่อกลับ; contactName: สมชาย ใจดี; contactPhone: 0812345678; location: ถนนสุขุมวิท กรุงเทพฯ",
         )
     )
 
     assert [result.action.value for result in second.tool_results] == ["prepare_case"]
     assert second.pending_action is not None
     assert second.pending_action.prepared_input["category"] == "service"
+
+
+@pytest.mark.asyncio
+async def test_voc_follow_up_asks_step_by_step_for_missing_fields() -> None:
+    agent = _agent()
+    first = await agent.handle_chat(ChatRequest(message="ต้องการร้องเรียนการบริการ"))
+
+    # มีแค่ subject + detail → ต้องถามชื่อผู้แจ้งก่อน
+    second = await agent.handle_chat(
+        ChatRequest(
+            conversationId=first.conversation_id,
+            message="subject: เจ้าหน้าที่ให้บริการล่าช้า; detail: รอเจ็ดวันแล้วยังไม่มีการติดต่อกลับ",
+        )
+    )
+    assert second.tool_results == ()
+    assert second.pending_action is None
+    assert "contactName" in second.message
+
+    # เพิ่มชื่อ → ต้องถามเบอร์โทรก่อน
+    third = await agent.handle_chat(
+        ChatRequest(
+            conversationId=first.conversation_id,
+            message="contactName: สมชาย ใจดี",
+        )
+    )
+    assert third.tool_results == ()
+    assert "contactPhone" in third.message
+
+    # เพิ่มเบอร์โทร → ต้องถามสถานที่ก่อน
+    fourth = await agent.handle_chat(
+        ChatRequest(
+            conversationId=first.conversation_id,
+            message="contactPhone: 0812345678",
+        )
+    )
+    assert fourth.tool_results == ()
+    assert "location" in fourth.message
+
+    # ครบทุกฟิลด์ → เตรียมเคส
+    fifth = await agent.handle_chat(
+        ChatRequest(
+            conversationId=first.conversation_id,
+            message="location: ถนนสุขุมวิท กรุงเทพฯ",
+        )
+    )
+    assert [result.action.value for result in fifth.tool_results] == ["prepare_case"]
+    assert fifth.pending_action is not None
 
 
 @pytest.mark.asyncio
@@ -127,13 +174,52 @@ async def test_voc_three_turn_intake_keeps_the_original_intent() -> None:
     third = await agent.handle_chat(
         ChatRequest(
             conversationId=first.conversation_id,
-            message="detail: รอเจ็ดวันแล้วยังไม่มีการติดต่อกลับ",
+            message="detail: รอเจ็ดวันแล้วยังไม่มีการติดต่อกลับ; contactName: สมชาย ใจดี; contactPhone: 0812345678; location: ถนนสุขุมวิท",
         )
     )
 
     assert second.tool_results == ()
     assert [result.action.value for result in third.tool_results] == ["prepare_case"]
     assert third.pending_action is not None
+
+
+@pytest.mark.asyncio
+async def test_voc_tracking_uses_voc_id_and_key() -> None:
+    agent = _agent()
+    first = await agent.handle_chat(
+        ChatRequest(
+            message="ต้องการร้องเรียนการบริการ; subject: บริการล่าช้า; detail: ไม่มีการติดต่อกลับ; contactName: สมชาย ใจดี; contactPhone: 0812345678; location: ถนนสุขุมวิท"
+        )
+    )
+    assert [result.action.value for result in first.tool_results] == ["prepare_case"]
+    assert first.pending_action is not None
+
+    confirmed = await agent.confirm_pending_action(first.pending_action.pending_action_id)
+    submitted = confirmed.tool_result
+    assert submitted is not None and submitted.status is ToolResultStatus.SUCCESS
+    voc_id = submitted.data["vocId"]
+    tracking_key = submitted.data["trackingKey"]
+
+    tracked = await agent.handle_chat(
+        ChatRequest(
+            conversationId=first.conversation_id,
+            message=f"ติดตามเรื่องร้องเรียน; vocId: {voc_id}; trackingKey: {tracking_key}",
+        )
+    )
+    assert [result.action.value for result in tracked.tool_results] == ["get_case"]
+    assert tracked.tool_results[0].data["status"] == "submitted"
+    assert tracked.tool_results[0].data["vocId"] == voc_id
+
+
+@pytest.mark.asyncio
+async def test_voc_tracking_without_key_asks_for_inputs() -> None:
+    agent = _agent()
+    response = await agent.handle_chat(
+        ChatRequest(message="ติดตามเรื่องร้องเรียน; vocId: SIM-CASE-000001")
+    )
+    assert response.tool_results == ()
+    assert response.pending_action is None
+    assert "trackingKey" in response.message
 
 
 @pytest.mark.asyncio

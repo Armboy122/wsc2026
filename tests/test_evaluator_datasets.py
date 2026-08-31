@@ -30,3 +30,4 @@ def test_prepare_prompts_supply_required_user_details() -> None:
                 assert "location:" in row["query"] and "symptoms:" in row["query"]
             if row.get("expectedAction") == "prepare_case" or "prepare_case" in row.get("expectedActions", []):
                 assert "subject:" in row["query"] and "detail:" in row["query"]
+                assert "contactName:" in row["query"] and "contactPhone:" in row["query"] and "location:" in row["query"]

@@ -75,7 +75,7 @@ def test_sabuy_prepare_confirm_is_explicit_and_idempotent(client: TestClient) ->
 def test_voc_prompt_prepares_then_rejects_terminally(client: TestClient) -> None:
     body = chat(
         client,
-        "เรื่องร้องเรียน; subject: ค่าไฟฟ้าไม่ถูกต้อง; detail: ยอดรวมที่แสดงไม่ตรงกับใบแจ้งค่าไฟของฉัน",
+        "เรื่องร้องเรียน; subject: ค่าไฟฟ้าไม่ถูกต้อง; detail: ยอดรวมที่แสดงไม่ตรงกับใบแจ้งค่าไฟของฉัน; contactName: สมชาย ใจดี; contactPhone: 0812345678; location: ถนนสุขุมวิท กรุงเทพฯ",
     )
     pending = body["pendingAction"]
     assert pending["prepareAction"] == "prepare_case"

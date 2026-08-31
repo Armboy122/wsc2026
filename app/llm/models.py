@@ -53,6 +53,10 @@ class DirectResponseKind(str, Enum):
     OUTAGE_REPORT_INPUTS = "outage_report_inputs"
     OUTAGE_STATUS_AREA = "outage_status_area"
     VOC_DETAILS = "voc_details"
+    VOC_CONTACT_NAME = "voc_contact_name"
+    VOC_CONTACT_PHONE = "voc_contact_phone"
+    VOC_LOCATION = "voc_location"
+    VOC_TRACKING_INPUTS = "voc_tracking_inputs"
 
 
 @dataclass(frozen=True, slots=True)

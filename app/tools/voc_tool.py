@@ -1,7 +1,7 @@
 """เครื่องมือ VOC (เสียงของลูกค้า) แบบจำลอง (``voc_tool``)
 
-เปิดเผยการกระทำตามสัญญา ``list_categories``, ``prepare_case`` และการกระทำภายใน
-``submit_case`` โดยผลลัพธ์ทั้งหมดเป็นข้อมูลจำลอง
+เปิดเผยการกระทำตามสัญญา ``list_categories``, ``prepare_case``, ``get_case``
+และการกระทำภายใน ``submit_case`` โดยผลลัพธ์ทั้งหมดเป็นข้อมูลจำลอง
 """
 
 from __future__ import annotations
@@ -29,6 +29,9 @@ class VocTool(SimulatedTool):
                 input_model.category,
                 input_model.subject,
                 input_model.detail,
+                input_model.contact_name,
+                input_model.contact_phone,
+                input_model.location,
                 input_model.contact_channel,
                 input_model.idempotency_key,
             )
@@ -36,5 +39,10 @@ class VocTool(SimulatedTool):
             return self.backend.submit_case(
                 input_model.pending_action_id,
                 input_model.idempotency_key,
+            )
+        if action is ToolAction.VOC_GET_CASE:
+            return self.backend.get_case(
+                input_model.voc_id,
+                input_model.tracking_key,
             )
         raise ValueError(f"ไม่มีการจัดการการกระทำ {action.value}")

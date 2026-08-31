@@ -105,7 +105,8 @@ _ACTION_SCHEMAS: dict[str, dict[str, Any]] = {
     "get_account_summary": {"accountRef": {"type": "string"}},
     "prepare_payment": {"accountRef": {"type": "string"}, "amountThb": {"type": "number", "exclusiveMinimum": 0}, "paymentMethod": {"type": "string", "enum": ["demo_card", "demo_bank"]}, "idempotencyKey": {"type": "string"}},
     "list_categories": {},
-    "prepare_case": {"category": {"type": "string", "enum": ["power_quality", "service", "compliment", "tip_off", "operations", "stakeholder_feedback"]}, "subject": {"type": "string"}, "detail": {"type": "string"}, "contactChannel": {"type": "string", "enum": ["phone", "email", "none"]}, "idempotencyKey": {"type": "string"}},
+    "prepare_case": {"category": {"type": "string", "enum": ["power_quality", "service", "compliment", "tip_off", "operations", "stakeholder_feedback"]}, "subject": {"type": "string"}, "detail": {"type": "string"}, "contactName": {"type": "string"}, "contactPhone": {"type": "string"}, "location": {"type": "string"}, "contactChannel": {"type": "string", "enum": ["phone", "email", "none"]}, "idempotencyKey": {"type": "string"}},
+    "get_case": {"vocId": {"type": "string"}, "trackingKey": {"type": "string"}},
     "get_outage_status": {"areaCode": {"type": "string"}},
     "prepare_outage_report": {"areaCode": {"type": "string"}, "locationNote": {"type": "string"}, "symptoms": {"type": "string"}, "idempotencyKey": {"type": "string"}},
 }

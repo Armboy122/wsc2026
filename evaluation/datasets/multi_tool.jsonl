@@ -4,7 +4,7 @@
 {"id":"M04","query":"billing policy and balance PEA-1003","expectedActions":["search","get_account_summary"]}
 {"id":"M05","query":"prepare payment PEA-1001 amount 10 THB paymentMethod: demo_card and show account summary","expectedActions":["prepare_payment","get_account_summary"]}
 {"id":"M06","query":"report outage for area HKT-03; location: Building A lobby; symptoms: no power and sparks; and get outage status","expectedActions":["prepare_outage_report","get_outage_status"]}
-{"id":"M07","query":"service complaint; subject: delayed service; detail: service request has had no update; and billing policy","expectedActions":["prepare_case","search"]}
+{"id":"M07","query":"service complaint; subject: delayed service; detail: service request has had no update; contactName: Somchai; contactPhone: 0812345678; location: Bangkok; and billing policy","expectedActions":["prepare_case","search"]}
 {"id":"M08","query":"account PEA-1002, outage BKK-01, and categories","expectedActions":["get_account_summary","get_outage_status","list_categories"]}
 {"id":"M09","query":"payment channels and demo payment PEA-1003 amount 25 THB paymentMethod: demo_bank","expectedActions":["search","prepare_payment"]}
 {"id":"M10","query":"safety policy and outage report for area CNX-02; location: roadside transformer; symptoms: fallen wire;","expectedActions":["search","prepare_outage_report"]}

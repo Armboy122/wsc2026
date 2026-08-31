@@ -43,6 +43,7 @@ class ToolAction(str, Enum):
     VOC_LIST_CATEGORIES = "list_categories"
     VOC_PREPARE_CASE = "prepare_case"
     VOC_SUBMIT_CASE = "submit_case"
+    VOC_GET_CASE = "get_case"
     OMS_OUTAGE_STATUS = "get_outage_status"
     OMS_PREPARE_OUTAGE_REPORT = "prepare_outage_report"
     OMS_SUBMIT_OUTAGE_REPORT = "submit_outage_report"
@@ -59,6 +60,7 @@ TOOL_ACTIONS: dict[ToolName, frozenset[ToolAction]] = {
         ToolAction.VOC_LIST_CATEGORIES,
         ToolAction.VOC_PREPARE_CASE,
         ToolAction.VOC_SUBMIT_CASE,
+        ToolAction.VOC_GET_CASE,
     }),
     ToolName.OMS: frozenset({
         ToolAction.OMS_OUTAGE_STATUS,
@@ -283,8 +285,16 @@ class VocPrepareCaseInput(FrozenModel):
     category: VocCategory
     subject: str = Field(min_length=1, max_length=140)
     detail: str = Field(min_length=1, max_length=2000)
+    contact_name: str = Field(min_length=1, max_length=100, serialization_alias="contactName")
+    contact_phone: str = Field(min_length=1, max_length=32, serialization_alias="contactPhone")
+    location: str = Field(min_length=1, max_length=500)
     contact_channel: ContactChannel = Field(serialization_alias="contactChannel")
     idempotency_key: str = Field(min_length=1, max_length=128, serialization_alias="idempotencyKey")
+
+
+class VocGetCaseInput(FrozenModel):
+    voc_id: str = Field(min_length=1, max_length=64, serialization_alias="vocId")
+    tracking_key: str = Field(min_length=1, max_length=64, serialization_alias="trackingKey")
 
 
 class OmsOutageStatusInput(FrozenModel):
@@ -353,8 +363,18 @@ class VocPrepareCaseOutput(FrozenModel):
 
 class VocCaseOutput(FrozenModel):
     case_id: str = Field(min_length=1, serialization_alias="caseId")
+    voc_id: str = Field(min_length=1, serialization_alias="vocId")
+    tracking_key: str = Field(min_length=1, max_length=64, serialization_alias="trackingKey")
     status: Literal["submitted"]
     category: VocCategory
+
+
+class VocGetCaseOutput(FrozenModel):
+    voc_id: str = Field(min_length=1, serialization_alias="vocId")
+    status: Literal["submitted"]
+    category: VocCategory
+    created_at: datetime = Field(serialization_alias="createdAt")
+    updated_at: datetime = Field(serialization_alias="updatedAt")
 
 
 class OutageStatus(str, Enum):
@@ -391,6 +411,7 @@ INPUT_MODELS: ClassVar[dict[ToolAction, type[FrozenModel]]] = {
     ToolAction.VOC_LIST_CATEGORIES: EmptyInput,
     ToolAction.VOC_PREPARE_CASE: VocPrepareCaseInput,
     ToolAction.VOC_SUBMIT_CASE: SubmitPreparedActionInput,
+    ToolAction.VOC_GET_CASE: VocGetCaseInput,
     ToolAction.OMS_OUTAGE_STATUS: OmsOutageStatusInput,
     ToolAction.OMS_PREPARE_OUTAGE_REPORT: OmsPrepareOutageReportInput,
     ToolAction.OMS_SUBMIT_OUTAGE_REPORT: SubmitPreparedActionInput,
@@ -405,6 +426,7 @@ OUTPUT_MODELS: ClassVar[dict[ToolAction, type[FrozenModel]]] = {
     ToolAction.VOC_LIST_CATEGORIES: VocCategoryListOutput,
     ToolAction.VOC_PREPARE_CASE: VocPrepareCaseOutput,
     ToolAction.VOC_SUBMIT_CASE: VocCaseOutput,
+    ToolAction.VOC_GET_CASE: VocGetCaseOutput,
     ToolAction.OMS_OUTAGE_STATUS: OmsOutageStatusOutput,
     ToolAction.OMS_PREPARE_OUTAGE_REPORT: OmsPrepareOutageReportOutput,
     ToolAction.OMS_SUBMIT_OUTAGE_REPORT: OmsOutageReportOutput,

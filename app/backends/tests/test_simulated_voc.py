@@ -11,6 +11,30 @@ from app.backends.simulated_voc import SimulatedVocBackend
 from app.contracts import ContactChannel, ToolErrorCode, VocCategory
 
 
+def _prepare(
+    backend: SimulatedVocBackend,
+    *,
+    category: VocCategory = VocCategory.SERVICE,
+    subject: str = "ยอดค่าไฟไม่ถูกต้อง",
+    detail: str = "ค่าไฟล่าสุดดูสูงเกินไป",
+    contact_name: str = "สมชาย ใจดี",
+    contact_phone: str = "0812345678",
+    location: str = "ถนนสุขุมวิท กรุงเทพฯ",
+    contact_channel: ContactChannel = ContactChannel.EMAIL,
+    key: str = "k1",
+) -> dict:
+    return backend.prepare_case(
+        category,
+        subject,
+        detail,
+        contact_name,
+        contact_phone,
+        location,
+        contact_channel,
+        key,
+    )
+
+
 def test_list_categories_returns_fixture_categories():
     backend = SimulatedVocBackend()
     out = backend.list_categories()
@@ -23,17 +47,11 @@ def test_prepare_case_has_no_side_effect():
     backend = SimulatedVocBackend()
     subject = "ยอดค่าไฟไม่ถูกต้อง"
     detail = "ค่าไฟล่าสุดดูสูงเกินไป"
-    out = backend.prepare_case(
-        VocCategory.SERVICE,
-        subject,
-        detail,
-        ContactChannel.EMAIL,
-        "k1",
-    )
+    out = _prepare(backend, subject=subject, detail=detail)
     assert out["category"] == "service"
     assert out["subject"] == subject
     # สรุปสำหรับการยืนยันต้องปลอดภัยจาก PII และระบุเฉพาะหมวดหมู่
-    # โดยต้องไม่เปิดเผยหัวข้อหรือรายละเอียดที่ผู้ใช้ระบุ
+    # โดยต้องไม่เปิดเผยหัวข้อ รายละเอียด ชื่อ หรือเบอร์โทรที่ผู้ใช้ระบุ
     assert out["summary"] == "เตรียมเคสหมวดหมู่ service"
     assert subject not in out["summary"]
     assert detail not in out["summary"]
@@ -50,30 +68,52 @@ def test_submit_case_without_prepare_raises_not_found():
 
 def test_submit_case_deduplicates_by_idempotency_key():
     backend = SimulatedVocBackend()
-    backend.prepare_case(
-        VocCategory.TIP_OFF,
-        "สายไฟตก",
-        "มีสายไฟตกอยู่บนถนนของฉัน",
-        ContactChannel.PHONE,
-        "k1",
-    )
+    _prepare(backend, category=VocCategory.TIP_OFF, subject="สายไฟตก", detail="มีสายไฟตกอยู่บนถนนของฉัน", contact_channel=ContactChannel.PHONE)
     first = backend.submit_case(uuid4(), "k1")
     second = backend.submit_case(uuid4(), "k1")
     assert first == second
     assert first["status"] == "submitted"
     assert first["category"] == "tip_off"
+    assert first["vocId"] == first["caseId"]
+    assert first["trackingKey"]
     assert len(backend._cases) == 1
+
+
+def test_submit_case_returns_voc_id_and_tracking_key():
+    backend = SimulatedVocBackend()
+    _prepare(backend, key="k1")
+    out = backend.submit_case(uuid4(), "k1")
+    assert out["vocId"] == "SIM-CASE-000001"
+    assert len(out["trackingKey"]) >= 8
+
+
+def test_get_case_returns_status_with_matching_key():
+    backend = SimulatedVocBackend()
+    _prepare(backend, category=VocCategory.SERVICE, key="k1")
+    submitted = backend.submit_case(uuid4(), "k1")
+    out = backend.get_case(submitted["vocId"], submitted["trackingKey"])
+    assert out["vocId"] == submitted["vocId"]
+    assert out["status"] == "submitted"
+    assert out["category"] == "service"
+    assert out["createdAt"] == out["updatedAt"]
+
+
+def test_get_case_wrong_key_fails_closed():
+    backend = SimulatedVocBackend()
+    _prepare(backend, key="k1")
+    submitted = backend.submit_case(uuid4(), "k1")
+    with pytest.raises(BackendError) as exc:
+        backend.get_case(submitted["vocId"], "wrong-key")
+    assert exc.value.code is ToolErrorCode.NOT_FOUND
+    # คีย์ผิดและ vocId ไม่มีอยู่ต้องล้มเหลวเหมือนกัน (ไม่รั่วไหลว่า vocId มีจริง)
+    with pytest.raises(BackendError) as missing:
+        backend.get_case("SIM-CASE-999999", "wrong-key")
+    assert missing.value.code is ToolErrorCode.NOT_FOUND
 
 
 def test_reset_clears_state():
     backend = SimulatedVocBackend()
-    backend.prepare_case(
-        VocCategory.SERVICE,
-        "คำถาม",
-        "คำถามทั่วไป",
-        ContactChannel.NONE,
-        "k1",
-    )
+    _prepare(backend, key="k1")
     backend.submit_case(uuid4(), "k1")
     backend.reset()
     assert backend._prepared == {}

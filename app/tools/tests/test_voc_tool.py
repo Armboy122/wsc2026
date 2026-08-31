@@ -14,6 +14,21 @@ def _call(action: ToolAction, input_data: dict) -> ToolCall:
     return ToolCall(call_id=uuid4(), name=ToolName.VOC, action=action, input=input_data)
 
 
+def _prepare_input(**overrides: object) -> dict:
+    base = {
+        "category": "service",
+        "subject": "บริการล่าช้า",
+        "detail": "รอเจ้าหน้าที่ติดต่อกลับมาเจ็ดวันแล้ว",
+        "contactName": "สมชาย ใจดี",
+        "contactPhone": "0812345678",
+        "location": "ถนนสุขุมวิท กรุงเทพฯ",
+        "contactChannel": "phone",
+        "idempotencyKey": "k1",
+    }
+    base.update(overrides)
+    return base
+
+
 def test_execute_list_categories_success_is_simulated():
     tool = VocTool(backend=SimulatedVocBackend())
     result = asyncio.run(tool.execute(_call(ToolAction.VOC_LIST_CATEGORIES, {})))
@@ -28,8 +43,22 @@ def test_execute_invalid_category_returns_invalid_input():
         tool.execute(
             _call(
                 ToolAction.VOC_PREPARE_CASE,
+                _prepare_input(category="not_a_category"),
+            )
+        )
+    )
+    assert result.status is ToolResultStatus.ERROR
+    assert result.error.code is ToolErrorCode.INVALID_INPUT
+
+
+def test_execute_missing_contact_fields_returns_invalid_input():
+    tool = VocTool(backend=SimulatedVocBackend())
+    result = asyncio.run(
+        tool.execute(
+            _call(
+                ToolAction.VOC_PREPARE_CASE,
                 {
-                    "category": "not_a_category",
+                    "category": "service",
                     "subject": "x",
                     "detail": "y",
                     "contactChannel": "email",
@@ -45,16 +74,7 @@ def test_execute_invalid_category_returns_invalid_input():
 def test_execute_prepare_then_submit_deduplicates():
     backend = SimulatedVocBackend()
     tool = VocTool(backend=backend)
-    prep = _call(
-        ToolAction.VOC_PREPARE_CASE,
-        {
-            "category": "tip_off",
-            "subject": "Fallen line",
-            "detail": "A power line is down.",
-            "contactChannel": "phone",
-            "idempotencyKey": "k1",
-        },
-    )
+    prep = _call(ToolAction.VOC_PREPARE_CASE, _prepare_input(category="tip_off"))
     prepared = asyncio.run(tool.execute(prep))
     assert prepared.status is ToolResultStatus.SUCCESS
     assert prepared.data["category"] == "tip_off"
@@ -63,6 +83,8 @@ def test_execute_prepare_then_submit_deduplicates():
     first = asyncio.run(tool.execute(_call(ToolAction.VOC_SUBMIT_CASE, sub_input)))
     assert first.status is ToolResultStatus.SUCCESS
     assert first.data["status"] == "submitted"
+    assert first.data["vocId"]
+    assert first.data["trackingKey"]
 
     second = asyncio.run(tool.execute(_call(ToolAction.VOC_SUBMIT_CASE, sub_input)))
     assert second.data == first.data
@@ -81,3 +103,35 @@ def test_execute_submit_without_prepare_returns_not_found():
     )
     assert result.status is ToolResultStatus.ERROR
     assert result.error.code is ToolErrorCode.NOT_FOUND
+
+
+def test_execute_get_case_success_and_wrong_key():
+    backend = SimulatedVocBackend()
+    tool = VocTool(backend=backend)
+    asyncio.run(tool.execute(_call(ToolAction.VOC_PREPARE_CASE, _prepare_input())))
+    submitted = asyncio.run(tool.execute(_call(ToolAction.VOC_SUBMIT_CASE, {"pendingActionId": str(uuid4()), "idempotencyKey": "k1"})))
+    assert submitted.status is ToolResultStatus.SUCCESS
+
+    ok = asyncio.run(
+        tool.execute(
+            _call(ToolAction.VOC_GET_CASE, {
+                "vocId": submitted.data["vocId"],
+                "trackingKey": submitted.data["trackingKey"],
+            })
+        )
+    )
+    assert ok.status is ToolResultStatus.SUCCESS
+    assert ok.simulation is True
+    assert ok.data["status"] == "submitted"
+    assert ok.data["vocId"] == submitted.data["vocId"]
+
+    bad = asyncio.run(
+        tool.execute(
+            _call(ToolAction.VOC_GET_CASE, {
+                "vocId": submitted.data["vocId"],
+                "trackingKey": "wrong-key",
+            })
+        )
+    )
+    assert bad.status is ToolResultStatus.ERROR
+    assert bad.error.code is ToolErrorCode.NOT_FOUND

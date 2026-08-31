@@ -59,6 +59,10 @@ class DemoLLMAdapter:
         symptoms = _labelled_value(message, "symptoms", 1000)
         subject = _labelled_value(message, "subject", 140)
         detail = _labelled_value(message, "detail", 2000)
+        contact_name = _labelled_value(message, "contactName", 100)
+        contact_phone = _labelled_value(message, "contactPhone", 32)
+        voc_id = _labelled_value(message, "vocId", 64)
+        tracking_key = _labelled_value(message, "trackingKey", 64)
         amount = _requested_amount(message)
         payment_method = _payment_method(message)
         planned: list[tuple[int, ToolName, ToolAction, dict[str, Any]]] = []
@@ -74,6 +78,11 @@ class DemoLLMAdapter:
             text, has_details=bool(location or symptoms)
         )
         case_requested = _case_requested(
+            text,
+            wants_categories=wants_categories,
+            has_details=bool(subject and detail),
+        )
+        tracking_requested = _tracking_requested(
             text,
             wants_categories=wants_categories,
             has_details=bool(subject and detail),
@@ -139,19 +148,32 @@ class DemoLLMAdapter:
         # คำขอหมวดหมู่ที่ระบุชัดเจนเป็นการอ่านเสมอ ไม่ใช่การเขียนเรื่องร้องเรียนที่ข้อมูลไม่ครบ
         if wants_categories:
             _append_plan(planned, message, ("category", "categories", "case types", "หมวด"), ToolName.VOC, ToolAction.VOC_LIST_CATEGORIES, {})
-        elif case_requested:
-            if subject and detail:
-                category = _case_category(text)
-                action = ToolAction.VOC_PREPARE_CASE
-                _append_plan(planned, message, ("complaint", "complain", "case", "service report", "ร้องเรียน"), ToolName.VOC, action, {
-                    "category": category.value,
-                    "subject": subject,
-                    "detail": detail,
-                    "contactChannel": ContactChannel.NONE.value,
-                    "idempotencyKey": _idempotency_key(correlation_id, action, f"{category.value}:{subject}:{detail}"),
+        elif tracking_requested:
+            if voc_id and tracking_key:
+                _append_plan(planned, message, ("track", "ติดตาม", "tracking"), ToolName.VOC, ToolAction.VOC_GET_CASE, {
+                    "vocId": voc_id,
+                    "trackingKey": tracking_key,
                 })
             elif not planned:
-                return _direct_response(DirectResponseKind.VOC_DETAILS)
+                return _direct_response(DirectResponseKind.VOC_TRACKING_INPUTS)
+        elif case_requested:
+            missing = _first_missing_case_field(
+                subject, detail, contact_name, contact_phone, location
+            )
+            if missing is not None:
+                return _direct_response(missing)
+            category = _case_category(text)
+            action = ToolAction.VOC_PREPARE_CASE
+            _append_plan(planned, message, ("complaint", "complain", "case", "service report", "ร้องเรียน"), ToolName.VOC, action, {
+                "category": category.value,
+                "subject": subject,
+                "detail": detail,
+                "contactName": contact_name,
+                "contactPhone": contact_phone,
+                "location": location,
+                "contactChannel": ContactChannel.NONE.value,
+                "idempotencyKey": _idempotency_key(correlation_id, action, f"{category.value}:{subject}:{detail}:{contact_name}:{contact_phone}:{location}"),
+            })
 
         if knowledge_requested:
             _append_plan(planned, message, ("knowledge", "policy", "tariff", "rate", "guidance", "safety", "payment channels", "ค้นหา", "นโยบาย", "อัตราค่าไฟ"), ToolName.KNOWLEDGE, ToolAction.KNOWLEDGE_SEARCH, {"query": _safe_query(message), "maxResults": 3})
@@ -327,6 +349,38 @@ def _case_requested(
     )
 
 
+def _tracking_requested(text: str, *, wants_categories: bool, has_details: bool) -> bool:
+    """แยกเจตนาติดตามเรื่องร้องเรียน (voc_tool.get_case) ออกจากเจตนาแจ้งเรื่องใหม่
+
+    เครื่องหมายติดตาม (ติดตาม/track/vocId/trackingKey) มีความเฉพาะเจาะจงและ
+    ถูกตรวจสอบก่อน case_requested จึงมีสิทธิ์ชนะแม้ข้อความจะมีคำว่า "ร้องเรียน"
+    """
+    if wants_categories:
+        return False
+    return any(term in text for term in (
+        "track", "tracking", "ติดตาม", "ติดตามเรื่อง", "ตรวจสอบเรื่อง",
+    )) or bool(re.search(r"\b(?:vocid|trackingkey)\b", text))
+
+
+def _first_missing_case_field(
+    subject: str | None,
+    detail: str | None,
+    contact_name: str | None,
+    contact_phone: str | None,
+    location: str | None,
+) -> DirectResponseKind | None:
+    """ลำดับการถามข้อมูลทีละขั้นเหมือนฟอร์มบนเว็บ: รายละเอียด → ชื่อ → เบอร์ → สถานที่"""
+    if not subject or not detail:
+        return DirectResponseKind.VOC_DETAILS
+    if not contact_name:
+        return DirectResponseKind.VOC_CONTACT_NAME
+    if not contact_phone:
+        return DirectResponseKind.VOC_CONTACT_PHONE
+    if not location:
+        return DirectResponseKind.VOC_LOCATION
+    return None
+
+
 def _has_explicit_operational_intent(message: str) -> bool:
     """ใช้ predicate ชุดเดียวกับ planner เพื่อกัน intent ใหม่ออกจาก Knowledge context"""
     text = message.casefold()
@@ -347,6 +401,11 @@ def _has_explicit_operational_intent(message: str) -> bool:
             ),
         )
         or _case_requested(
+            text,
+            wants_categories=wants_categories,
+            has_details=has_case_details,
+        )
+        or _tracking_requested(
             text,
             wants_categories=wants_categories,
             has_details=has_case_details,
@@ -455,6 +514,10 @@ def _labelled_value(message: str, label: str, maximum: int) -> str | None:
         "symptoms": "อาการ",
         "subject": "หัวข้อ",
         "detail": "รายละเอียด",
+        "contactName": "ชื่อ",
+        "contactPhone": "เบอร์โทร",
+        "vocId": "เลขเรื่อง",
+        "trackingKey": "คีย์ติดตาม",
     }
     accepted_labels = (label, thai_labels.get(label, label))
     labels_pattern = "|".join(re.escape(item) for item in accepted_labels)
@@ -513,6 +576,8 @@ def _grounded_message(results: tuple[dict[str, Any], ...]) -> str:
             continue
         if "outstandingBalanceThb" in data:
             messages.append(f"บัญชี {data['accountRef']} มียอดคงค้าง THB {data['outstandingBalanceThb']} (สถานะ {data['paymentStatus']})")
+        elif "vocId" in data and "status" in data:
+            messages.append(f"เรื่องร้องเรียน {data['vocId']} มีสถานะ {data['status']} (หมวดหมู่ {data['category']})")
         elif "safetyMessage" in data and "status" in data:
             messages.append(f"พื้นที่ {data['areaCode']} มีสถานะ {data['status']} {data['safetyMessage']}")
         elif "summary" in data:

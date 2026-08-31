@@ -2,10 +2,14 @@
 
 อ่านหมวดหมู่คงที่จาก ``data/mock/voc_categories.json`` และบันทึกเคสจำลอง
 ไว้ในสถานะภายใน process โดยไม่มีการเรียก CRM หรือ contact centre ระบบจริง
+เคสที่ส่งแล้วจะได้ ``vocId`` (เลขติดตาม) พร้อม ``trackingKey`` (คีย์ยืนยัน)
+ซึ่งผู้ใช้ต้องใช้คู่กันเพื่อติดตามสถานะเรื่องร้องเรียน
 """
 
 from __future__ import annotations
 
+import secrets
+from datetime import UTC, datetime
 from typing import Any
 from uuid import UUID
 
@@ -41,6 +45,9 @@ class SimulatedVocBackend:
         category: VocCategory,
         subject: str,
         detail: str,
+        contact_name: str,
+        contact_phone: str,
+        location: str,
         contact_channel: ContactChannel,
         idempotency_key: str,
     ) -> dict[str, Any]:
@@ -49,6 +56,9 @@ class SimulatedVocBackend:
             "category": category.value,
             "subject": subject,
             "detail": detail,
+            "contactName": contact_name,
+            "contactPhone": contact_phone,
+            "location": location,
             "contactChannel": contact_channel.value,
         }
         summary = f"เตรียมเคสหมวดหมู่ {category.value}"
@@ -59,10 +69,20 @@ class SimulatedVocBackend:
         }
 
     def submit_case(self, pending_action_id: UUID, idempotency_key: str) -> dict[str, Any]:
-        """สร้างเคสที่จัดเตรียมไว้เพียงหนึ่งครั้ง โดยตัดรายการซ้ำด้วย idempotency key"""
+        """สร้างเคสที่จัดเตรียมไว้เพียงหนึ่งครั้ง โดยตัดรายการซ้ำด้วย idempotency key
+
+        เคสที่สร้างแล้วจะได้ ``vocId`` (เลขติดตาม) และ ``trackingKey`` (คีย์ยืนยัน)
+        ซึ่งผู้ใช้ต้องเก็บไว้เพื่อใช้ติดตามสถานะเรื่องร้องเรียนภายหลัง
+        """
         existing = self._cases.get(idempotency_key)
         if existing is not None:
-            return dict(existing)
+            return {
+                "caseId": existing["caseId"],
+                "vocId": existing["vocId"],
+                "trackingKey": existing["trackingKey"],
+                "status": existing["status"],
+                "category": existing["category"],
+            }
         prepared = self._prepared.get(idempotency_key)
         if prepared is None:
             raise BackendError(
@@ -70,13 +90,53 @@ class SimulatedVocBackend:
                 "ไม่มีเคสที่จัดเตรียมไว้สำหรับ idempotency key นี้",
             )
         self._seq += 1
+        now = datetime.now(UTC)
+        voc_id = f"SIM-CASE-{self._seq:06d}"
+        tracking_key = secrets.token_urlsafe(6)
         case = {
-            "caseId": f"SIM-CASE-{self._seq:06d}",
+            "caseId": voc_id,
+            "vocId": voc_id,
+            "trackingKey": tracking_key,
             "status": "submitted",
             "category": prepared["category"],
+            "createdAt": now,
+            "updatedAt": now,
         }
         self._cases[idempotency_key] = case
-        return dict(case)
+        return {
+            "caseId": case["caseId"],
+            "vocId": case["vocId"],
+            "trackingKey": case["trackingKey"],
+            "status": case["status"],
+            "category": case["category"],
+        }
+
+    def get_case(self, voc_id: str, tracking_key: str) -> dict[str, Any]:
+        """ค้นหาเคสด้วย ``vocId`` + ``trackingKey`` ที่ต้องตรงกันทั้งคู่
+
+        หากคีย์ไม่ตรงหรือไม่พบเคส ให้ล้มเหลวแบบ fail-closed โดยไม่เปิดเผยว่า
+        ``vocId`` มีอยู่จริงหรือไม่
+        """
+        match = next(
+            (
+                case
+                for case in self._cases.values()
+                if case["vocId"] == voc_id and case["trackingKey"] == tracking_key
+            ),
+            None,
+        )
+        if match is None:
+            raise BackendError(
+                ToolErrorCode.NOT_FOUND,
+                "ไม่พบเคสสำหรับ vocId และ trackingKey ที่ระบุ",
+            )
+        return {
+            "vocId": match["vocId"],
+            "status": match["status"],
+            "category": match["category"],
+            "createdAt": match["createdAt"],
+            "updatedAt": match["updatedAt"],
+        }
 
 
 default_backend = SimulatedVocBackend()

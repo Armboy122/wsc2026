@@ -211,10 +211,15 @@ Main Agent เรียกใช้ `submit_payment` ได้หลังกา
 | การดำเนินการ | ข้อมูลนำเข้า | ข้อมูลเมื่อสำเร็จ |
 |---|---|---|
 | `list_categories` | `{}` | `{ "categories": [{ "code": "billing"\|"service"\|"safety"\|"other", "label": string }] }` |
-| `prepare_case` | `{ "category": enum, "subject": string(1..140), "detail": string(1..2000), "contactChannel": "phone"\|"email"\|"none", "idempotencyKey": string(1..128) }` | `{ "category": enum, "subject": string, "summary": string }` |
-| `submit_case` | สำหรับใช้ภายในเท่านั้น: `{ "pendingActionId": UUID, "idempotencyKey": string }` | `{ "caseId": string, "status": "submitted", "category": enum }` |
+| `prepare_case` | `{ "category": enum, "subject": string(1..140), "detail": string(1..2000), "contactName": string(1..100), "contactPhone": string(1..32), "location": string(1..500), "contactChannel": "phone"\|"email"\|"none", "idempotencyKey": string(1..128) }` | `{ "category": enum, "subject": string, "summary": string }` |
+| `submit_case` | สำหรับใช้ภายในเท่านั้น: `{ "pendingActionId": UUID, "idempotencyKey": string }` | `{ "caseId": string, "vocId": string, "trackingKey": string, "status": "submitted", "category": enum }` |
+| `get_case` | `{ "vocId": string(1..64), "trackingKey": string(1..64) }` | `{ "vocId": string, "status": "submitted", "category": enum, "createdAt": UTC datetime, "updatedAt": UTC datetime }` |
 
 กรณี VOC ที่จัดเตรียมไว้เป็นเพียงฉบับร่างเท่านั้น และจะยังไม่สร้างกรณีจำลองจนกว่าจะ submit
+
+การแจ้งเรื่องร้องเรียนต้องเก็บข้อมูลให้ครบ (หมวดหมู่ หัวข้อ รายละเอียด ชื่อผู้แจ้ง เบอร์โทรติดต่อ สถานที่) ก่อน `prepare_case` โดย Main Agent ต้องถามข้อมูลที่ขาดทีละขั้นเหมือนฟอร์มบนเว็บ และห้ามสร้างค่าฟิลด์ขึ้นเอง
+
+การติดตามเรื่อง (`get_case`) ต้องใช้ `vocId` และ `trackingKey` ที่ผู้ใช้ได้รับหลัง `submit_case` ตรงกันทั้งคู่ มิฉะนั้นล้มเหลวแบบ fail-closed โดยไม่เปิดเผยว่า `vocId` มีอยู่จริงหรือไม่
 
 ### 4. `oms_tool`
 
@@ -240,6 +245,7 @@ sabuy_tool.submit_payment                SubmitPreparedActionInput/SabuyPaymentR
 voc_tool.list_categories                 EmptyInput/VocCategoryListOutput
 voc_tool.prepare_case                    VocPrepareCaseInput/Output
 voc_tool.submit_case                     SubmitPreparedActionInput/VocCaseOutput
+voc_tool.get_case                        VocGetCaseInput/VocGetCaseOutput
 oms_tool.get_outage_status               OmsOutageStatusInput/Output
 oms_tool.prepare_outage_report           OmsPrepareOutageReportInput/Output
 oms_tool.submit_outage_report            SubmitPreparedActionInput/OmsOutageReportOutput
