@@ -1,7 +1,7 @@
-"""Deterministic in-memory Sabuy (bill payment) backend.
+"""backend Sabuy (ชำระค่าไฟ) ในหน่วยความจำแบบกำหนดผลลัพธ์ได้
 
-Reads fixed fixture accounts from ``data/mock/sabuy_accounts.json`` and records
-simulated payments in process-local state. No live PEA call is ever made.
+อ่านบัญชี fixture แบบคงที่จาก ``data/mock/sabuy_accounts.json`` และบันทึกการชำระเงินจำลอง
+ไว้ในสถานะภายใน process โดยไม่มีการเรียก PEA ระบบจริง
 """
 
 from __future__ import annotations
@@ -15,7 +15,7 @@ from app.contracts import PaymentMethod, ToolErrorCode
 
 
 class SimulatedSabuyBackend:
-    """Simulated Sabuy account/payment backend with resettable process-local state."""
+    """backend บัญชีและการชำระเงิน Sabuy แบบจำลองที่มีสถานะภายใน process ซึ่งรีเซ็ตได้"""
 
     def __init__(self) -> None:
         rows = load_mock_json("sabuy_accounts.json")
@@ -25,16 +25,16 @@ class SimulatedSabuyBackend:
         self._seq = 0
 
     def reset(self) -> None:
-        """Clear prepared drafts and submitted receipts, restoring pristine state."""
+        """ล้างฉบับร่างที่เตรียมไว้และใบเสร็จที่ส่งแล้ว เพื่อคืนสถานะเริ่มต้น"""
         self._prepared.clear()
         self._receipts.clear()
         self._seq = 0
 
     def get_account_summary(self, account_ref: str) -> dict[str, Any]:
-        """Return the fixture summary for ``account_ref`` (read-only)."""
+        """ส่งคืนข้อมูลสรุป fixture สำหรับ ``account_ref`` (อ่านอย่างเดียว)"""
         account = self._accounts.get(account_ref)
         if account is None:
-            raise BackendError(ToolErrorCode.NOT_FOUND, "Account not found.")
+            raise BackendError(ToolErrorCode.NOT_FOUND, "ไม่พบบัญชี")
         return {
             "accountRef": account["accountRef"],
             "customerDisplayName": account["customerDisplayName"],
@@ -50,9 +50,9 @@ class SimulatedSabuyBackend:
         payment_method: PaymentMethod,
         idempotency_key: str,
     ) -> dict[str, Any]:
-        """Validate and stage a payment draft. No simulated payment is recorded."""
+        """ตรวจสอบและจัดเตรียมฉบับร่างการชำระเงิน โดยยังไม่บันทึกการชำระเงินจำลอง"""
         if account_ref not in self._accounts:
-            raise BackendError(ToolErrorCode.NOT_FOUND, "Account not found.")
+            raise BackendError(ToolErrorCode.NOT_FOUND, "ไม่พบบัญชี")
         amount = str(amount_thb)
         self._prepared[idempotency_key] = {
             "accountRef": account_ref,
@@ -60,8 +60,8 @@ class SimulatedSabuyBackend:
             "paymentMethod": payment_method.value,
         }
         summary = (
-            f"Prepare a payment of {amount} THB to account {account_ref} "
-            f"using {payment_method.value}."
+            f"เตรียมชำระเงิน {amount} THB ให้บัญชี {account_ref} "
+            f"ด้วย {payment_method.value}"
         )
         return {
             "accountRef": account_ref,
@@ -71,7 +71,7 @@ class SimulatedSabuyBackend:
         }
 
     def submit_payment(self, pending_action_id: UUID, idempotency_key: str) -> dict[str, Any]:
-        """Record the staged payment exactly once, de-duplicating by idempotency key."""
+        """บันทึกการชำระเงินที่จัดเตรียมไว้เพียงหนึ่งครั้ง โดยตัดรายการซ้ำด้วย idempotency key"""
         existing = self._receipts.get(idempotency_key)
         if existing is not None:
             return dict(existing)
@@ -79,7 +79,7 @@ class SimulatedSabuyBackend:
         if prepared is None:
             raise BackendError(
                 ToolErrorCode.NOT_FOUND,
-                "No prepared payment for this idempotency key.",
+                "ไม่มีการชำระเงินที่จัดเตรียมไว้สำหรับ idempotency key นี้",
             )
         self._seq += 1
         receipt = {

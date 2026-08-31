@@ -1,4 +1,4 @@
-"""Tests for platform configuration loading."""
+"""ทดสอบการโหลดการกำหนดค่าของแพลตฟอร์ม"""
 
 from pathlib import Path
 
@@ -86,8 +86,8 @@ def test_real_environment_precedes_dotenv(
 
     settings = load_settings(env_file)
     assert settings.app_env == "from-env"
-    assert settings.log_level == "debug"  # not overridden; taken from dotenv
-    assert settings.llm_adapter_name == "scripted"  # from dotenv
+    assert settings.log_level == "debug"  # ไม่ถูกแทนค่า จึงใช้ค่าจาก dotenv
+    assert settings.llm_adapter_name == "scripted"  # ใช้ค่าจาก dotenv
     assert settings.gemini_api_key == "real-key"
 
 

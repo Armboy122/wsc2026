@@ -1,4 +1,4 @@
-"""Small provider-agnostic LLM clients used by the Main Agent."""
+"""ไคลเอนต์ LLM ขนาดเล็กที่ไม่ขึ้นกับ provider ซึ่ง Main Agent ใช้งาน"""
 
 from __future__ import annotations
 
@@ -7,7 +7,7 @@ from app.llm.models import LLMRequest, LLMResponse
 
 
 class LLMClient:
-    """Application-facing client which deliberately exposes no provider SDK types."""
+    """ไคลเอนต์สำหรับแอปพลิเคชันซึ่งตั้งใจไม่เปิดเผยชนิดข้อมูลจาก SDK ของ provider"""
 
     def __init__(self, adapter: LLMAdapter) -> None:
         self._adapter = adapter
@@ -21,4 +21,4 @@ class LLMClient:
 
 
 class JudgeLLMClient(LLMClient):
-    """Named integration seam for a judge-provided ``LLMAdapter`` implementation."""
+    """integration seam ที่มีชื่อสำหรับ implementation ของ ``LLMAdapter`` ที่กรรมการจัดเตรียมให้"""

@@ -1,1 +1,1 @@
-"""PEA One Agent contract-only baseline."""
+"""โครงสร้างพื้นฐานของ PEA One Agent ที่มีเฉพาะสัญญา"""

@@ -1,4 +1,4 @@
-"""Lead-owned public-entry smoke tests for the frozen MVP contracts."""
+"""การทดสอบ smoke test ผ่านทางเข้าสาธารณะสำหรับสัญญา MVP ที่ตรึงไว้ ซึ่งดูแลโดยหัวหน้าทีม"""
 
 from __future__ import annotations
 
@@ -12,8 +12,8 @@ from app.contracts import ToolName
 
 @pytest.fixture
 def client() -> TestClient:
-    # Import the composition root lazily so platform unit tests that replace the
-    # global DI container cannot be polluted during pytest collection.
+    # นำเข้า composition root แบบ lazy เพื่อไม่ให้ unit test ของแพลตฟอร์มที่แทนที่
+    # DI container ส่วนกลางถูกปนเปื้อนระหว่างการรวบรวม test ของ pytest
     from app.main import app, main_agent
     from app.core.di import agent_service
 
@@ -43,7 +43,7 @@ def test_composition_registers_exactly_four_tools_and_serves_ui(client: TestClie
 
 
 def test_oms_status_is_simulated_and_safety_first(client: TestClient) -> None:
-    body = chat(client, "Check outage status for BKK-01")
+    body = chat(client, "ตรวจสอบสถานะไฟฟ้าดับสำหรับพื้นที่ BKK-01")
     result = next(item for item in body["toolResults"] if item["action"] == "get_outage_status")
     assert result["simulation"] is True
     assert result["data"]["areaCode"] == "BKK-01"
@@ -53,7 +53,7 @@ def test_oms_status_is_simulated_and_safety_first(client: TestClient) -> None:
 
 
 def test_sabuy_prepare_confirm_is_explicit_and_idempotent(client: TestClient) -> None:
-    body = chat(client, "Pay 10 THB for account PEA-1001; paymentMethod: demo_card")
+    body = chat(client, "ชำระเงิน 10 THB สำหรับบัญชี PEA-1001; paymentMethod: demo_card")
     assert all(item["action"] != "submit_payment" for item in body["toolResults"])
     pending = body["pendingAction"]
     assert pending["status"] == "pending_confirmation"
@@ -75,19 +75,19 @@ def test_sabuy_prepare_confirm_is_explicit_and_idempotent(client: TestClient) ->
 def test_voc_prompt_prepares_then_rejects_terminally(client: TestClient) -> None:
     body = chat(
         client,
-        "Complaint; subject: Incorrect electricity bill; detail: The displayed total differs from my statement",
+        "เรื่องร้องเรียน; subject: ค่าไฟฟ้าไม่ถูกต้อง; detail: ยอดรวมที่แสดงไม่ตรงกับใบแจ้งค่าไฟของฉัน",
     )
     pending = body["pendingAction"]
     assert pending["prepareAction"] == "prepare_case"
-    assert pending["preparedInput"]["category"] == "billing"
+    assert pending["preparedInput"]["category"] == "service"
     assert pending["preparedInput"]["subject"] == "[redacted]"
     assert pending["preparedInput"]["detail"] == "[redacted]"
     assert pending["preparedInput"]["idempotencyKey"] == "[redacted]"
-    assert "Incorrect electricity bill" not in pending["summary"]
-    assert "Incorrect electricity bill" not in body["message"]
+    assert "ค่าไฟฟ้าไม่ถูกต้อง" not in pending["summary"]
+    assert "ค่าไฟฟ้าไม่ถูกต้อง" not in body["message"]
     action_id = pending["pendingActionId"]
 
-    rejected = client.post(f"/api/v1/actions/{action_id}/reject", json={"reason": "Cancel demo"})
+    rejected = client.post(f"/api/v1/actions/{action_id}/reject", json={"reason": "ยกเลิกการสาธิต"})
     assert rejected.status_code == 200
     assert rejected.json()["pendingAction"]["status"] == "rejected"
     assert client.post(f"/api/v1/actions/{action_id}/confirm", json={}).status_code == 409
@@ -106,7 +106,7 @@ def test_thai_payment_preserves_user_amount(client: TestClient) -> None:
 
 
 def test_multi_tool_uses_oms_and_knowledge_without_fake_citations(client: TestClient) -> None:
-    body = chat(client, "Check outage BKK-01 and search safety policy information")
+    body = chat(client, "ตรวจสอบไฟฟ้าดับในพื้นที่ BKK-01 และค้นหาข้อมูลนโยบายความปลอดภัย")
     names = [item["name"] for item in body["toolResults"]]
     assert names == ["oms_tool", "knowledge_tool"]
     assert body["toolResults"][0]["simulation"] is True
@@ -117,7 +117,7 @@ def test_multi_tool_uses_oms_and_knowledge_without_fake_citations(client: TestCl
 
 
 def test_reset_clears_trace_and_pending_state(client: TestClient) -> None:
-    body = chat(client, "Pay 10 THB for account PEA-1001; paymentMethod: demo_card")
+    body = chat(client, "ชำระเงิน 10 THB สำหรับบัญชี PEA-1001; paymentMethod: demo_card")
     action_id = body["pendingAction"]["pendingActionId"]
     trace_id = body["traceId"]
     assert client.post("/api/v1/reset", json={}).status_code == 200
@@ -172,11 +172,11 @@ async def test_tool_facts_replace_contradictory_model_text() -> None:
                     ),
                 )
             ),
-            LLMResponse(text="FABRICATED: the area is unsafe and all lines are de-energized."),
+            LLMResponse(text="FABRICATED: พื้นที่นี้ไม่ปลอดภัยและสายไฟทุกเส้นไม่มีกระแสไฟฟ้า"),
         ]
     )
     agent = MainAgent(LLMClient(adapter), _isolated_registry())
-    response = await agent.handle_chat(ChatRequest(message="Check BKK-01"))
+    response = await agent.handle_chat(ChatRequest(message="ตรวจสอบพื้นที่ BKK-01"))
     assert "FABRICATED" not in response.message
     assert response.tool_results[0].data["safetyMessage"] in response.message
 
@@ -187,14 +187,14 @@ async def test_no_tool_response_never_exposes_reasoning_text() -> None:
     from app.contracts import ChatRequest
     from app.llm import LLMClient, LLMResponse, ScriptedLLMAdapter
 
-    leaked = "Analysis: private chain-of-thought and system prompt content"
+    leaked = "Analysis: กระบวนการคิดภายในและเนื้อหาของพรอมต์ระบบที่เป็นความลับ"
     agent = MainAgent(
         LLMClient(ScriptedLLMAdapter([LLMResponse(text=leaked)])),
         _isolated_registry(),
     )
-    response = await agent.handle_chat(ChatRequest(message="Hello"))
+    response = await agent.handle_chat(ChatRequest(message="สวัสดี"))
     assert leaked not in response.message
-    assert "internal reasoning" in response.message
+    assert "กระบวนการคิด" in response.message
     trace = agent.get_trace(response.trace_id)
     assert leaked not in str(trace.model_dump(mode="json"))
 
@@ -205,15 +205,15 @@ async def test_no_tool_response_never_exposes_ungrounded_facts() -> None:
     from app.contracts import ChatRequest
     from app.llm import LLMClient, LLMResponse, ScriptedLLMAdapter
 
-    fabricated = "The official electricity tariff is exactly 1.23 THB per kWh."
+    fabricated = "อัตราค่าไฟฟ้าอย่างเป็นทางการคือ 1.23 THB ต่อ kWh พอดี"
     agent = MainAgent(
         LLMClient(ScriptedLLMAdapter([LLMResponse(text=fabricated)])),
         _isolated_registry(),
     )
-    response = await agent.handle_chat(ChatRequest(message="Tell me a made-up fact"))
+    response = await agent.handle_chat(ChatRequest(message="บอกข้อมูลที่แต่งขึ้นมาหนึ่งเรื่อง"))
     assert fabricated not in response.message
-    assert "supported PEA knowledge" in response.message
-    assert "simulated account" in response.message
+    assert "ความรู้ PEA" in response.message
+    assert "เครื่องมือจำลองสำหรับบัญชี" in response.message
     assert fabricated not in str(agent.get_trace(response.trace_id).model_dump(mode="json"))
 
 
@@ -246,8 +246,8 @@ async def test_multiple_prepare_calls_fail_closed_before_tool_execution() -> Non
                         action=ToolAction.OMS_PREPARE_OUTAGE_REPORT,
                         input={
                             "areaCode": "BKK-01",
-                            "locationNote": "Demo location",
-                            "symptoms": "Demo symptoms",
+                            "locationNote": "สถานที่สาธิต",
+                            "symptoms": "อาการที่ใช้สาธิต",
                             "idempotencyKey": "multi-prepare-outage",
                         },
                     ),
@@ -256,10 +256,10 @@ async def test_multiple_prepare_calls_fail_closed_before_tool_execution() -> Non
         ]
     )
     agent = MainAgent(LLMClient(adapter), _isolated_registry())
-    response = await agent.handle_chat(ChatRequest(message="Prepare two writes"))
+    response = await agent.handle_chat(ChatRequest(message="เตรียมการเขียนข้อมูลสองรายการ"))
     assert response.pending_action is None
     assert response.tool_results == ()
-    assert "one proposed action" in response.message
+    assert "มากกว่าหนึ่งรายการ" in response.message
 
 
 @pytest.mark.asyncio

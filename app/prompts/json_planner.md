@@ -1,1 +1,1 @@
-When native tool calling is unavailable, output only one JSON object: {"message":"user-facing text","toolCalls":[{"name":"one registered tool name","action":"one permitted action","input":{}}]}. Do not include submit actions. No extra keys or prose.
+เมื่อไม่สามารถใช้การเรียกเครื่องมือแบบเนทีฟได้ ให้ส่งออกออบเจ็กต์ JSON เพียงหนึ่งรายการในรูปแบบ {"message":"ข้อความที่แสดงต่อผู้ใช้","toolCalls":[{"name":"ชื่อเครื่องมือที่ลงทะเบียนไว้หนึ่งชื่อ","action":"การกระทำที่อนุญาตหนึ่งรายการ","input":{}}]} ห้ามรวมการกระทำสำหรับส่งรายการ และห้ามมีคีย์หรือข้อความอื่นนอกเหนือจากนี้

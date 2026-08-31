@@ -1,8 +1,8 @@
-"""Deterministic in-memory OMS (outage management) backend.
+"""backend OMS (จัดการไฟฟ้าขัดข้อง) ในหน่วยความจำแบบกำหนดผลลัพธ์ได้
 
-Reads fixed outage areas from ``data/mock/oms_outages.json`` and records
-simulated outage reports in process-local state. No live OMS call is made. Every
-outage read/prepare result carries a ``safetyMessage``.
+อ่านพื้นที่ไฟฟ้าขัดข้องคงที่จาก ``data/mock/oms_outages.json`` และบันทึกรายงานจำลอง
+ไว้ในสถานะภายใน process โดยไม่มีการเรียก OMS ระบบจริง ผลลัพธ์การอ่านหรือเตรียม
+ข้อมูลไฟฟ้าขัดข้องทุกรายการมี ``safetyMessage``
 """
 
 from __future__ import annotations
@@ -15,7 +15,7 @@ from app.contracts import ToolErrorCode
 
 
 class SimulatedOmsBackend:
-    """Simulated OMS outage/report backend with resettable process-local state."""
+    """backend สถานะและรายงานไฟฟ้าขัดข้อง OMS แบบจำลองที่มีสถานะภายใน process ซึ่งรีเซ็ตได้"""
 
     def __init__(self) -> None:
         rows = load_mock_json("oms_outages.json")
@@ -25,16 +25,16 @@ class SimulatedOmsBackend:
         self._seq = 0
 
     def reset(self) -> None:
-        """Clear prepared drafts and submitted reports, restoring pristine state."""
+        """ล้างฉบับร่างที่เตรียมไว้และรายงานที่ส่งแล้ว เพื่อคืนสถานะเริ่มต้น"""
         self._prepared.clear()
         self._reports.clear()
         self._seq = 0
 
     def get_outage_status(self, area_code: str) -> dict[str, Any]:
-        """Return the fixture outage status for ``area_code`` (read-only)."""
+        """ส่งคืนสถานะไฟฟ้าขัดข้อง fixture สำหรับ ``area_code`` (อ่านอย่างเดียว)"""
         area = self._areas.get(area_code)
         if area is None:
-            raise BackendError(ToolErrorCode.NOT_FOUND, "Area not found.")
+            raise BackendError(ToolErrorCode.NOT_FOUND, "ไม่พบพื้นที่")
         return {
             "areaCode": area["areaCode"],
             "status": area["status"],
@@ -50,16 +50,16 @@ class SimulatedOmsBackend:
         symptoms: str,
         idempotency_key: str,
     ) -> dict[str, Any]:
-        """Validate and stage an outage report draft. No simulated report is filed yet."""
+        """ตรวจสอบและจัดเตรียมฉบับร่างรายงานไฟฟ้าขัดข้อง โดยยังไม่ส่งรายงานจำลอง"""
         area = self._areas.get(area_code)
         if area is None:
-            raise BackendError(ToolErrorCode.NOT_FOUND, "Area not found.")
+            raise BackendError(ToolErrorCode.NOT_FOUND, "ไม่พบพื้นที่")
         self._prepared[idempotency_key] = {
             "areaCode": area_code,
             "locationNote": location_note,
             "symptoms": symptoms,
         }
-        summary = f"Prepare an outage report for area {area_code}."
+        summary = f"เตรียมรายงานไฟฟ้าขัดข้องสำหรับพื้นที่ {area_code}"
         return {
             "areaCode": area_code,
             "summary": summary,
@@ -67,7 +67,7 @@ class SimulatedOmsBackend:
         }
 
     def submit_outage_report(self, pending_action_id: UUID, idempotency_key: str) -> dict[str, Any]:
-        """File the staged report exactly once, de-duplicating by idempotency key."""
+        """ส่งรายงานที่จัดเตรียมไว้เพียงหนึ่งครั้ง โดยตัดรายการซ้ำด้วย idempotency key"""
         existing = self._reports.get(idempotency_key)
         if existing is not None:
             return dict(existing)
@@ -75,7 +75,7 @@ class SimulatedOmsBackend:
         if prepared is None:
             raise BackendError(
                 ToolErrorCode.NOT_FOUND,
-                "No prepared outage report for this idempotency key.",
+                "ไม่มีรายงานไฟฟ้าขัดข้องที่จัดเตรียมไว้สำหรับ idempotency key นี้",
             )
         self._seq += 1
         report = {

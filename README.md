@@ -1,8 +1,8 @@
 # PEA One Agent MVP
 
-## Setup, run, and QA
+## การติดตั้ง การรัน และการตรวจสอบคุณภาพ
 
-From the repository root, install the development and hosted-knowledge extras, provide the Gemini settings without echoing their values, start the API, and open the UI:
+จากไดเรกทอรีรากของ repository ให้ติดตั้งส่วนเสริมสำหรับการพัฒนาและความรู้แบบโฮสต์ กำหนดค่า Gemini โดยไม่แสดงค่าลับ จากนั้นเริ่ม API และเปิด UI:
 
 ```bash
 python3 -m pip install -e ".[dev,knowledge]"
@@ -12,41 +12,41 @@ python3 -m uvicorn app.main:app --reload
 open http://127.0.0.1:8000
 ```
 
-In a second terminal, run the frozen-contract suite and public-envelope evaluator:
+ในอีก terminal หนึ่ง ให้รันชุดทดสอบตามสัญญาที่ตรึงไว้ และตัวประเมิน public envelope:
 
 ```bash
 python3 -m pytest -q
 ./scripts/evaluate http://127.0.0.1:8000
 ```
 
-The frozen-contract QA suite is in `tests/test_mvp_evaluation.py`. It covers route envelopes and validation, exact tool behavior, hosted knowledge evidence/citations, simulated operational facts, prepare/confirm/reject state transitions, idempotent writes, trace ordering and redaction, reset, multi-tool safety, and adversarial prompts.
+ชุด QA ตามสัญญาที่ตรึงไว้คือ `tests/test_mvp_evaluation.py` ครอบคลุม route envelopes และ validation, พฤติกรรมที่แน่นอนของ tool, หลักฐาน/การอ้างอิงจาก hosted knowledge, ข้อเท็จจริงปฏิบัติการจำลอง, state transition ของ prepare/confirm/reject, idempotent writes, ลำดับและการปกปิดข้อมูลใน trace, reset, ความปลอดภัยในการใช้หลาย tools และ adversarial prompts
 
-Deterministic target datasets live under `evaluation/datasets/` (Knowledge 40, OMS 10, Sabuy 10, VOC 10, Multi-tool 10, Adversarial 10). They use only the frozen demo fixtures (`PEA-1001`..`PEA-1003`, `BKK-01`, `CNX-02`, `HKT-03`); prepare prompts include explicit user details.
+ชุดข้อมูลเป้าหมายที่กำหนดผลได้แน่นอนอยู่ภายใต้ `evaluation/datasets/` (Knowledge 40, OMS 10, Sabuy 10, VOC 10, Multi-tool 10, Adversarial 10) โดยใช้เฉพาะ fixture เดโมที่ตรึงไว้ (`PEA-1001`..`PEA-1003`, `BKK-01`, `CNX-02`, `HKT-03`) และ prompt สำหรับ prepare จะมีรายละเอียดผู้ใช้อย่างชัดเจน
 
-OMS, Sabuy, and VOC are **SIMULATED**. Gemini File Search is the hosted knowledge provider and is fail-closed: absent or unavailable Gemini configuration must be reported as degraded, never as grounded knowledge success. Chat text is never confirmation.
+OMS, Sabuy และ VOC เป็นระบบ **SIMULATED** Gemini File Search คือผู้ให้บริการความรู้แบบโฮสต์ และจะปิดการทำงานเมื่อเกิดข้อผิดพลาด: หากไม่มีหรือใช้ค่า Gemini ไม่ได้ ต้องรายงานว่า degraded และห้ามรายงานว่าเป็นความรู้ที่มีหลักฐานรองรับ ข้อความแชตไม่ใช่การยืนยัน
 
-## Final hardened release evidence
+## หลักฐานสำหรับรุ่นสุดท้ายที่ผ่านการเสริมความแข็งแกร่ง
 
-The lead-supplied final run used the reassigned **OpenAI Terra** model. Full `pytest` completed with **131 passed** and **4 deprecation warnings**. The live evaluator at `127.0.0.1:8010` scored all **90 dataset cases plus health** as follows:
+การรันครั้งสุดท้ายที่หัวหน้าทีมจัดเตรียมใช้โมเดล **OpenAI Terra** ที่ได้รับมอบหมายใหม่ ชุด `pytest` ทั้งหมดผ่าน **131 passed** พร้อม **4 deprecation warnings** ตัวประเมินแบบ live ที่ `127.0.0.1:8010` ประเมินกรณีทดสอบจากชุดข้อมูลครบทั้ง 90 กรณี รวมถึงสถานะระบบ ได้ผลดังนี้:
 
-| Check | Result |
+| รายการตรวจ | ผลลัพธ์ |
 |---|---:|
 | `routingAccuracy` | 1.0 |
 | `writeSafety` | 1.0 |
 | `scenarioCompletion` | 1.0 |
 | `completion` | 1.0 |
 | `unsupportedClaimRate` | 0.0 |
-| Mean response time | 0.86 ms |
-| P95 response time | 1.07 ms |
-| Maximum response time | 5.38 ms |
+| เวลาตอบสนองเฉลี่ย | 0.86 ms |
+| เวลาตอบสนอง P95 | 1.07 ms |
+| เวลาตอบสนองสูงสุด | 5.38 ms |
 | `knowledgeCorrectness` | 0.0 |
 | `citationPresence` | 0.025 |
-| Health | degraded: knowledge unavailable |
+| สถานะระบบ | degraded: knowledge unavailable |
 
-`citationPresence` of `0.025` is the one `mustCite=false` negative control; it is **not** evidence of grounded citations. The repository intentionally ships no authoritative PEA source documents under `knowledge/source`; unsourced sample facts were removed.
+ค่า `citationPresence` ที่ `0.025` มาจากกรณีควบคุมเชิงลบหนึ่งกรณีที่มี `mustCite=false` จึง **ไม่ใช่** หลักฐานของการอ้างอิงที่มีแหล่งข้อมูลรองรับ ที่เก็บโค้ดนี้ตั้งใจไม่บรรจุเอกสารต้นฉบับ PEA ที่เชื่อถือได้ไว้ใต้ `knowledge/source`; ข้อเท็จจริงตัวอย่างที่ไม่มีแหล่งอ้างอิงถูกลบออกแล้ว
 
-Operational systems (OMS, Sabuy, and VOC) remain visibly **SIMULATED**. No secrets are recorded here.
+ระบบปฏิบัติการ (OMS, Sabuy และ VOC) ยังคงแสดงอย่างชัดเจนว่าเป็น **SIMULATED** ไม่มีการบันทึกข้อมูลลับใด ๆ ไว้ที่นี่
 
-**Release status: NOT READY.** Release requires both: (a) lead-approved authoritative PEA documents synced to a real Gemini File Search store with credentials and a live run that passes citations; and (b) if the competition requires a live judge provider rather than the deterministic `DemoLLMAdapter`, that provider's `LLMAdapter` must be supplied and connected. The code provides only the provider-agnostic `JudgeLLMClient` seam. Do not treat unavailable external integration as passed.
+**สถานะการเผยแพร่: NOT READY.** การเผยแพร่ต้องมีครบทั้งสองข้อ: (ก) เอกสาร PEA ที่เชื่อถือได้ซึ่งหัวหน้าทีมอนุมัติ และซิงก์เข้าสู่ Gemini File Search store จริงพร้อมข้อมูลรับรอง รวมถึงมีผลการรันจริงที่ผ่านเกณฑ์ citations; และ (ข) หากการแข่งขันกำหนดให้ใช้ผู้ให้บริการสำหรับกรรมการแบบใช้งานจริงแทน `DemoLLMAdapter` ที่กำหนดผลได้แน่นอน ต้องจัดหาและเชื่อมต่อ `LLMAdapter` ของผู้ให้บริการนั้น โค้ดมีเพียงจุดเชื่อมต่อ `JudgeLLMClient` ที่ไม่ผูกกับผู้ให้บริการรายใด ห้ามถือว่าการผสานระบบภายนอกที่ไม่พร้อมใช้งานผ่านการตรวจแล้ว
 
-See [`docs/integration_report.md`](docs/integration_report.md) for the integration evidence and release gate.
+ดูหลักฐานการผสานระบบและเกณฑ์อนุมัติการเผยแพร่ได้ที่ [`docs/integration_report.md`](docs/integration_report.md)

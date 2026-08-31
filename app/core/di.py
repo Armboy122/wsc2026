@@ -1,7 +1,7 @@
-"""Dependency-injection service protocol for the FastAPI platform.
+"""โปรโตคอลบริการ dependency injection สำหรับแพลตฟอร์ม FastAPI
 
-HTTP handlers delegate to the Main Agent interface; they contain no business
-policy and never invoke tools directly.
+ตัวจัดการ HTTP มอบหมายงานให้ interface ของ Main Agent โดยไม่มีนโยบายธุรกิจ
+และไม่เรียกเครื่องมือโดยตรง
 """
 
 from __future__ import annotations
@@ -22,10 +22,10 @@ from app.contracts import (
 
 @runtime_checkable
 class MainAgent(Protocol):
-    """The sole orchestrator called by platform routes."""
+    """ตัวประสานงานเพียงตัวเดียวที่เส้นทางแพลตฟอร์มเรียกใช้"""
 
     async def handle_chat(self, request: ChatRequest) -> ChatResponse:
-        """Handle a chat message and return a frozen contract response."""
+        """จัดการข้อความแชตและส่งคืนคำตอบตามสัญญาแบบคงที่"""
         ...
 
     async def confirm_pending_action(
@@ -33,7 +33,7 @@ class MainAgent(Protocol):
         pending_action_id: UUID,
         confirmation_note: str | None = None,
     ) -> ActionDecisionResponse:
-        """Submit a pending action once; idempotent on repeat calls."""
+        """ส่งรายการที่รอดำเนินการหนึ่งครั้ง โดยการเรียกซ้ำให้ผลเหมือนเดิม"""
         ...
 
     async def reject_pending_action(
@@ -41,23 +41,23 @@ class MainAgent(Protocol):
         pending_action_id: UUID,
         reason: str,
     ) -> ActionDecisionResponse:
-        """Reject a pending action; terminal and idempotent."""
+        """ปฏิเสธรายการที่รอดำเนินการ โดยเป็นสถานะสิ้นสุดและการเรียกซ้ำให้ผลเหมือนเดิม"""
         ...
 
     def get_trace(self, trace_id: UUID) -> TraceResponse:
-        """Return ordered, redacted trace events for a trace id."""
+        """ส่งคืนเหตุการณ์ trace ตามลำดับและผ่านการปกปิดข้อมูลสำหรับ trace id"""
         ...
 
     def reset_demo(self) -> ResetResponse:
-        """Clear all in-process demo state."""
+        """ล้างสถานะเดโมทั้งหมดภายใน process"""
         ...
 
 
 class AgentService:
-    """Concrete container for the Main Agent and platform adapters.
+    """คอนเทนเนอร์แบบรูปธรรมสำหรับ Main Agent และอะแดปเตอร์ของแพลตฟอร์ม
 
-    The lead worker wires this in app.main via set_agent; platform code never
-    constructs a Main Agent implementation.
+    ผู้ดูแลหลักเชื่อมต่อส่วนนี้ใน app.main ผ่าน set_agent โดยโค้ดแพลตฟอร์ม
+    จะไม่สร้าง implementation ของ Main Agent เอง
     """
 
     def __init__(self) -> None:
@@ -69,7 +69,7 @@ class AgentService:
     @property
     def agent(self) -> MainAgent:
         if self._agent is None:
-            raise RuntimeError("Main Agent has not been wired to AgentService")
+            raise RuntimeError("ยังไม่ได้เชื่อมต่อ Main Agent เข้ากับ AgentService")
         return self._agent
 
 
@@ -78,35 +78,35 @@ agent_service = AgentService()
 
 @runtime_checkable
 class Tool(Protocol):
-    """Narrow runtime seam for a callable tool module."""
+    """จุดเชื่อมต่อ runtime แบบแคบสำหรับโมดูลเครื่องมือที่เรียกใช้ได้"""
 
     name: str
 
     async def execute(self, call: ToolCall) -> ToolResult:
-        """Execute a validated tool call and return a frozen ToolResult."""
+        """ดำเนินการเรียกเครื่องมือที่ผ่านการตรวจสอบแล้วและส่งคืน ToolResult แบบคงที่"""
         ...
 
 
 @runtime_checkable
 class LLMAdapter(Protocol):
-    """Provider-agnostic LLM seam referenced by the platform for health checks."""
+    """จุดเชื่อมต่อ LLM ที่ไม่ขึ้นกับ provider ซึ่งแพลตฟอร์มใช้อ้างอิงเพื่อตรวจสอบสถานะ"""
 
     async def ready(self) -> bool:
-        """Return True when the adapter can serve requests."""
+        """ส่งคืน True เมื่ออะแดปเตอร์พร้อมให้บริการคำขอ"""
         ...
 
 
 @runtime_checkable
 class KnowledgeBackend(Protocol):
-    """Readiness seam for the knowledge backend."""
+    """จุดเชื่อมต่อสำหรับตรวจสอบความพร้อมของ backend ความรู้"""
 
     async def ready(self) -> bool:
-        """Return True when the backend can serve retrieval requests."""
+        """ส่งคืน True เมื่อ backend พร้อมให้บริการคำขอค้นคืนข้อมูล"""
         ...
 
 
 class AdapterService:
-    """Container for optional platform adapters used by /health."""
+    """คอนเทนเนอร์สำหรับอะแดปเตอร์เสริมของแพลตฟอร์มที่ /health ใช้งาน"""
 
     def __init__(self) -> None:
         self.llm: LLMAdapter | None = None

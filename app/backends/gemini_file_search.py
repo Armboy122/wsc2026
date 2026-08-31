@@ -1,18 +1,16 @@
-"""Gemini File Search Hosted RAG backend (Worker B — knowledge).
+"""แบ็กเอนด์ Gemini File Search RAG แบบโฮสต์ (Worker B — ความรู้)
 
-This is the only knowledge backend in the demo. Retrieval and grounding are
-delegated to Google's hosted File Search service; this module only turns the
-returned grounding metadata into frozen ``Citation`` values and a compact
-``answerContext``. There is deliberately no local embedding, chunking,
-indexing, ranking, vector store, or model-memory fallback here (CONTRACTS.md:
-explicit non-goals; ARCHITECTURE.md: "does not embed, chunk, index, rank, or
-persist documents itself").
+นี่คือแบ็กเอนด์ความรู้เพียงตัวเดียวในเดโม การค้นคืนและการยึดโยงหลักฐานมอบหมายให้
+บริการ File Search แบบโฮสต์ของ Google โมดูลนี้มีหน้าที่เพียงแปลงข้อมูลกำกับของหลักฐาน
+ที่ส่งกลับมาเป็นค่า ``Citation`` ตามสัญญาและ ``answerContext`` แบบกระชับ โดยตั้งใจ
+ไม่มีการฝังข้อมูล การแบ่งส่วน การทำดัชนี การจัดอันดับ ที่เก็บเวกเตอร์ภายในเครื่อง หรือการใช้
+ความจำโมเดลเป็นทางเลือกสำรอง (CONTRACTS.md: สิ่งที่ไม่ทำอย่างชัดเจน; ARCHITECTURE.md:
+“ไม่ทำการฝังข้อมูล แบ่งส่วน ทำดัชนี จัดอันดับ หรือจัดเก็บเอกสารด้วยตนเอง”)
 
-The provider SDK (``google-genai``) is optional and imported lazily on first
-use, so this module can be imported and constructed without the SDK
-installed. A missing SDK or missing configuration surfaces as a typed,
-user-safe :class:`KnowledgeBackendError` — never an import-time crash and
-never a credential or endpoint leak.
+SDK ของผู้ให้บริการ (``google-genai``) เป็นส่วนพึ่งพาเสริมและจะนำเข้าเมื่อใช้งานครั้งแรก
+จึงสามารถนำเข้าและสร้างโมดูลนี้ได้โดยไม่ต้องติดตั้ง SDK หากขาด SDK หรือการตั้งค่า
+ระบบจะแสดง :class:`KnowledgeBackendError` แบบมีชนิดและปลอดภัยสำหรับผู้ใช้ โดยไม่ล้มเหลว
+ขณะนำเข้าและไม่เปิดเผยข้อมูลรับรองหรือปลายทาง
 """
 
 from __future__ import annotations
@@ -34,36 +32,36 @@ ENV_MODEL = "GEMINI_FILE_SEARCH_MODEL"
 
 DEFAULT_MODEL = "gemini-2.5-flash"
 DEFAULT_TIMEOUT_SECONDS = 30.0
-# The readiness probe uses its own short bound: a startup health check must
-# never wait as long as a full retrieval does.
+# ตัวตรวจสอบความพร้อมมีขีดจำกัดเวลาสั้นของตนเอง การตรวจสุขภาพเมื่อเริ่มต้น
+# ต้องไม่รอนานเท่าการค้นคืนแบบเต็ม
 DEFAULT_READINESS_TIMEOUT_SECONDS = 5.0
 
-# Injectable client-factory seam (deterministic tests): receives the
-# configured API key and returns a provider client. Production builds the
-# real ``google.genai.Client`` instead.
+# จุดเชื่อมต่อของตัวสร้างไคลเอนต์ที่ส่งเข้ามาได้ (สำหรับการทดสอบแบบกำหนดผลลัพธ์ได้): รับคีย์ API
+# ที่ตั้งค่าไว้และส่งคืนไคลเอนต์ของผู้ให้บริการ ส่วนระบบใช้งานจริงจะสร้าง
+# ``google.genai.Client`` จริงแทน
 ClientFactory = Callable[[str], Any]
 
-# Frozen contract limits (app/contracts.py: Citation, KnowledgeSearchOutput).
+# ขีดจำกัดตามสัญญา (app/contracts.py: Citation, KnowledgeSearchOutput)
 MAX_ANSWER_CONTEXT_CHARS = 4000
 MAX_SNIPPET_CHARS = 1000
 MAX_TITLE_CHARS = 500
 MAX_URI_CHARS = 2000
 
-# User-safe, credential-free messages.
+# ข้อความที่ปลอดภัยต่อผู้ใช้และไม่มีข้อมูลรับรอง
 USER_SAFE_NOT_CONFIGURED = (
-    "The knowledge service is not configured on this server. "
-    "Please ask an administrator to check the service setup."
+    "เซิร์ฟเวอร์นี้ยังไม่ได้ตั้งค่าบริการความรู้ "
+    "กรุณาติดต่อผู้ดูแลระบบเพื่อตรวจสอบการตั้งค่าบริการ"
 )
 USER_SAFE_UNAVAILABLE = (
-    "The knowledge service is temporarily unavailable. Please try again shortly."
+    "บริการความรู้ไม่พร้อมใช้งานชั่วคราว กรุณาลองใหม่อีกสักครู่"
 )
 
 
 class KnowledgeBackendError(Exception):
-    """Typed backend failure whose ``message`` is safe to surface to a user.
+    """ข้อผิดพลาดของแบ็กเอนด์แบบมีชนิด ซึ่ง ``message`` ปลอดภัยสำหรับแสดงแก่ผู้ใช้
 
-    ``code`` is a frozen :class:`~app.contracts.ToolErrorCode`; ``message``
-    must never contain credentials, endpoint URLs, or request details.
+    ``code`` เป็น :class:`~app.contracts.ToolErrorCode` ที่ตรึงค่าไว้ ส่วน ``message``
+    ต้องไม่มีข้อมูลรับรอง URL ของปลายทาง หรือรายละเอียดคำขอโดยเด็ดขาด
     """
 
     def __init__(self, code: ToolErrorCode, message: str) -> None:
@@ -74,10 +72,10 @@ class KnowledgeBackendError(Exception):
 
 @dataclass(frozen=True)
 class GroundedEvidence:
-    """Frozen-shape result of one hosted retrieval.
+    """ผลลัพธ์รูปแบบตรึงค่าจากการค้นคืนแบบโฮสต์หนึ่งครั้ง
 
-    ``answer_context`` is empty and ``result_count`` is zero when the
-    provider returns no usable grounding (no evidence).
+    ``answer_context`` จะว่างและ ``result_count`` จะเป็นศูนย์เมื่อ
+    ผู้ให้บริการไม่ส่งข้อมูลอ้างอิงหลักฐานที่ใช้งานได้กลับมา (ไม่มีหลักฐาน)
     """
 
     answer_context: str
@@ -90,7 +88,7 @@ def _clip(text: str, limit: int) -> str:
 
 
 def _first_text(value: Any, *names: str) -> str:
-    """First non-empty string attribute among ``names`` (provider-shape tolerant)."""
+    """แอตทริบิวต์สตริงแรกใน ``names`` ที่ไม่ว่าง (รองรับรูปแบบข้อมูลผู้ให้บริการที่ต่างกัน)"""
     for name in names:
         candidate = getattr(value, name, None)
         if isinstance(candidate, str) and candidate.strip():
@@ -106,10 +104,10 @@ def _first_int(value: Any, name: str) -> int | None:
 
 
 def _grounding_contexts(response: Any) -> list[Any]:
-    """Collect File Search grounding contexts from a provider response.
+    """รวบรวมบริบทอ้างอิงหลักฐานของ File Search จากการตอบกลับของผู้ให้บริการ
 
-    Works structurally (attribute access) so tests can pass lightweight
-    stand-ins for the SDK response object.
+    ทำงานตามโครงสร้าง (เข้าถึงผ่านแอตทริบิวต์) เพื่อให้การทดสอบสามารถใช้
+    วัตถุจำลองขนาดเล็กแทนวัตถุการตอบกลับของ SDK ได้
     """
     contexts: list[Any] = []
     candidates = getattr(response, "candidates", None) or []
@@ -125,21 +123,21 @@ def _grounding_contexts(response: Any) -> list[Any]:
 
 
 def _build_context(citations: list[Citation]) -> str:
-    """Pack citations into the ``answerContext`` the Main Agent answers from."""
+    """รวมการอ้างอิงไว้ใน ``answerContext`` ที่ตัวแทนหลักใช้สร้างคำตอบ"""
     parts = [
-        f"[{index}] {citation.title}\n{citation.snippet}\nsource: {citation.uri}"
+        f"[{index}] {citation.title}\n{citation.snippet}\nแหล่งที่มา: {citation.uri}"
         for index, citation in enumerate(citations, start=1)
     ]
     return _clip("\n\n".join(parts), MAX_ANSWER_CONTEXT_CHARS)
 
 
 def normalize_grounding(response: Any, *, max_results: int) -> GroundedEvidence:
-    """Turn a provider response into frozen evidence (no provider types).
+    """แปลงการตอบกลับของผู้ให้บริการเป็นหลักฐานที่ตรึงค่าไว้ (ไม่มีชนิดข้อมูลของผู้ให้บริการ)
 
-    Rules (CONTRACTS.md, ``knowledge_tool.search``):
-    - no usable grounding -> empty ``answerContext``, ``resultCount`` 0, no citations;
-    - citations are capped at ``max_results`` and deduplicated by source + page;
-    - a chunk without a source URI or excerpt text is unusable evidence and skipped.
+    กฎ (CONTRACTS.md, ``knowledge_tool.search``):
+    - หากไม่มีข้อมูลอ้างอิงหลักฐานที่ใช้งานได้ -> ``answerContext`` ว่าง, ``resultCount`` เป็น 0 และไม่มีการอ้างอิง
+    - จำกัดจำนวนการอ้างอิงไว้ที่ ``max_results`` และตัดรายการซ้ำตามแหล่งที่มา + หน้า
+    - ส่วนข้อมูลที่ไม่มี URI ของแหล่งที่มาหรือข้อความคัดย่อถือเป็นหลักฐานที่ใช้ไม่ได้และจะถูกข้าม
     """
     citations: list[Citation] = []
     seen: set[tuple[str, int | None]] = set()
@@ -175,19 +173,19 @@ def normalize_grounding(response: Any, *, max_results: int) -> GroundedEvidence:
 
 
 class GeminiFileSearchKnowledgeBackend:
-    """Narrow seam over Gemini File Search Hosted RAG.
+    """จุดเชื่อมต่อขอบเขตแคบสำหรับ Gemini File Search RAG แบบโฮสต์
 
-    Public operations:
+    การดำเนินการสาธารณะ:
 
-    - ``search(query, max_results) -> GroundedEvidence`` — hosted retrieval;
-    - ``is_ready() -> bool`` — bounded, live provider readiness probe;
-    - ``is_configured() -> bool`` — cheap local configuration check only.
+    - ``search(query, max_results) -> GroundedEvidence`` — การค้นคืนแบบโฮสต์
+    - ``is_ready() -> bool`` — การตรวจสอบความพร้อมของผู้ให้บริการจริงแบบจำกัดเวลา
+    - ``is_configured() -> bool`` — ตรวจสอบการตั้งค่าภายในเครื่องอย่างรวดเร็วเท่านั้น
 
-    The SDK client is constructed lazily per call so configuration (env vars)
-    is read fresh and provider failures stay inside the typed-error boundary.
-    A ``client_factory`` may be injected to swap client construction for
-    deterministic tests; production always uses the real provider client.
-    Provider default chunking applies: no chunking configuration is ever sent.
+    ไคลเอนต์ SDK จะถูกสร้างเมื่อจำเป็นในการเรียกแต่ละครั้ง เพื่อให้อ่านการตั้งค่า
+    (ตัวแปรสภาพแวดล้อม) ใหม่เสมอ และกักข้อผิดพลาดของผู้ให้บริการไว้ภายในขอบเขต
+    ข้อผิดพลาดแบบมีชนิด สามารถส่ง ``client_factory`` เข้ามาเพื่อแทนที่การสร้างไคลเอนต์
+    สำหรับการทดสอบแบบกำหนดผลลัพธ์ได้ ส่วนระบบใช้งานจริงจะใช้ไคลเอนต์จริงของผู้ให้บริการเสมอ
+    ระบบใช้การแบ่งส่วนตามค่าเริ่มต้นของผู้ให้บริการ โดยจะไม่ส่งการตั้งค่าการแบ่งส่วนใด ๆ
     """
 
     def __init__(
@@ -215,27 +213,27 @@ class GeminiFileSearchKnowledgeBackend:
 
     @property
     def store_name(self) -> str | None:
-        """Configured File Search store (full resource name), if any."""
+        """ที่เก็บ File Search ที่ตั้งค่าไว้ (ชื่อทรัพยากรแบบเต็ม) หากมี"""
         return self._store_name
 
     @property
     def model(self) -> str:
-        """Grounded-generation model used for hosted retrieval."""
+        """โมเดลสร้างคำตอบโดยอ้างอิงหลักฐานที่ใช้สำหรับการค้นคืนแบบโฮสต์"""
         return self._model
 
     def is_configured(self) -> bool:
-        """True when an API key and a store are available (cheap local check)."""
+        """เป็นจริงเมื่อมีคีย์ API และที่เก็บพร้อมใช้งาน (ตรวจสอบภายในเครื่องอย่างรวดเร็ว)"""
         return bool(self._api_key and self._store_name)
 
     async def is_ready(self) -> bool:
-        """Bounded readiness probe against the live provider.
+        """ตรวจสอบความพร้อมกับผู้ให้บริการจริงภายในเวลาที่กำหนด
 
-        Unlike :meth:`is_configured` (a cheap local check), this verifies the
-        configured File Search store through the real provider client, so
-        revoked credentials, a missing store, a missing SDK, or a provider
-        outage all report ``False``. The probe is read-only, bounded by
-        ``readiness_timeout_seconds``, and never surfaces credentials,
-        endpoints, or provider exception details — it only returns ``False``.
+        เมธอดนี้ต่างจาก :meth:`is_configured` (การตรวจสอบภายในเครื่องอย่างรวดเร็ว)
+        เพราะจะตรวจสอบที่เก็บ File Search ที่ตั้งค่าไว้ผ่านไคลเอนต์จริงของผู้ให้บริการ
+        ดังนั้นข้อมูลรับรองที่ถูกเพิกถอน ที่เก็บหรือ SDK ที่ขาดหาย หรือบริการของผู้ให้บริการ
+        ขัดข้อง ล้วนทำให้รายงาน ``False`` การตรวจสอบนี้อ่านข้อมูลอย่างเดียว จำกัดเวลาด้วย
+        ``readiness_timeout_seconds`` และไม่แสดงข้อมูลรับรอง ปลายทาง หรือรายละเอียด
+        ข้อยกเว้นจากผู้ให้บริการ โดยจะส่งคืนเพียง ``False`` เท่านั้น
         """
         if not self._api_key or not self._store_name:
             return False
@@ -244,41 +242,39 @@ class GeminiFileSearchKnowledgeBackend:
                 asyncio.to_thread(self._verify_store_sync),
                 timeout=self._readiness_timeout_seconds,
             )
-        except Exception:  # provider failure boundary: never leak details
-            logger.debug("knowledge readiness probe failed (details redacted)")
+        except Exception:  # ขอบเขตข้อผิดพลาดของผู้ให้บริการ: ห้ามเปิดเผยรายละเอียด
+            logger.debug("การตรวจความพร้อมของความรู้ล้มเหลว (ปกปิดรายละเอียดแล้ว)")
             return False
         return True
 
     def _make_client(self) -> Any:
-        """Construct the provider client through the (injectable) seam.
+        """สร้างไคลเอนต์ของผู้ให้บริการผ่านจุดเชื่อมต่อที่ส่งเข้ามาได้
 
-        Without an injected ``client_factory`` the optional ``google-genai``
-        SDK is imported lazily and the real client is constructed, so a
-        missing SDK surfaces as ``ImportError`` (classified as
-        "not configured" by the callers).
+        หากไม่ได้ส่ง ``client_factory`` เข้ามา ระบบจะนำเข้า SDK ``google-genai``
+        ซึ่งเป็นส่วนเสริมเมื่อจำเป็น แล้วสร้างไคลเอนต์จริง ดังนั้นหากขาด SDK
+        จะแสดงเป็น ``ImportError`` (ผู้เรียกจะจัดประเภทว่า "ยังไม่ได้ตั้งค่า")
         """
         if self._client_factory is not None:
             return self._client_factory(self._api_key)
-        from google import genai  # lazy: optional provider dependency
+        from google import genai  # นำเข้าเมื่อจำเป็น: ส่วนพึ่งพาเสริมของผู้ให้บริการ
         return genai.Client(api_key=self._api_key)
 
     def _verify_store_sync(self) -> None:
-        """Read-only, live verification that the configured store exists.
+        """ตรวจสอบกับบริการจริงแบบอ่านอย่างเดียวว่าที่เก็บที่ตั้งค่าไว้มีอยู่
 
-        ``file_search_stores.get`` is the provider's store lookup: it
-        succeeds only when the credentials are valid and the configured
-        File Search store exists and is reachable.
+        ``file_search_stores.get`` คือการค้นหาที่เก็บของผู้ให้บริการ ซึ่งจะสำเร็จ
+        เมื่อข้อมูลรับรองถูกต้อง และที่เก็บ File Search ที่ตั้งค่าไว้มีอยู่และเข้าถึงได้เท่านั้น
         """
         client = self._make_client()
         client.file_search_stores.get(name=self._store_name)
 
     async def search(self, query: str, max_results: int) -> GroundedEvidence:
-        """Run hosted retrieval and normalize grounding into frozen output.
+        """ดำเนินการค้นคืนแบบโฮสต์และปรับข้อมูลอ้างอิงหลักฐานเป็นผลลัพธ์ที่ตรึงค่าไว้
 
-        Raises:
-            KnowledgeBackendError: typed, user-safe failure (``unavailable``)
-                for any provider problem: missing SDK, missing config, network
-                or API errors, or timeout.
+        ข้อยกเว้น:
+            KnowledgeBackendError: ข้อผิดพลาดแบบมีชนิดที่ปลอดภัยสำหรับผู้ใช้ (``unavailable``)
+                สำหรับปัญหาใด ๆ จากผู้ให้บริการ เช่น ขาด SDK หรือการตั้งค่า ข้อผิดพลาด
+                ของเครือข่ายหรือ API หรือหมดเวลา
         """
         try:
             evidence = await asyncio.wait_for(
@@ -288,10 +284,10 @@ class GeminiFileSearchKnowledgeBackend:
         except KnowledgeBackendError:
             raise
         except asyncio.TimeoutError as exc:
-            logger.warning("gemini file search timed out after %ss", self._timeout_seconds)
+            logger.warning("Gemini File Search หมดเวลาหลัง %s วินาที", self._timeout_seconds)
             raise KnowledgeBackendError(ToolErrorCode.UNAVAILABLE, USER_SAFE_UNAVAILABLE) from exc
-        except Exception as exc:  # provider failure boundary: never leak details
-            logger.debug("gemini file search failed: %s", exc)
+        except Exception as exc:  # ขอบเขตข้อผิดพลาดของผู้ให้บริการ: ห้ามเปิดเผยรายละเอียด
+            logger.debug("Gemini File Search ล้มเหลว: %s", exc)
             raise KnowledgeBackendError(ToolErrorCode.UNAVAILABLE, USER_SAFE_UNAVAILABLE) from exc
         return evidence
 
@@ -299,7 +295,7 @@ class GeminiFileSearchKnowledgeBackend:
         if not self._api_key or not self._store_name:
             raise KnowledgeBackendError(ToolErrorCode.UNAVAILABLE, USER_SAFE_NOT_CONFIGURED)
         try:
-            from google import genai  # lazy: optional provider dependency
+            from google import genai  # นำเข้าเมื่อจำเป็น: ส่วนพึ่งพาเสริมของผู้ให้บริการ
         except ImportError as exc:
             raise KnowledgeBackendError(ToolErrorCode.UNAVAILABLE, USER_SAFE_NOT_CONFIGURED) from exc
         try:
@@ -318,7 +314,7 @@ class GeminiFileSearchKnowledgeBackend:
                     ]
                 ),
             )
-        except Exception as exc:  # provider failure boundary: never leak details
-            logger.debug("gemini file search call failed: %s", exc)
+        except Exception as exc:  # ขอบเขตข้อผิดพลาดของผู้ให้บริการ: ห้ามเปิดเผยรายละเอียด
+            logger.debug("การเรียก Gemini File Search ล้มเหลว: %s", exc)
             raise KnowledgeBackendError(ToolErrorCode.UNAVAILABLE, USER_SAFE_UNAVAILABLE) from exc
         return normalize_grounding(response, max_results=max_results)

@@ -1,8 +1,8 @@
-"""Shared scaffolding for the three simulated operational tools.
+"""โครงสร้างพื้นฐานร่วมสำหรับเครื่องมือปฏิบัติการจำลองสามตัว
 
-Each concrete tool validates its action input and success data against the frozen
-``app.contracts`` models before returning a ``ToolResult``. Every result produced
-here is operational data and therefore carries ``simulation: true``.
+เครื่องมือแต่ละตัวตรวจสอบข้อมูลนำเข้าของการกระทำและข้อมูลผลลัพธ์สำเร็จกับโมเดล
+``app.contracts`` ตามสัญญาก่อนส่งคืน ``ToolResult`` ผลลัพธ์ทุกค่าที่สร้างที่นี่
+เป็นข้อมูลปฏิบัติการ จึงมีค่า ``simulation: true``
 """
 
 from __future__ import annotations
@@ -25,18 +25,18 @@ from app.contracts import (
 
 
 class SimulatedTool:
-    """Base class implementing the narrow ``execute`` seam for simulated tools."""
+    """คลาสพื้นฐานที่ทำงานตาม ``execute`` seam แบบแคบสำหรับเครื่องมือจำลอง"""
 
     name: ToolName
     backend: Any
 
     async def execute(self, call: ToolCall, context: Any = None) -> ToolResult:
-        """Validate the call, dispatch to the backend, and return a typed result."""
+        """ตรวจสอบการเรียก ส่งงานไปยัง backend และส่งคืนผลลัพธ์แบบมีชนิด"""
         if call.name != self.name:
             return self._error(
                 call,
                 ToolErrorCode.INVALID_INPUT,
-                f"Tool {call.name.value} does not handle this call.",
+                f"เครื่องมือ {call.name.value} ไม่รองรับการเรียกนี้",
             )
         try:
             input_model = validate_tool_input(call)
@@ -44,18 +44,18 @@ class SimulatedTool:
             return self._error(
                 call,
                 ToolErrorCode.INVALID_INPUT,
-                f"Invalid input for {call.action.value}.",
+                f"ข้อมูลนำเข้าสำหรับ {call.action.value} ไม่ถูกต้อง",
             )
         try:
             data = self._run(call.action, input_model)
         except BackendError as exc:
             return self._error(call, exc.code, exc.message)
-        except Exception:  # noqa: BLE001 - fail closed on any unexpected backend error
-            return self._error(call, ToolErrorCode.INTERNAL, "Unexpected internal error.")
+        except Exception:  # noqa: BLE001 - ปิดอย่างปลอดภัยเมื่อเกิดข้อผิดพลาดที่ไม่คาดคิดจาก backend
+            return self._error(call, ToolErrorCode.INTERNAL, "เกิดข้อผิดพลาดภายในที่ไม่คาดคิด")
         try:
             output_model = validate_tool_success_data(call.action, data)
         except ValidationError:
-            return self._error(call, ToolErrorCode.INTERNAL, "Tool produced invalid output.")
+            return self._error(call, ToolErrorCode.INTERNAL, "เครื่องมือส่งผลลัพธ์ที่ไม่ถูกต้อง")
         return ToolResult(
             call_id=call.call_id,
             name=call.name,
@@ -68,7 +68,7 @@ class SimulatedTool:
         )
 
     def reset(self) -> None:
-        """Reset this tool's backend state (delegates to the backend)."""
+        """รีเซ็ตสถานะ backend ของเครื่องมือนี้ โดยมอบหมายให้ backend ดำเนินการ"""
         self.backend.reset()
 
     def _run(self, action: Any, input_model: Any) -> dict[str, Any]:

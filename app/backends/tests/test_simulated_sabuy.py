@@ -1,4 +1,4 @@
-"""Tests for the deterministic simulated Sabuy backend."""
+"""ทดสอบแบ็กเอนด์ Sabuy จำลองที่ให้ผลลัพธ์แบบกำหนดแน่นอน"""
 
 from __future__ import annotations
 
@@ -43,7 +43,7 @@ def test_prepare_payment_has_no_side_effect():
     assert out["amountThb"] == "100.00"
     assert out["paymentMethod"] == "demo_card"
     assert out["summary"]
-    # Preparing must not record a receipt.
+    # การเตรียมข้อมูลต้องยังไม่บันทึกใบเสร็จ
     assert backend._receipts == {}
 
 

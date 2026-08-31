@@ -1,8 +1,8 @@
-"""Deterministic, offline planner for the managed PEA demo.
+"""ตัววางแผนแบบกำหนดผลลัพธ์ได้และทำงานออฟไลน์สำหรับเดโม PEA ที่มีการจัดการ
 
-The adapter reads only visible ``user`` and ``tool`` messages. It never receives,
-retains, or infers hidden reasoning. Operational calls require known demo
-identifiers and complete, explicit write inputs.
+อะแดปเตอร์อ่านเฉพาะข้อความ ``user`` และ ``tool`` ที่มองเห็นได้ ไม่เคยรับ เก็บรักษา
+หรืออนุมานกระบวนการคิดที่ซ่อนอยู่ การเรียกใช้งานปฏิบัติการต้องใช้ตัวระบุเดโมที่รู้จัก
+และข้อมูลสำหรับเขียนที่ครบถ้วนและระบุอย่างชัดเจน
 """
 
 from __future__ import annotations
@@ -25,18 +25,18 @@ _DEMO_AREA_CODES = frozenset({"BKK-01", "CNX-02", "HKT-03"})
 
 
 class DemoLLMAdapter:
-    """Plan safe frozen demo actions without network or provider access."""
+    """วางแผนการกระทำเดโมตามสัญญาอย่างปลอดภัยโดยไม่เข้าถึงเครือข่ายหรือ provider"""
 
     async def ready(self) -> bool:
-        """The deterministic adapter is always available offline."""
+        """อะแดปเตอร์แบบกำหนดผลลัพธ์ได้พร้อมใช้งานแบบออฟไลน์เสมอ"""
         return True
 
     async def complete(self, request: LLMRequest) -> LLMResponse:
-        """Return a deterministic planning or tool-grounded response."""
+        """ส่งคืนการวางแผนแบบกำหนดผลลัพธ์ได้หรือคำตอบที่อ้างอิงผลลัพธ์เครื่องมือ"""
         visible = tuple(message for message in request.messages if message.role in {"user", "tool"})
         user_index = _latest_user_index(visible)
         if user_index is None:
-            return LLMResponse(text="How can I help with the PEA demo?")
+            return LLMResponse(text="ผมช่วยอะไรเกี่ยวกับเดโม PEA ได้บ้างครับ")
         current_messages = visible[user_index:]
         tool_messages = tuple(message for message in current_messages if message.role == "tool")
         if tool_messages:
@@ -56,18 +56,18 @@ class DemoLLMAdapter:
         planned: list[tuple[int, ToolName, ToolAction, dict[str, Any]]] = []
 
         if _is_greeting(text):
-            return LLMResponse(text="Hello. How can I help with the PEA demo?")
+            return LLMResponse(text="สวัสดีครับ ผมช่วยอะไรเกี่ยวกับเดโม PEA ได้บ้างครับ")
         if _is_unsafe_or_unknown_request(text):
-            return LLMResponse(text="I can only use the published PEA demo tools and cannot perform that request.")
+            return LLMResponse(text="ผมใช้ได้เฉพาะเครื่องมือเดโม PEA ที่เผยแพร่ไว้ และไม่สามารถดำเนินการตามคำขอนี้ได้ครับ")
 
         wants_categories = any(term in text for term in ("category", "categories", "case types", "หมวด"))
         payment_requested = payment_method is not None or bool(re.search(
             r"\bprepare\b[^;\n]{0,30}\bpayment\b|\bpay\b[^;\n]{0,40}\baccount\b|(?:ต้องการ)?(?:ชำระ|จ่าย)(?:ค่าไฟ|เงิน)?",
             text,
         ))
-        report_requested = any(term in text for term in ("report", "file an outage", "fallen wire", "downed line", "sparks", "แจ้งไฟ", "แจ้งเหตุ")) and bool(location or symptoms)
+        report_requested = any(term in text for term in ("report", "file an outage", "fallen wire", "downed line", "sparks", "แจ้งไฟ", "แจ้งเหตุ", "รายงาน", "ไฟฟ้าดับ", "ไฟดับ")) and bool(location or symptoms)
         case_requested = (not wants_categories and bool(subject and detail) and any(term in text for term in ("complaint", "complain", "case", "service report", "ร้องเรียน")))
-        status_requested = bool(area_code) and (any(term in text for term in ("status", "check outage", "planned outage", "power normal", "outage near")) or ("outage" in text and not report_requested))
+        status_requested = bool(area_code) and (any(term in text for term in ("status", "check outage", "planned outage", "power normal", "outage near", "สถานะ", "ตรวจสอบ", "ไฟฟ้าดับ", "ไฟดับ", "ปกติ")) or (("outage" in text or "ไฟฟ้าดับ" in text or "ไฟดับ" in text) and not report_requested))
         account_requested = bool(account_ref) and (
             any(term in text for term in ("balance", "due", "overdue", "summary", "ยอด"))
             or bool(re.search(r"\b(?:show|check)\s+account\b", text))
@@ -87,7 +87,7 @@ class DemoLLMAdapter:
                     "idempotencyKey": _idempotency_key(correlation_id, action, f"{account_ref}:{amount}:{payment_method.value}"),
                 })
             else:
-                return LLMResponse(text="To prepare a payment, provide a demo account, a positive amount, and `paymentMethod: demo_card` or `demo_bank`.")
+                return LLMResponse(text="หากต้องการเตรียมการชำระเงิน กรุณาระบุบัญชีเดโม จำนวนเงินที่มากกว่าศูนย์ และ `paymentMethod: demo_card` หรือ `demo_bank` ครับ")
 
         if account_requested:
             _append_plan(planned, message, ("account", "balance", "due", "overdue", "summary"), ToolName.SABUY, ToolAction.SABUY_ACCOUNT_SUMMARY, {"accountRef": account_ref})
@@ -102,15 +102,15 @@ class DemoLLMAdapter:
                     "idempotencyKey": _idempotency_key(correlation_id, action, f"{area_code}:{location}:{symptoms}"),
                 })
             elif not planned:
-                return LLMResponse(text="To prepare an outage report, provide a known area plus `location:` and `symptoms:` details.")
+                return LLMResponse(text="หากต้องการเตรียมแจ้งเหตุไฟฟ้าขัดข้อง กรุณาระบุพื้นที่ที่รู้จัก พร้อมรายละเอียด `location:` และ `symptoms:` ครับ")
 
         if status_requested:
             if area_code:
                 _append_plan(planned, message, ("status", "check outage", "planned outage", "power normal", "outage"), ToolName.OMS, ToolAction.OMS_OUTAGE_STATUS, {"areaCode": area_code})
             elif not planned:
-                return LLMResponse(text="Please provide a known demo area code to check outage status.")
+                return LLMResponse(text="กรุณาระบุรหัสพื้นที่เดโมที่รู้จักเพื่อตรวจสอบสถานะไฟฟ้าขัดข้องครับ")
 
-        # An explicit category request is a read, never an incomplete complaint write.
+        # คำขอหมวดหมู่ที่ระบุชัดเจนเป็นการอ่านเสมอ ไม่ใช่การเขียนเรื่องร้องเรียนที่ข้อมูลไม่ครบ
         if wants_categories:
             _append_plan(planned, message, ("category", "categories", "case types"), ToolName.VOC, ToolAction.VOC_LIST_CATEGORIES, {})
         elif case_requested:
@@ -125,14 +125,14 @@ class DemoLLMAdapter:
                     "idempotencyKey": _idempotency_key(correlation_id, action, f"{category.value}:{subject}:{detail}"),
                 })
             elif not planned:
-                return LLMResponse(text="To prepare a case, provide `subject:` and `detail:`.")
+                return LLMResponse(text="หากต้องการเตรียมเรื่องร้องเรียน กรุณาระบุ `subject:` และ `detail:` ครับ")
 
         if knowledge_requested:
             _append_plan(planned, message, ("knowledge", "policy", "tariff", "rate", "guidance", "safety", "payment channels"), ToolName.KNOWLEDGE, ToolAction.KNOWLEDGE_SEARCH, {"query": _safe_query(message), "maxResults": 3})
 
         if planned:
             return _planned_response(correlation_id, [item[1:] for item in sorted(planned, key=lambda item: item[0])])
-        # Informational requests fail closed through the knowledge source rather than model memory.
+        # คำขอข้อมูลจะปิดอย่างปลอดภัยผ่านแหล่งความรู้ แทนการใช้ความจำของโมเดล
         return _planned_response(correlation_id, [(ToolName.KNOWLEDGE, ToolAction.KNOWLEDGE_SEARCH, {"query": _safe_query(message), "maxResults": 3})])
 
     def _after_tools(self, messages: tuple[LLMMessage, ...], tool_messages: tuple[LLMMessage, ...], correlation_id: UUID) -> LLMResponse:
@@ -223,7 +223,15 @@ def _idempotency_key(correlation_id: UUID, action: ToolAction, value: str) -> st
 
 
 def _labelled_value(message: str, label: str, maximum: int) -> str | None:
-    match = re.search(rf"(?:^|[;\n])\s*{re.escape(label)}\s*:\s*(.+?)(?=\s*(?:;|\n|$))", message, re.IGNORECASE)
+    thai_labels = {
+        "location": "สถานที่",
+        "symptoms": "อาการ",
+        "subject": "หัวข้อ",
+        "detail": "รายละเอียด",
+    }
+    accepted_labels = (label, thai_labels.get(label, label))
+    labels_pattern = "|".join(re.escape(item) for item in accepted_labels)
+    match = re.search(rf"(?:^|[;\n])\s*(?:{labels_pattern})\s*:\s*(.+?)(?=\s*(?:;|\n|$))", message, re.IGNORECASE)
     if not match:
         return None
     value = " ".join(match.group(1).split())
@@ -242,45 +250,49 @@ def _requested_amount(message: str) -> str | None:
 
 
 def _case_category(message: str) -> VocCategory:
-    if any(term in message for term in ("safety", "danger", "hazard", "อันตราย")):
-        return VocCategory.SAFETY
-    if any(term in message for term in ("bill", "billing", "payment", "ค่าไฟ")):
-        return VocCategory.BILLING
-    if any(term in message for term in ("service", "meter", "บริการ")):
-        return VocCategory.SERVICE
-    return VocCategory.OTHER
+    if any(term in message for term in ("compliment", "praise", "ชื่นชม")):
+        return VocCategory.COMPLIMENT
+    if any(term in message for term in ("safety", "danger", "hazard", "อันตราย", "เบาะแส")):
+        return VocCategory.TIP_OFF
+    if any(term in message for term in ("partner", "vendor", "operation", "คู่ค้า", "ดำเนินงาน")):
+        return VocCategory.OPERATIONS
+    if any(term in message for term in ("stakeholder", "feedback", "ผู้มีส่วนได้ส่วนเสีย", "ข้อคิดเห็น")):
+        return VocCategory.STAKEHOLDER_FEEDBACK
+    if any(term in message for term in ("outage", "voltage", "ไฟดับ", "ไฟตก", "แรงดัน")):
+        return VocCategory.POWER_QUALITY
+    return VocCategory.SERVICE
 
 
 def _safe_query(message: str) -> str:
-    return " ".join(message.split())[:1000] or "PEA demo information"
+    return " ".join(message.split())[:1000] or "ข้อมูลเดโม PEA"
 
 
 def _tool_payload(content: str) -> dict[str, Any]:
     try:
         payload = json.loads(content)
     except json.JSONDecodeError:
-        return {"status": "error", "error": "Tool result was unavailable."}
-    return payload if isinstance(payload, dict) else {"status": "error", "error": "Tool result was invalid."}
+        return {"status": "error", "error": "ผลลัพธ์เครื่องมือไม่พร้อมใช้งาน"}
+    return payload if isinstance(payload, dict) else {"status": "error", "error": "ผลลัพธ์เครื่องมือไม่ถูกต้อง"}
 
 
 def _grounded_message(results: tuple[dict[str, Any], ...]) -> str:
     messages: list[str] = []
     for result in results:
         if result.get("status") != "success":
-            messages.append(str(result.get("error", "A requested service was unavailable.")))
+            messages.append(str(result.get("error", "บริการที่ร้องขอไม่พร้อมใช้งาน")))
             continue
         data = result.get("data")
         if not isinstance(data, dict):
             continue
         if "outstandingBalanceThb" in data:
-            messages.append(f"Account {data['accountRef']} has a balance of THB {data['outstandingBalanceThb']} ({data['paymentStatus']}).")
+            messages.append(f"บัญชี {data['accountRef']} มียอดคงค้าง THB {data['outstandingBalanceThb']} (สถานะ {data['paymentStatus']})")
         elif "safetyMessage" in data and "status" in data:
-            messages.append(f"Area {data['areaCode']} is {data['status']}. {data['safetyMessage']}")
+            messages.append(f"พื้นที่ {data['areaCode']} มีสถานะ {data['status']} {data['safetyMessage']}")
         elif "summary" in data:
             messages.append(str(data["summary"]))
         elif "categories" in data:
-            messages.append("Available categories: " + ", ".join(str(item["label"]) for item in data["categories"]))
+            messages.append("หมวดหมู่ที่มี: " + ", ".join(str(item["label"]) for item in data["categories"]))
         elif "answerContext" in data:
             citation_count = len(result.get("citations", []))
-            messages.append(f"{data['answerContext']} ({citation_count} cited source{'s' if citation_count != 1 else ''})")
-    return " ".join(messages) or "The requested lookup returned no usable data."
+            messages.append(f"{data['answerContext']} (อ้างอิง {citation_count} แหล่ง)")
+    return " ".join(messages) or "การค้นหาที่ร้องขอไม่พบข้อมูลที่ใช้งานได้"

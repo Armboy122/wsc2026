@@ -1,4 +1,4 @@
-"""Main Agent orchestration exports."""
+"""exports สำหรับการประสานงานของ Main Agent"""
 
 from app.agent.main_agent import InvalidActionStateError, MainAgent, NotFoundError
 from app.agent.registry import Tool, ToolContext, ToolRegistry

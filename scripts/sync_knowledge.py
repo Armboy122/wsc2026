@@ -1,52 +1,52 @@
 #!/usr/bin/env python3
-"""Sync the authoritative PEA knowledge corpus into a Gemini File Search store.
+"""ซิงก์คลังความรู้ PEA ที่เป็นแหล่งข้อมูลหลักไปยัง Gemini File Search store
 
-Safety-critical source policy: only files under ``<corpus root>/source/`` are
-ever syncable. The default corpus root is ``<repo>/knowledge``, so the default
-run uploads exactly ``knowledge/source/**``. README files, the manifest,
-hidden files, and non-document files are never uploaded, at any depth. The
-repository intentionally ships no PEA content in ``source/`` (only a
-non-factual placeholder); only lead-approved, authoritative PEA exports may
-be placed there. With no approved export present, a sync run is a no-op and
-the store cannot be populated with fabricated facts.
+นโยบายแหล่งข้อมูลที่สำคัญต่อความปลอดภัย: ซิงก์ได้เฉพาะไฟล์ภายใต้
+``<corpus root>/source/`` เท่านั้น corpus root เริ่มต้นคือ ``<repo>/knowledge``
+ดังนั้นการทำงานเริ่มต้นจะอัปโหลดเฉพาะ ``knowledge/source/**`` เท่านั้น ไฟล์ README,
+manifest, ไฟล์ซ่อน และไฟล์ที่ไม่ใช่เอกสารจะไม่ถูกอัปโหลดไม่ว่าจะอยู่ลึกระดับใด
+repository นี้ตั้งใจไม่รวมเนื้อหา PEA ไว้ใน ``source/`` (มีเพียง placeholder
+ที่ไม่มีข้อเท็จจริง) อนุญาตให้วางได้เฉพาะข้อมูลส่งออก PEA ที่เป็นแหล่งข้อมูลหลัก
+และได้รับอนุมัติจากหัวหน้าทีมแล้ว หากไม่มีข้อมูลส่งออกที่ได้รับอนุมัติ การซิงก์
+จะไม่ดำเนินการใด ๆ และไม่สามารถเติมข้อเท็จจริงที่แต่งขึ้นลงใน store ได้
 
-The script keeps a SHA256 source manifest (default: ``knowledge/manifest.json``)
-that maps each corpus-relative path to its content hash and the remote document
-name. Each run uploads only new or changed sources; unchanged sources are
-touched, and remote documents whose local source disappeared are deleted only
-when both ``--prune`` and ``--yes`` are given.
+สคริปต์เก็บ source manifest แบบ SHA256 (ค่าเริ่มต้น: ``knowledge/manifest.json``)
+ซึ่งจับคู่ path ที่สัมพันธ์กับ corpus แต่ละรายการกับ hash ของเนื้อหาและชื่อเอกสาร
+ระยะไกล แต่ละครั้งจะอัปโหลดเฉพาะแหล่งข้อมูลใหม่หรือที่เปลี่ยนแปลง แหล่งข้อมูลที่
+ไม่เปลี่ยนแปลงจะได้รับการแตะ และเอกสารระยะไกลที่แหล่งข้อมูลภายในหายไปจะถูกลบ
+เมื่อระบุทั้ง ``--prune`` และ ``--yes`` เท่านั้น
 
-Flags:
-    --root      corpus root (default: <repo>/knowledge); only <root>/source/**
-                is syncable. A root without a source/ directory is a usage error.
-    --manifest  manifest path (default: <corpus root>/manifest.json, i.e.
-                knowledge/manifest.json for the default root)
-    --file      limit the run to one corpus-relative path (repeatable), e.g.
+แฟล็ก:
+    --root      corpus root (ค่าเริ่มต้น: <repo>/knowledge); ซิงก์ได้เฉพาะ
+                <root>/source/** หาก root ไม่มีไดเรกทอรี source/ ถือว่าใช้คำสั่งผิด
+    --manifest  path ของ manifest (ค่าเริ่มต้น: <corpus root>/manifest.json หรือ
+                knowledge/manifest.json สำหรับ root เริ่มต้น)
+    --file      จำกัดการทำงานไว้ที่ path เดียวที่สัมพันธ์กับ corpus (ระบุซ้ำได้) เช่น
                 source/<approved-export>.md
-    --store     File Search store resource name (default: $GEMINI_FILE_SEARCH_STORE)
-    --dry-run   print the plan only; no uploads, no manifest writes
-    --force     re-upload unchanged sources as well
-    --prune     delete remote documents whose local source is gone (needs --yes)
-    --yes       confirm destructive prune deletions
-    --verbose   per-file progress output
+    --store     ชื่อทรัพยากร File Search store (ค่าเริ่มต้น: $GEMINI_FILE_SEARCH_STORE)
+    --dry-run   แสดงเฉพาะแผน ไม่อัปโหลดและไม่เขียน manifest
+    --force     อัปโหลดแหล่งข้อมูลที่ไม่เปลี่ยนแปลงซ้ำด้วย
+    --prune     ลบเอกสารระยะไกลที่แหล่งข้อมูลภายในหายไป (ต้องใช้ --yes)
+    --yes       ยืนยันการลบแบบ prune ที่ทำลายข้อมูล
+    --verbose   แสดงความคืบหน้ารายไฟล์
 
-Provider defaults: chunking uses the provider default (no chunking
-configuration is ever sent). Unicode safety: non-ASCII source names (e.g.
-Thai) never reach an HTTP header or a rejected request field — the source is
-uploaded through a temporary ASCII-named copy that keeps the original suffix
-and bytes, so the SDK can infer the MIME type for the upload headers from an
-ASCII path (it echoes a path argument's basename into the ASCII-only
-``X-Goog-Upload-File-Name`` header) while ``UploadToFileSearchStoreConfig``
-never carries ``mime_type`` (the SDK copies that field into the request body,
-which Gemini rejects with 400 INVALID_ARGUMENT for DOCX vendor types). The
-temporary copy is removed on success and on every failure path. The remote
-display name is a deterministic ASCII-safe form of the corpus-relative path
-with a path-hash suffix, and the original UTF-8 path is carried in
-``custom_metadata`` (JSON request body, never a header) when it fits the
-conservative value budget. The local manifest always keeps the exact UTF-8
-corpus-relative path as its key, so the original path remains available even
-for paths too long for metadata. The ``google-genai`` SDK is imported lazily,
-so ``--dry-run`` works without the SDK installed.
+ค่าเริ่มต้นของผู้ให้บริการ: การแบ่ง chunk ใช้ค่าเริ่มต้นของผู้ให้บริการ
+(จะไม่มีการส่งการตั้งค่า chunking) ความปลอดภัยด้าน Unicode: ชื่อแหล่งข้อมูลที่
+ไม่ใช่ ASCII (เช่น ภาษาไทย) จะไม่ไปถึง HTTP header หรือฟิลด์คำขอที่ถูกปฏิเสธ
+โดยแหล่งข้อมูลจะถูกอัปโหลดผ่านสำเนาชั่วคราวชื่อ ASCII ที่คง suffix และ byte เดิม
+เพื่อให้ SDK อนุมาน MIME type สำหรับ upload header จาก path แบบ ASCII ได้
+(SDK จะสะท้อน basename ของอาร์กิวเมนต์ path ไปยัง header
+``X-Goog-Upload-File-Name`` ที่รับเฉพาะ ASCII) ขณะที่
+``UploadToFileSearchStoreConfig`` จะไม่มี ``mime_type`` (SDK คัดลอกฟิลด์นั้น
+ไปยัง request body ซึ่ง Gemini ปฏิเสธด้วย 400 INVALID_ARGUMENT สำหรับชนิด
+DOCX ของผู้ผลิต) สำเนาชั่วคราวจะถูกลบทั้งเมื่อสำเร็จและในทุกเส้นทางที่ล้มเหลว
+ชื่อแสดงผลระยะไกลเป็นรูปแบบ ASCII-safe ที่ให้ผลแน่นอนของ path ที่สัมพันธ์กับ
+corpus พร้อม suffix ซึ่งเป็น path hash และจะส่ง path UTF-8 เดิมใน
+``custom_metadata`` (JSON request body ไม่ใช่ header) เมื่อขนาดไม่เกินงบประมาณ
+แบบเผื่อความปลอดภัย manifest ภายในจะเก็บ path UTF-8 ที่สัมพันธ์กับ corpus
+แบบตรงกันทุกประการเป็น key เสมอ ทำให้ path เดิมยังคงใช้ได้แม้ยาวเกินกว่าจะใส่
+metadata ส่วน SDK ``google-genai`` จะถูกนำเข้าแบบ lazy เพื่อให้ ``--dry-run``
+ทำงานได้โดยไม่ต้องติดตั้ง SDK
 """
 
 from __future__ import annotations
@@ -65,11 +65,10 @@ from datetime import datetime, timezone
 from pathlib import Path
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
-# Corpus root (default): holds source/ (the only syncable subtree), the
-# manifest, and documentation/tests — none of which are ever uploaded except
-# files under source/.
+# รากของคลังข้อมูล (ค่าเริ่มต้น): เก็บ source/ (แผนผังย่อยเดียวที่ซิงก์ได้), manifest
+# และเอกสาร/การทดสอบ โดยจะไม่มีสิ่งใดถูกอัปโหลดนอกจากไฟล์ภายใต้ source/
 DEFAULT_CORPUS_ROOT = REPO_ROOT / "knowledge"
-# Only files under <corpus root>/source/** are ever uploaded (fail-closed).
+# อัปโหลดเฉพาะไฟล์ภายใต้ <corpus root>/source/** เท่านั้น (ปิดอย่างปลอดภัยเมื่อผิดพลาด)
 SOURCE_DIR_NAME = "source"
 MANIFEST_NAME = "manifest.json"
 MANIFEST_SCHEMA_VERSION = 1
@@ -79,24 +78,24 @@ ENV_API_KEY = "GEMINI_API_KEY"
 ENV_FALLBACK_API_KEY = "GOOGLE_API_KEY"
 
 ALLOWED_SUFFIXES = {".md", ".markdown", ".txt", ".pdf", ".docx", ".csv", ".html"}
-# Documentation/metadata files that are never uploaded, at any depth
-# (compared case-insensitively).
+# ไฟล์เอกสาร/ข้อมูลกำกับที่จะไม่ถูกอัปโหลดไม่ว่าจะอยู่ลึกระดับใด
+# (เปรียบเทียบโดยไม่สนตัวพิมพ์เล็กหรือใหญ่)
 EXCLUDED_FILENAMES = {MANIFEST_NAME, "readme.md"}
 
 LRO_POLL_SECONDS = 0.5
 LRO_TIMEOUT_SECONDS = 120.0
 SHA256_CHUNK_SIZE = 1024 * 1024
 
-# Remote display-name budget. The provider allows 512 characters; 200 keeps
-# names comfortably ASCII-safe and comparable in listings.
+# งบประมาณชื่อแสดงผลระยะไกล ผู้ให้บริการอนุญาต 512 อักขระ ส่วน 200 ช่วยให้ชื่อ
+# เป็น ASCII-safe อย่างมั่นใจและเปรียบเทียบกันได้ในรายการ
 DISPLAY_NAME_MAX_LENGTH = 200
-# Hex digits of the SHA256 of the original UTF-8 path appended to every
-# non-ASCII display name so distinct paths can never collide.
+# จำนวนเลขฐานสิบหกจาก SHA256 ของ path UTF-8 เดิมที่ต่อท้ายชื่อแสดงผลทุกชื่อ
+# ที่ไม่ใช่ ASCII เพื่อไม่ให้ path ที่ต่างกันเกิดการชนกัน
 DISPLAY_NAME_HASH_LENGTH = 12
-# custom_metadata key carrying the exact corpus-relative path (JSON body).
+# key ของ custom_metadata ที่เก็บ path ซึ่งสัมพันธ์กับ corpus แบบตรงกันทุกประการ (JSON body)
 CUSTOM_METADATA_PATH_KEY = "corpus_rel_path"
-# Conservative UTF-8 byte budget for a custom-metadata string value; the
-# provider does not document a limit, so longer paths rely on the manifest.
+# งบประมาณ byte UTF-8 แบบเผื่อความปลอดภัยสำหรับค่าสตริง custom-metadata
+# ผู้ให้บริการไม่ได้ระบุขีดจำกัดไว้ ดังนั้น path ที่ยาวกว่านี้จึงอาศัย manifest
 CUSTOM_METADATA_MAX_VALUE_BYTES = 256
 
 
@@ -105,19 +104,18 @@ def _is_ascii_printable(char: str) -> bool:
 
 
 def ascii_display_name(rel_path: str) -> str:
-    """Deterministic ASCII-safe remote display name for a corpus-relative path.
+    """สร้างชื่อแสดงผลระยะไกลแบบ ASCII-safe ที่ให้ผลแน่นอนสำหรับ path ที่สัมพันธ์กับ corpus
 
-    Pure-ASCII printable paths within the length budget pass through
-    unchanged, so names of already-synced documents stay stable across runs.
-    Any other path (e.g. Thai file names, which crash httpx when they leak
-    into ASCII-only headers) is reduced to its printable-ASCII skeleton —
-    runs of non-ASCII characters collapse to a single ``_`` — and the first
-    ``DISPLAY_NAME_HASH_LENGTH`` hex digits of the SHA256 of the original
-    UTF-8 path are appended before the extension. The path hash guarantees
-    two distinct paths never collide even when their ASCII skeletons are
-    identical, while the recognizable ASCII stem and extension are kept
-    where possible. The result is always ASCII and at most
-    ``DISPLAY_NAME_MAX_LENGTH`` characters long.
+    path ที่เป็น ASCII ล้วน พิมพ์ได้ และอยู่ภายในงบประมาณความยาวจะผ่านไปโดย
+    ไม่เปลี่ยนแปลง ทำให้ชื่อเอกสารที่ซิงก์แล้วคงที่ระหว่างการทำงานแต่ละครั้ง
+    path อื่นทั้งหมด (เช่น ชื่อไฟล์ภาษาไทย ซึ่งทำให้ httpx ล้มเหลวเมื่อรั่วไปยัง
+    header ที่รับเฉพาะ ASCII) จะถูกลดรูปเป็นโครง ASCII ที่พิมพ์ได้ โดยชุดอักขระ
+    ที่ไม่ใช่ ASCII ต่อเนื่องกันจะยุบเป็น ``_`` ตัวเดียว แล้วนำเลขฐานสิบหก
+    ``DISPLAY_NAME_HASH_LENGTH`` หลักแรกจาก SHA256 ของ path UTF-8 เดิมมาต่อก่อน
+    extension ค่า hash ของ path รับประกันว่า path ต่างกันสองรายการจะไม่ชนกัน
+    แม้โครง ASCII จะเหมือนกัน ขณะเดียวกันจะคง stem แบบ ASCII ที่จดจำได้และ
+    extension ไว้เมื่อเป็นไปได้ ผลลัพธ์จะเป็น ASCII เสมอและยาวไม่เกิน
+    ``DISPLAY_NAME_MAX_LENGTH`` อักขระ
     """
     if (
         rel_path
@@ -138,12 +136,12 @@ def ascii_display_name(rel_path: str) -> str:
 
 
 def _ascii_temp_dir() -> str:
-    """An ASCII-safe directory for temporary upload copies.
+    """ไดเรกทอรี ASCII-safe สำหรับสำเนาชั่วคราวที่ใช้ในการอัปโหลด
 
-    ``tempfile.gettempdir()`` honours ``TMPDIR``, which may itself be
-    non-ASCII; the SDK would then echo the temp path's directory into
-    headers again. Fall back to its realpath or ``/tmp``, and fail closed if
-    even those are unavailable, rather than leak a non-ASCII path.
+    ``tempfile.gettempdir()`` เคารพค่า ``TMPDIR`` ซึ่งอาจไม่ใช่ ASCII ทำให้ SDK
+    สะท้อนไดเรกทอรีของ path ชั่วคราวกลับเข้า header อีกครั้ง จึงย้อนกลับไปใช้
+    realpath หรือ ``/tmp`` และปิดอย่างปลอดภัยเมื่อใช้ไม่ได้แม้แต่ตัวเลือกเหล่านั้น
+    แทนที่จะปล่อยให้ path ที่ไม่ใช่ ASCII รั่วออกไป
     """
     raw = tempfile.gettempdir()
     for candidate in (raw, os.path.realpath(raw), "/tmp"):
@@ -153,18 +151,17 @@ def _ascii_temp_dir() -> str:
             except UnicodeEncodeError:
                 continue
             return candidate
-    raise SyncError("no ASCII-safe temporary directory available for uploads")
+    raise SyncError("ไม่มีไดเรกทอรีชั่วคราวแบบ ASCII-safe สำหรับการอัปโหลด")
 
 
 def _ascii_temp_copy(local_path: Path) -> Path:
-    """Copy a source to an ASCII-named temporary file, keeping the suffix.
+    """คัดลอกแหล่งข้อมูลไปยังไฟล์ชั่วคราวชื่อ ASCII โดยคง suffix ไว้
 
-    The SDK infers the upload MIME type from the file path's extension and
-    echoes the basename into the ASCII-only ``X-Goog-Upload-File-Name``
-    header, so the copy's name is fully ASCII (random ``tempfile`` name plus
-    the original, ASCII-printable suffix) and its bytes are identical to the
-    source. The caller owns the file and must remove it (finally block in
-    :meth:`GeminiStoreProvider.upload`).
+    SDK อนุมาน MIME type สำหรับการอัปโหลดจาก extension ของ path ไฟล์ และสะท้อน
+    basename เข้า header ``X-Goog-Upload-File-Name`` ที่รับเฉพาะ ASCII ดังนั้น
+    ชื่อสำเนาจึงเป็น ASCII ทั้งหมด (ชื่อสุ่มจาก ``tempfile`` ตามด้วย suffix เดิม
+    ที่เป็น ASCII และพิมพ์ได้) และมี byte เหมือนแหล่งข้อมูล ผู้เรียกเป็นเจ้าของไฟล์
+    และต้องลบไฟล์นั้น (บล็อก finally ใน :meth:`GeminiStoreProvider.upload`)
     """
     suffix = local_path.suffix
     if suffix and not all(_is_ascii_printable(char) for char in suffix):
@@ -177,17 +174,17 @@ def _ascii_temp_copy(local_path: Path) -> Path:
             shutil.copyfileobj(src, dst, SHA256_CHUNK_SIZE)
     except OSError as exc:
         temp_path.unlink(missing_ok=True)
-        raise SyncError(f"cannot stage {local_path.name} for upload") from exc
+        raise SyncError(f"ไม่สามารถจัดเตรียม {local_path.name} สำหรับการอัปโหลดได้") from exc
     return temp_path
 
 
 def _custom_metadata(genai, rel_path: str) -> list | None:
-    """Original UTF-8 path as remote metadata, when it fits the budget.
+    """ใช้ path UTF-8 เดิมเป็น metadata ระยะไกลเมื่อขนาดอยู่ภายในงบประมาณ
 
-    ``custom_metadata`` is serialized into the JSON request body — never an
-    ASCII-only header — so the exact corpus-relative path survives. Paths
-    beyond the conservative value budget are not faked or truncated remotely;
-    the local manifest remains the authoritative record for every path.
+    ``custom_metadata`` จะถูก serialize ลงใน JSON request body ไม่ใช่ header
+    ที่รับเฉพาะ ASCII จึงคง path ที่สัมพันธ์กับ corpus แบบตรงกันทุกประการไว้ได้
+    path ที่เกินงบประมาณค่าแบบเผื่อความปลอดภัยจะไม่ถูกแต่งหรือตัดทอนบนระบบระยะไกล
+    โดย manifest ภายในยังคงเป็นระเบียนหลักสำหรับทุก path
     """
     if len(rel_path.encode("utf-8")) > CUSTOM_METADATA_MAX_VALUE_BYTES:
         return None
@@ -195,16 +192,16 @@ def _custom_metadata(genai, rel_path: str) -> list | None:
 
 
 class SyncError(Exception):
-    """Provider or I/O failure with a user-safe message."""
+    """ความล้มเหลวของผู้ให้บริการหรือ I/O พร้อมข้อความที่ปลอดภัยสำหรับผู้ใช้"""
 
 
 class UsageError(SyncError):
-    """Invalid command-line usage."""
+    """การใช้บรรทัดคำสั่งไม่ถูกต้อง"""
 
 
 @dataclass(frozen=True)
 class LocalSource:
-    """One syncable source file, addressed by corpus-relative POSIX path."""
+    """ไฟล์แหล่งข้อมูลหนึ่งไฟล์ที่ซิงก์ได้ ซึ่งระบุด้วย path แบบ POSIX ที่สัมพันธ์กับ corpus"""
 
     rel_path: str
     sha256: str
@@ -213,7 +210,7 @@ class LocalSource:
 
 @dataclass(frozen=True)
 class UploadItem:
-    """A source that must be (re-)uploaded this run."""
+    """แหล่งข้อมูลที่ต้องอัปโหลดหรืออัปโหลดซ้ำในการทำงานครั้งนี้"""
 
     rel_path: str
     sha256: str
@@ -223,7 +220,7 @@ class UploadItem:
 
 @dataclass(frozen=True)
 class PruneItem:
-    """A manifest entry whose local source no longer exists."""
+    """รายการใน manifest ที่ไม่มีแหล่งข้อมูลภายในอยู่แล้ว"""
 
     rel_path: str
     document_name: str | None
@@ -231,7 +228,7 @@ class PruneItem:
 
 @dataclass(frozen=True)
 class SyncPlan:
-    """Pure diff between the local corpus and the manifest."""
+    """ผลต่างล้วนระหว่าง corpus ภายในกับ manifest"""
 
     uploads: tuple[UploadItem, ...]
     unchanged: tuple[str, ...]
@@ -247,23 +244,23 @@ def compute_sha256(path: Path) -> str:
 
 
 def discover_sources(corpus_root: Path, only: tuple[str, ...] = ()) -> list[LocalSource]:
-    """List syncable sources under ``corpus_root`` (sorted, stable order).
+    """แสดงรายการแหล่งข้อมูลที่ซิงก์ได้ภายใต้ ``corpus_root`` (เรียงลำดับคงที่)
 
-    Fail-closed source policy: only files inside ``corpus_root/source/`` are
-    syncable; everything else in the corpus (README, docs, tests, metadata)
-    can never be uploaded. Inside ``source/``, hidden files/directories,
-    README and manifest files (any case, any depth), and files without an
-    allowed document suffix are skipped. A corpus root without a ``source/``
-    directory is a :class:`UsageError`, never a silent no-op. Relative paths
-    are corpus-root-relative (``source/...``). When ``only`` is given, every
-    listed path must resolve to a syncable source or a :class:`UsageError`
-    is raised.
+    นโยบายแหล่งข้อมูลแบบปิดอย่างปลอดภัยเมื่อผิดพลาด: ซิงก์ได้เฉพาะไฟล์ภายใน
+    ``corpus_root/source/`` เท่านั้น ส่วนสิ่งอื่นทั้งหมดใน corpus (README,
+    เอกสาร, การทดสอบ, metadata) จะอัปโหลดไม่ได้ ภายใน ``source/`` จะข้ามไฟล์
+    หรือไดเรกทอรีที่ซ่อนอยู่ ไฟล์ README และ manifest (ทุกแบบตัวพิมพ์และทุกระดับ)
+    รวมถึงไฟล์ที่ไม่มี suffix เอกสารที่อนุญาต corpus root ที่ไม่มีไดเรกทอรี
+    ``source/`` ถือเป็น :class:`UsageError` ไม่ใช่การไม่ดำเนินการอย่างเงียบ ๆ
+    path สัมพัทธ์จะสัมพันธ์กับ corpus root (``source/...``) เมื่อระบุ ``only``
+    ทุก path ที่ระบุต้องชี้ไปยังแหล่งข้อมูลที่ซิงก์ได้ มิฉะนั้นจะยก
+    :class:`UsageError`
     """
     source_dir = corpus_root / SOURCE_DIR_NAME
     if not source_dir.is_dir():
         raise UsageError(
-            f"corpus root {corpus_root} has no {SOURCE_DIR_NAME}/ directory; "
-            f"only {SOURCE_DIR_NAME}/** is syncable"
+            f"รากของคลังข้อมูล {corpus_root} ไม่มีไดเรกทอรี {SOURCE_DIR_NAME}/; "
+            f"ซิงก์ได้เฉพาะ {SOURCE_DIR_NAME}/** เท่านั้น"
         )
     found: list[LocalSource] = []
     for path in sorted(source_dir.rglob("*")):
@@ -292,22 +289,22 @@ def discover_sources(corpus_root: Path, only: tuple[str, ...] = ()) -> list[Loca
             if path not in {source.rel_path for source in found}
         )
         if missing:
-            raise UsageError(f"not a syncable source in the corpus: {', '.join(missing)}")
+            raise UsageError(f"ไม่ใช่แหล่งข้อมูลในคลังที่ซิงก์ได้: {', '.join(missing)}")
         found.sort(key=lambda source: source.rel_path)
     return found
 
 
 def load_manifest(manifest_path: Path) -> dict:
-    """Load the manifest; a missing file yields an empty skeleton."""
+    """โหลด manifest โดยไฟล์ที่ไม่มีจะให้โครงเปล่า"""
     if not manifest_path.exists():
         return {"schemaVersion": MANIFEST_SCHEMA_VERSION, "storeName": None, "files": {}}
     try:
         raw = json.loads(manifest_path.read_text(encoding="utf-8"))
     except (OSError, json.JSONDecodeError) as exc:
-        raise SyncError(f"cannot read manifest {manifest_path.name}: unreadable JSON") from exc
+        raise SyncError(f"ไม่สามารถอ่าน manifest {manifest_path.name}: JSON อ่านไม่ได้") from exc
     files = raw.get("files")
     if not isinstance(files, dict):
-        raise SyncError(f"cannot read manifest {manifest_path.name}: malformed file map")
+        raise SyncError(f"ไม่สามารถอ่าน manifest {manifest_path.name}: แผนผังไฟล์มีรูปแบบไม่ถูกต้อง")
     return {
         "schemaVersion": raw.get("schemaVersion", MANIFEST_SCHEMA_VERSION),
         "storeName": raw.get("storeName"),
@@ -322,10 +319,11 @@ def build_plan(
     force: bool = False,
     scope: tuple[str, ...] | None = None,
 ) -> SyncPlan:
-    """Diff local sources against the manifest (pure, no provider access).
+    """หาผลต่างของแหล่งข้อมูลภายในเทียบกับ manifest (ฟังก์ชันบริสุทธิ์ ไม่เข้าถึงผู้ให้บริการ)
 
-    With ``scope`` set (``--file``), only scoped sources produce uploads and
-    no prune candidates are produced; pruning is a whole-corpus operation.
+    เมื่อกำหนด ``scope`` (``--file``) จะสร้างรายการอัปโหลดเฉพาะแหล่งข้อมูล
+    ในขอบเขตและไม่สร้างรายการที่อาจ prune เนื่องจาก pruning เป็นการทำงานกับ
+    corpus ทั้งหมด
     """
     uploads: list[UploadItem] = []
     unchanged: list[str] = []
@@ -360,7 +358,7 @@ def build_plan(
 
 
 def write_manifest(manifest_path: Path, store_name: str | None, files: dict) -> None:
-    """Atomically replace the manifest (tmp file + rename)."""
+    """แทนที่ manifest แบบ atomic (ไฟล์ tmp + เปลี่ยนชื่อ)"""
     payload = {
         "schemaVersion": MANIFEST_SCHEMA_VERSION,
         "storeName": store_name,
@@ -377,52 +375,50 @@ def utc_now_iso() -> str:
 
 
 def _import_genai():
-    """Lazy provider import: the SDK is optional at module import time."""
+    """นำเข้าผู้ให้บริการแบบ lazy โดยไม่บังคับว่าต้องมี SDK ขณะนำเข้าโมดูล"""
     try:
         from google import genai
     except ImportError as exc:
         raise SyncError(
-            "the google-genai SDK is not installed; run: pip install google-genai"
+            "ยังไม่ได้ติดตั้ง google-genai SDK; ให้เรียกใช้: pip install google-genai"
         ) from exc
     return genai
 
 
 def _describe_error(error: object) -> str:
-    """User-safe one-line description of a provider error dict."""
+    """คำอธิบาย dict ข้อผิดพลาดของผู้ให้บริการแบบหนึ่งบรรทัดที่ปลอดภัยสำหรับผู้ใช้"""
     if isinstance(error, dict):
         status = error.get("status") or "ERROR"
         code = error.get("code", "?")
-        return f"{status} (code {code})"
-    return "provider error"
+        return f"{status} (รหัส {code})"
+    return "ข้อผิดพลาดจากผู้ให้บริการ"
 
 
 class GeminiStoreProvider:
-    """Thin SDK adapter: upload a source, delete a remote document."""
+    """SDK adapter แบบบางสำหรับอัปโหลดแหล่งข้อมูลและลบเอกสารระยะไกล"""
 
     def __init__(self, store_name: str, api_key: str) -> None:
         self._store_name = store_name
         self._api_key = api_key
 
     def upload(self, local_path: Path, rel_path: str) -> str:
-        """Upload one source; returns the remote document name.
+        """อัปโหลดแหล่งข้อมูลหนึ่งรายการและคืนชื่อเอกสารระยะไกล
 
-        Unicode + MIME safety (live repros): Thai names crashed httpx while
-        ASCII-encoding headers, and an explicit ``config.mime_type`` is
-        copied by the SDK into the request body, where Gemini rejects the
-        DOCX vendor type with 400 INVALID_ARGUMENT
-        (``UploadToFileSearchStoreRequest.mime_type`` invalid). The source is
-        therefore staged as a temporary ASCII-named copy that keeps the
-        original suffix and bytes (:func:`_ascii_temp_copy`), and that path
-        — never a raw handle or the corpus path — is handed to the SDK with
-        no ``mime_type`` in the config, so the SDK infers the MIME type from
-        the ASCII extension for the upload headers only. The temporary copy
-        is removed on success and on every failure path, including provider
-        errors. The display name is the deterministic ASCII-safe form of the
-        corpus-relative path (:func:`ascii_display_name`), and the original
-        UTF-8 path travels in ``custom_metadata`` — the JSON request body,
-        never a header — when it fits the value budget; the local manifest
-        always keeps the exact path as its key regardless.
-        No chunking configuration is sent — provider default chunking applies.
+        ความปลอดภัยด้าน Unicode + MIME (จากการทำซ้ำกับระบบจริง): ชื่อภาษาไทย
+        ทำให้ httpx ล้มเหลวขณะ encode header เป็น ASCII และ ``config.mime_type``
+        ที่ระบุชัดเจนจะถูก SDK คัดลอกไปยัง request body ซึ่ง Gemini ปฏิเสธชนิด
+        DOCX ของผู้ผลิตด้วย 400 INVALID_ARGUMENT
+        (``UploadToFileSearchStoreRequest.mime_type`` ไม่ถูกต้อง) ดังนั้นจึง
+        จัดเตรียมแหล่งข้อมูลเป็นสำเนาชั่วคราวชื่อ ASCII ที่คง suffix และ byte เดิม
+        (:func:`_ascii_temp_copy`) แล้วส่ง path นั้นให้ SDK โดยไม่ส่ง raw handle
+        หรือ path ของ corpus และไม่มี ``mime_type`` ใน config เพื่อให้ SDK อนุมาน
+        MIME type จาก extension แบบ ASCII สำหรับ upload header เท่านั้น สำเนาชั่วคราว
+        จะถูกลบเมื่อสำเร็จและในทุกเส้นทางที่ล้มเหลว รวมถึงข้อผิดพลาดจากผู้ให้บริการ
+        ชื่อแสดงผลเป็นรูปแบบ ASCII-safe ที่ให้ผลแน่นอนของ path ที่สัมพันธ์กับ corpus
+        (:func:`ascii_display_name`) และ path UTF-8 เดิมจะส่งไปใน
+        ``custom_metadata`` ซึ่งเป็น JSON request body ไม่ใช่ header เมื่อขนาดอยู่
+        ภายในงบประมาณค่า โดย manifest ภายในจะคง path แบบตรงกันทุกประการเป็น key เสมอ
+        จะไม่มีการส่งการตั้งค่า chunking และใช้การแบ่ง chunk เริ่มต้นของผู้ให้บริการ
         """
         genai = _import_genai()
         client = genai.Client(api_key=self._api_key)
@@ -442,14 +438,14 @@ class GeminiStoreProvider:
             operation = self._wait_for_operation(client, operation)
             if operation.error:
                 raise SyncError(
-                    f"provider error while uploading {rel_path}: {_describe_error(operation.error)}"
+                    f"เกิดข้อผิดพลาดจากผู้ให้บริการขณะอัปโหลด {rel_path}: {_describe_error(operation.error)}"
                 )
             response = operation.response
             document_name = (
                 getattr(response, "document_name", None) if response is not None else None
             )
             if not document_name:
-                raise SyncError(f"provider returned no document name for {rel_path}")
+                raise SyncError(f"ผู้ให้บริการไม่ส่งคืนชื่อเอกสารสำหรับ {rel_path}")
             return document_name
         finally:
             temp_path.unlink(missing_ok=True)
@@ -465,7 +461,7 @@ class GeminiStoreProvider:
         deadline = time.monotonic() + LRO_TIMEOUT_SECONDS
         while not operation.done:
             if time.monotonic() > deadline:
-                raise SyncError("timed out waiting for the provider upload to finish")
+                raise SyncError("หมดเวลารอให้ผู้ให้บริการอัปโหลดเสร็จ")
             time.sleep(LRO_POLL_SECONDS)
             operation = client.operations.get(operation=operation.name)
         return operation
@@ -476,14 +472,14 @@ def _resolve_store_name(args: argparse.Namespace, manifest: dict) -> str | None:
 
 
 def run_sync(args: argparse.Namespace, provider: object | None = None) -> int:
-    """Execute the sync; returns a process exit code.
+    """ดำเนินการซิงก์และคืน exit code ของ process
 
-    ``provider`` is injectable for tests; when omitted it is constructed
-    lazily (and only when a real upload or prune is about to happen).
+    สามารถ inject ``provider`` สำหรับการทดสอบได้ เมื่อไม่ระบุจะสร้างแบบ lazy
+    (และสร้างเมื่อกำลังจะอัปโหลดจริงหรือ prune เท่านั้น)
     """
     corpus_root = Path(args.root).expanduser().resolve() if args.root else DEFAULT_CORPUS_ROOT
     if not corpus_root.is_dir():
-        raise UsageError(f"corpus root not found: {corpus_root}")
+        raise UsageError(f"ไม่พบรากของคลังข้อมูล: {corpus_root}")
     manifest_path = (
         Path(args.manifest).expanduser().resolve() if args.manifest
         else corpus_root / MANIFEST_NAME
@@ -500,22 +496,22 @@ def run_sync(args: argparse.Namespace, provider: object | None = None) -> int:
             print(message)
 
     prefix = "[dry-run] " if args.dry_run else ""
-    print(f"{prefix}corpus: {corpus_root}")
+    print(f"{prefix}คลังข้อมูล: {corpus_root}")
     for item in plan.uploads:
         print(f"{prefix}upload {item.kind}: {item.rel_path}")
-    print(f"{prefix}unchanged: {len(plan.unchanged)} file(s)")
+    print(f"{prefix}ไม่เปลี่ยนแปลง: {len(plan.unchanged)} ไฟล์")
     if plan.prune:
         for item in plan.prune:
-            print(f"{prefix}prune candidate: {item.rel_path}")
+            print(f"{prefix}รายการที่อาจตัดออก: {item.rel_path}")
     if args.dry_run:
-        print(f"{prefix}dry run complete; nothing uploaded, manifest untouched")
+        print(f"{prefix}ทดลองทำเสร็จแล้ว ไม่มีการอัปโหลดและไม่ได้แก้ไข manifest")
         return 0
 
     will_prune = bool(plan.prune) and args.prune and args.yes
     if plan.prune and args.prune and not args.yes:
         print(
-            f"warning: prune requested without --yes; "
-            f"skipping {len(plan.prune)} remote deletion(s)"
+            f"คำเตือน: ขอให้ตัดออกโดยไม่ระบุ --yes; "
+            f"จึงข้ามการลบระยะไกล {len(plan.prune)} รายการ"
         )
     if not plan.uploads and not will_prune:
         print("up to date; nothing to do")
@@ -524,11 +520,11 @@ def run_sync(args: argparse.Namespace, provider: object | None = None) -> int:
     if provider is None:
         if not store_name:
             raise UsageError(
-                "no File Search store configured (set GEMINI_FILE_SEARCH_STORE or pass --store)"
+                "ยังไม่ได้กำหนดค่า File Search store (ตั้งค่า GEMINI_FILE_SEARCH_STORE หรือระบุ --store)"
             )
         api_key = os.environ.get(ENV_API_KEY) or os.environ.get(ENV_FALLBACK_API_KEY)
         if not api_key:
-            raise UsageError("no provider API key configured (set GEMINI_API_KEY)")
+            raise UsageError("ยังไม่ได้กำหนด API key ของผู้ให้บริการ (ตั้งค่า GEMINI_API_KEY)")
         provider = GeminiStoreProvider(store_name, api_key)
 
     files = dict(manifest["files"])
@@ -548,17 +544,17 @@ def run_sync(args: argparse.Namespace, provider: object | None = None) -> int:
     if will_prune:
         for item in plan.prune:
             if item.document_name:
-                log(f"deleting remote document for {item.rel_path}")
+                log(f"กำลังลบเอกสารระยะไกลของ {item.rel_path}")
                 provider.delete_document(item.document_name)
             files.pop(item.rel_path, None)
             pruned.append(item.rel_path)
         write_manifest(manifest_path, store_name, files)
     elif plan.prune:
-        log(f"note: {len(plan.prune)} stale manifest entr(y/ies) not pruned (no --prune)")
+        log(f"หมายเหตุ: ไม่ได้ตัดรายการ manifest ที่ล้าสมัย {len(plan.prune)} รายการออก (ไม่ได้ระบุ --prune)")
 
     print(
-        f"done: uploaded {len(plan.uploads)}, unchanged {len(plan.unchanged)}, "
-        f"pruned {len(pruned)}"
+        f"เสร็จสิ้น: อัปโหลด {len(plan.uploads)}, ไม่เปลี่ยนแปลง {len(plan.unchanged)}, "
+        f"ตัดออก {len(pruned)}"
     )
     return 0
 
@@ -567,40 +563,40 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     parser = argparse.ArgumentParser(
         prog="sync_knowledge.py",
         description=(
-            "Sync the authoritative PEA knowledge corpus into a Gemini File Search "
-            "store. Only <root>/source/** is ever uploaded; the repository ships no "
-            "PEA content (lead-approved exports only)."
+            "ซิงก์คลังความรู้ PEA ที่เป็นแหล่งข้อมูลหลักไปยัง Gemini File Search "
+            "store โดยจะอัปโหลดเฉพาะ <root>/source/** เท่านั้น repository ไม่มี "
+            "เนื้อหา PEA ให้มา (ใช้เฉพาะข้อมูลส่งออกที่หัวหน้าทีมอนุมัติแล้ว)"
         ),
     )
     parser.add_argument(
         "--root",
-        help="corpus root (default: <repo>/knowledge); only <root>/source/** is syncable",
+        help="รากของคลังข้อมูล (ค่าเริ่มต้น: <repo>/knowledge); ซิงก์ได้เฉพาะ <root>/source/**",
     )
     parser.add_argument(
         "--manifest",
-        help="manifest path (default: <corpus root>/manifest.json, i.e. knowledge/manifest.json)",
+        help="path ของ manifest (ค่าเริ่มต้น: <corpus root>/manifest.json หรือ knowledge/manifest.json)",
     )
     parser.add_argument(
         "--file",
         action="append",
         metavar="PATH",
-        help="limit the run to this corpus-relative path, e.g. source/<export>.md (repeatable)",
+        help="จำกัดการทำงานไว้ที่ path นี้ซึ่งสัมพันธ์กับคลังข้อมูล เช่น source/<export>.md (ระบุซ้ำได้)",
     )
     parser.add_argument(
         "--store",
-        help="File Search store resource name (default: $GEMINI_FILE_SEARCH_STORE)",
+        help="ชื่อทรัพยากร File Search store (ค่าเริ่มต้น: $GEMINI_FILE_SEARCH_STORE)",
     )
     parser.add_argument(
-        "--dry-run", action="store_true", help="print the plan only; no uploads, no manifest writes"
+        "--dry-run", action="store_true", help="แสดงเฉพาะแผน ไม่มีการอัปโหลดหรือเขียน manifest"
     )
-    parser.add_argument("--force", action="store_true", help="re-upload unchanged sources as well")
+    parser.add_argument("--force", action="store_true", help="อัปโหลดแหล่งข้อมูลที่ไม่เปลี่ยนแปลงซ้ำด้วย")
     parser.add_argument(
         "--prune",
         action="store_true",
-        help="delete remote documents whose local source is gone (requires --yes)",
+        help="ลบเอกสารระยะไกลเมื่อแหล่งข้อมูลภายในหายไป (ต้องใช้ --yes)",
     )
-    parser.add_argument("--yes", action="store_true", help="confirm destructive prune deletions")
-    parser.add_argument("--verbose", action="store_true", help="per-file progress output")
+    parser.add_argument("--yes", action="store_true", help="ยืนยันการลบแบบ prune ที่ทำลายข้อมูล")
+    parser.add_argument("--verbose", action="store_true", help="แสดงความคืบหน้ารายไฟล์")
     return parser.parse_args(argv)
 
 
@@ -609,10 +605,10 @@ def main(argv: list[str] | None = None) -> int:
     try:
         return run_sync(args)
     except UsageError as exc:
-        print(f"error: {exc}", file=sys.stderr)
+        print(f"ข้อผิดพลาด: {exc}", file=sys.stderr)
         return 2
     except SyncError as exc:
-        print(f"error: {exc}", file=sys.stderr)
+        print(f"ข้อผิดพลาด: {exc}", file=sys.stderr)
         return 1
 
 

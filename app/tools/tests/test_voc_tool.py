@@ -1,4 +1,4 @@
-"""Tests for the simulated VOC tool (voc_tool)."""
+"""ทดสอบเครื่องมือ VOC จำลอง (voc_tool)"""
 
 from __future__ import annotations
 
@@ -19,7 +19,7 @@ def test_execute_list_categories_success_is_simulated():
     result = asyncio.run(tool.execute(_call(ToolAction.VOC_LIST_CATEGORIES, {})))
     assert result.status is ToolResultStatus.SUCCESS
     assert result.simulation is True
-    assert [c["code"] for c in result.data["categories"]] == ["billing", "service", "safety", "other"]
+    assert [c["code"] for c in result.data["categories"]] == ["power_quality", "service", "compliment", "tip_off", "operations", "stakeholder_feedback"]
 
 
 def test_execute_invalid_category_returns_invalid_input():
@@ -48,7 +48,7 @@ def test_execute_prepare_then_submit_deduplicates():
     prep = _call(
         ToolAction.VOC_PREPARE_CASE,
         {
-            "category": "safety",
+            "category": "tip_off",
             "subject": "Fallen line",
             "detail": "A power line is down.",
             "contactChannel": "phone",
@@ -57,7 +57,7 @@ def test_execute_prepare_then_submit_deduplicates():
     )
     prepared = asyncio.run(tool.execute(prep))
     assert prepared.status is ToolResultStatus.SUCCESS
-    assert prepared.data["category"] == "safety"
+    assert prepared.data["category"] == "tip_off"
 
     sub_input = {"pendingActionId": str(uuid4()), "idempotencyKey": "k1"}
     first = asyncio.run(tool.execute(_call(ToolAction.VOC_SUBMIT_CASE, sub_input)))

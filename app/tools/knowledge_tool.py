@@ -1,12 +1,12 @@
-"""``knowledge_tool`` — the only non-simulated tool in the PEA One Agent demo.
+"""``knowledge_tool`` — เครื่องมือเดียวในเดโม PEA One Agent ที่ไม่ใช่เครื่องมือจำลอง
 
-Implements the frozen ``knowledge_tool.search`` action (CONTRACTS.md) against
-the Gemini File Search Hosted RAG backend. Results carry ``simulation=false``
-and, when the provider returns evidence, frozen ``Citation`` values. The tool
-forwards the retrieval query to the hosted service and never substitutes local
-retrieval (no embeddings, no local index, no model-memory fallback).
+ทำงานตามการกระทำที่กำหนดไว้ในสัญญา ``knowledge_tool.search`` (CONTRACTS.md)
+โดยใช้ Gemini File Search Hosted RAG ผลลัพธ์จะมีค่า ``simulation=false`` และเมื่อ
+ผู้ให้บริการส่งหลักฐานกลับมา จะมีค่า ``Citation`` ตามสัญญา เครื่องมือนี้ส่งต่อคำค้น
+ไปยังบริการโฮสต์โดยตรง และไม่ใช้การค้นคืนภายในเครื่องแทน (ไม่มี embeddings ไม่มีดัชนี
+ภายในเครื่อง และไม่มีการใช้ความจำของโมเดลเป็นทางเลือกสำรอง)
 
-The module satisfies the Tool protocol from ARCHITECTURE.md structurally:
+โมดูลนี้ทำตามโครงสร้างของโปรโตคอล Tool ใน ARCHITECTURE.md:
 
     class Tool(Protocol):
         name: ToolName
@@ -31,22 +31,22 @@ from app.backends.gemini_file_search import (
 
 logger = logging.getLogger("pea_one_agent.knowledge_tool")
 
-# User-safe, credential-free messages for the tool's own failure surface.
+# ข้อความเมื่อเครื่องมือทำงานล้มเหลว ต้องปลอดภัยต่อผู้ใช้และไม่มีข้อมูลรับรอง
 USER_SAFE_INVALID_INPUT = (
-    "The knowledge search request is invalid. Check the query and maxResults fields."
+    "คำขอค้นหาความรู้ไม่ถูกต้อง กรุณาตรวจสอบช่อง query และ maxResults"
 )
 USER_SAFE_INTERNAL = (
-    "Something went wrong while searching the knowledge base. Please try again."
+    "เกิดข้อผิดพลาดขณะค้นหาฐานความรู้ กรุณาลองใหม่อีกครั้ง"
 )
 
 
 @dataclass(frozen=True)
 class ToolContext:
-    """Per-call context handed by the Tool Registry.
+    """บริบทประจำการเรียกที่ Tool Registry ส่งให้
 
-    The knowledge tool needs no context field today; the registry may pass a
-    richer object and ``execute`` is duck-typed over it, so this local shape
-    is only documentation of the minimum the tool tolerates.
+    ปัจจุบันเครื่องมือความรู้ไม่ต้องใช้ฟิลด์บริบทใด แต่ registry อาจส่งออบเจ็กต์
+    ที่มีข้อมูลมากกว่าได้ และ ``execute`` รองรับด้วยการตรวจโครงสร้างแบบ duck typing
+    ดังนั้นรูปแบบภายในเครื่องนี้จึงเป็นเพียงเอกสารของข้อมูลขั้นต่ำที่เครื่องมือรองรับ
     """
 
     conversation_id: UUID | None = None
@@ -54,11 +54,11 @@ class ToolContext:
 
 
 class KnowledgeTool:
-    """Frozen ``Tool`` implementation for :class:`~app.contracts.ToolName.KNOWLEDGE`.
+    """การใช้งาน ``Tool`` แบบกำหนดตายตัวสำหรับ :class:`~app.contracts.ToolName.KNOWLEDGE`
 
-    Only the ``search`` action is owned by this tool (frozen in
-    ``app.contracts.TOOL_ACTIONS``); anything else is rejected fail-closed
-    before a backend call.
+    เครื่องมือนี้เป็นเจ้าของเฉพาะการกระทำ ``search`` (กำหนดไว้ใน
+    ``app.contracts.TOOL_ACTIONS``) การกระทำอื่นจะถูกปฏิเสธแบบปิดเมื่อเกิดข้อผิดพลาด
+    ก่อนเรียกใช้ backend
     """
 
     name: contracts.ToolName = contracts.ToolName.KNOWLEDGE
@@ -69,7 +69,7 @@ class KnowledgeTool:
     async def execute(
         self, call: contracts.ToolCall, context: ToolContext | Any
     ) -> contracts.ToolResult:
-        """Validate the frozen input, run hosted retrieval, wrap a frozen result."""
+        """ตรวจสอบข้อมูลนำเข้าตามสัญญา เรียกการค้นคืนจากบริการโฮสต์ และห่อเป็นผลลัพธ์ตามสัญญา"""
         if (
             call.name is not contracts.ToolName.KNOWLEDGE
             or call.action is not contracts.ToolAction.KNOWLEDGE_SEARCH
@@ -88,7 +88,7 @@ class KnowledgeTool:
         except KnowledgeBackendError as exc:
             return self._error(call, exc.code, exc.message)
         except Exception:
-            logger.exception("knowledge_tool.search failed unexpectedly")
+            logger.exception("knowledge_tool.search ล้มเหลวโดยไม่คาดคิด")
             return self._error(call, contracts.ToolErrorCode.INTERNAL, USER_SAFE_INTERNAL)
         return self._success(call, evidence)
 

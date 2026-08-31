@@ -1,4 +1,4 @@
-"""Tests for the deterministic simulated OMS backend."""
+"""ทดสอบแบ็กเอนด์ OMS จำลองที่ให้ผลลัพธ์แบบกำหนดแน่นอน"""
 
 from __future__ import annotations
 
@@ -38,14 +38,14 @@ def test_prepare_outage_report_has_no_side_effect_and_includes_safety():
     backend = SimulatedOmsBackend()
     out = backend.prepare_outage_report(
         "CNX-02",
-        "Main street near the market",
-        "Power flickered then went out.",
+        "ถนนสายหลักใกล้ตลาด",
+        "ไฟกะพริบแล้วดับ",
         "k1",
     )
     assert out["areaCode"] == "CNX-02"
     assert out["summary"]
     assert out["safetyMessage"]
-    # Preparing must not file a report.
+    # การเตรียมข้อมูลต้องยังไม่ส่งรายงาน
     assert backend._reports == {}
 
 
@@ -65,7 +65,7 @@ def test_submit_outage_report_without_prepare_raises_not_found():
 
 def test_submit_outage_report_deduplicates_by_idempotency_key():
     backend = SimulatedOmsBackend()
-    backend.prepare_outage_report("HKT-03", "Near pier", "No power since morning.", "k1")
+    backend.prepare_outage_report("HKT-03", "ใกล้ท่าเรือ", "ไม่มีไฟฟ้าใช้ตั้งแต่เช้า", "k1")
     first = backend.submit_outage_report(uuid4(), "k1")
     second = backend.submit_outage_report(uuid4(), "k1")
     assert first == second

@@ -1,4 +1,4 @@
-"""Application configuration."""
+"""การตั้งค่าแอปพลิเคชัน"""
 
 from __future__ import annotations
 
@@ -11,7 +11,7 @@ def _comma_origins(raw: str) -> tuple[str, ...]:
     return tuple(part.strip() for part in raw.split(",") if part.strip())
 
 
-# Field names that must never be emitted by repr/str/logging.
+# ชื่อฟิลด์ที่ห้ามแสดงผ่าน repr/str/logging โดยเด็ดขาด
 _SECRET_FIELD_NAMES: frozenset[str] = frozenset(
     {"gemini_api_key", "file_search_store", "file_search_model"}
 )
@@ -19,7 +19,7 @@ _SECRET_FIELD_NAMES: frozenset[str] = frozenset(
 
 @dataclass(frozen=True)
 class Settings:
-    """Frozen runtime settings loaded from environment."""
+    """การตั้งค่า runtime แบบคงที่ซึ่งโหลดจาก environment"""
 
     app_env: str = "development"
     log_level: str = "info"
@@ -62,7 +62,7 @@ class Settings:
         )
 
     def __repr__(self) -> str:
-        # Dataclass __repr__ is intentionally replaced so secrets are not exposed.
+        # แทนที่ __repr__ ของ dataclass โดยตั้งใจ เพื่อไม่ให้ข้อมูลลับถูกเปิดเผย
         fields = []
         for name in self.__dataclass_fields__:
             value = getattr(self, name)
@@ -76,7 +76,7 @@ class Settings:
 
 
 def _load_dotenv_if_present(path: Path) -> dict[str, str]:
-    """Parse a dotenv file, ignoring comments and blank lines."""
+    """แยกวิเคราะห์ไฟล์ dotenv โดยข้ามคอมเมนต์และบรรทัดว่าง"""
     values: dict[str, str] = {}
     if not path.exists():
         return values
@@ -92,13 +92,13 @@ def _load_dotenv_if_present(path: Path) -> dict[str, str]:
 
 
 def load_settings(dotenv_path: Path | None = None) -> Settings:
-    """Load settings from .env merged with the real process environment.
+    """โหลดการตั้งค่าจาก .env แล้วรวมกับ environment จริงของ process
 
-    Real environment variables take precedence over .env values so that
-    deployed/runtime configuration always wins over committed examples.
+    ตัวแปร environment จริงมีลำดับความสำคัญเหนือค่าจาก .env เพื่อให้การตั้งค่า
+    ที่ใช้ระหว่าง deploy/runtime มีผลเหนือกว่าค่าตัวอย่างที่ commit ไว้เสมอ
     """
     path = dotenv_path or Path(".env")
     dotenv = _load_dotenv_if_present(path)
-    # Merge: real process environment overrides .env entries.
+    # รวมค่าโดยให้ environment จริงของ process มีผลเหนือกว่ารายการใน .env
     merged = {**dotenv, **os.environ}
     return Settings.from_env(merged)

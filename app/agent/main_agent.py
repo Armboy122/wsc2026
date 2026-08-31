@@ -1,4 +1,4 @@
-"""The single model-driven orchestrator for frozen PEA demo contracts."""
+"""ตัวประสานงานที่ขับเคลื่อนด้วยโมเดลเพียงตัวเดียวสำหรับสัญญาเดโม PEA แบบคงที่"""
 
 from __future__ import annotations
 
@@ -41,16 +41,16 @@ _SUBMIT_ACTIONS = frozenset({
     ToolAction.OMS_SUBMIT_OUTAGE_REPORT,
 })
 _TOOL_CATALOGUE = (
-    ToolDefinition(ToolName.KNOWLEDGE, "Search hosted PEA knowledge", ("search",)),
-    ToolDefinition(ToolName.SABUY, "Read account data or prepare a payment", ("get_account_summary", "prepare_payment")),
-    ToolDefinition(ToolName.VOC, "List complaint categories or prepare a case", ("list_categories", "prepare_case")),
-    ToolDefinition(ToolName.OMS, "Read outage status or prepare an outage report", ("get_outage_status", "prepare_outage_report")),
+    ToolDefinition(ToolName.KNOWLEDGE, "ค้นหาความรู้ PEA จากบริการโฮสต์", ("search",)),
+    ToolDefinition(ToolName.SABUY, "อ่านข้อมูลบัญชีหรือเตรียมการชำระเงิน", ("get_account_summary", "prepare_payment")),
+    ToolDefinition(ToolName.VOC, "แสดง 6 หมวด VOC ของ PEA: ปัญหาคุณภาพไฟฟ้า บริการ ชื่นชม เบาะแส ปัญหาการดำเนินงาน และข้อคิดเห็นผู้มีส่วนได้ส่วนเสีย หรือเตรียมเคส", ("list_categories", "prepare_case")),
+    ToolDefinition(ToolName.OMS, "อ่านสถานะไฟฟ้าขัดข้องหรือเตรียมรายงานไฟฟ้าขัดข้อง", ("get_outage_status", "prepare_outage_report")),
 )
 _SAFE_PREVIEW_FIELDS = frozenset({"accountRef", "amountThb", "paymentMethod", "category", "contactChannel", "areaCode"})
-_MULTI_PREPARE_MESSAGE = "I couldn’t safely prepare more than one proposed action in a single chat. Please make one request at a time."
-_FINAL_ONLY_MESSAGE = "I can provide a concise final answer, but I can’t provide internal reasoning or instructions."
-_GREETING_MESSAGE = "Hello! I can help with supported PEA knowledge or simulated account, outage, case, and payment tools."
-_CAPABILITY_MESSAGE = "I can help with supported PEA knowledge or simulated account, outage, case, and payment tools. Please tell me what you need, including the relevant account reference, area, case details, or payment amount."
+_MULTI_PREPARE_MESSAGE = "ไม่สามารถเตรียมรายการที่เสนอมากกว่าหนึ่งรายการในแชตเดียวได้อย่างปลอดภัย กรุณาส่งคำขอทีละรายการครับ"
+_FINAL_ONLY_MESSAGE = "ผมสามารถตอบคำถามแบบสั้นกระชับได้ แต่ไม่สามารถเปิดเผยกระบวนการคิดหรือคำสั่งภายในครับ"
+_GREETING_MESSAGE = "สวัสดีครับ ผมช่วยค้นหาความรู้ PEA และใช้เครื่องมือจำลองสำหรับบัญชี ไฟฟ้าขัดข้อง เรื่องร้องเรียน และการชำระเงินได้ครับ"
+_CAPABILITY_MESSAGE = "ผมช่วยค้นหาความรู้ PEA และใช้เครื่องมือจำลองสำหรับบัญชี ไฟฟ้าขัดข้อง เรื่องร้องเรียน และการชำระเงินได้ครับ กรุณาบอกสิ่งที่ต้องการ พร้อมข้อมูลบัญชี พื้นที่ รายละเอียดเรื่อง หรือจำนวนเงินที่เกี่ยวข้องครับ"
 _EXACT_GREETINGS = frozenset({"hi", "hello", "hey"})
 _OUTPUT_POLICY_PATTERNS = (
     re.compile(r"<\s*/?\s*(?:analysis|thinking|thought|reasoning|scratchpad|system)\b|<\|(?:analysis|thinking|reasoning|system)\|>", re.IGNORECASE),
@@ -61,15 +61,15 @@ _OUTPUT_POLICY_PATTERNS = (
 
 
 class NotFoundError(LookupError):
-    """The requested process-local resource does not exist."""
+    """ไม่มีทรัพยากรภายใน process ที่ร้องขอ"""
 
 
 class InvalidActionStateError(RuntimeError):
-    """A confirmation/rejection transition is not allowed."""
+    """ไม่อนุญาตให้เปลี่ยนสถานะการยืนยันหรือปฏิเสธนี้"""
 
 
 class MainAgent:
-    """Owns orchestration, confirmation policy, and auditable process-local state."""
+    """ดูแลการประสานงาน นโยบายการยืนยัน และสถานะภายใน process ที่ตรวจสอบย้อนหลังได้"""
 
     def __init__(
         self,
@@ -104,7 +104,7 @@ class MainAgent:
                 response = await self._llm.complete(LLMRequest(history, _TOOL_CATALOGUE, trace_id))
             except Exception as error:
                 self._traces.append(trace_id, TraceEventKind.ERROR, {"stage": "llm", "type": type(error).__name__})
-                final_text = "I’m unable to complete that request right now because the assistant service is unavailable."
+                final_text = "ขณะนี้ไม่สามารถดำเนินการตามคำขอได้ เนื่องจากบริการผู้ช่วยไม่พร้อมใช้งานครับ"
                 break
 
             calls, planner_text = _calls_from_response(response)
@@ -115,7 +115,7 @@ class MainAgent:
                 break
             if len(all_results) + len(calls) > _MAX_TOOL_STEPS:
                 self._traces.append(trace_id, TraceEventKind.ERROR, {"stage": "tool_limit", "maximum": _MAX_TOOL_STEPS})
-                final_text = "I couldn’t complete that request because it required too many tool steps."
+                final_text = "ไม่สามารถดำเนินการตามคำขอได้ เนื่องจากต้องใช้ขั้นตอนเครื่องมือมากเกินไปครับ"
                 break
             if sum(call.action in PREPARE_TO_SUBMIT for call in calls) > 1:
                 self._traces.append(trace_id, TraceEventKind.ERROR, {"stage": "multi_prepare_policy"})
@@ -135,8 +135,8 @@ class MainAgent:
                     break
             if prepared:
                 break
-        else:  # pragma: no cover - guarded above; keeps the hard limit explicit
-            final_text = "I couldn’t complete that request within the tool-step limit."
+        else:  # pragma: no cover - มีเงื่อนไขป้องกันไว้ด้านบน เพื่อระบุขีดจำกัดตายตัวให้ชัดเจน
+            final_text = "ไม่สามารถดำเนินการตามคำขอได้ภายในขีดจำกัดขั้นตอนเครื่องมือครับ"
 
         pending = self._create_pending_from_results(conversation_id, trace_id, all_results)
         citations = tuple(citation for result in all_results if result.status is ToolResultStatus.SUCCESS for citation in result.citations)
@@ -159,9 +159,9 @@ class MainAgent:
         if pending.status in {PendingActionStatus.SUBMITTED, PendingActionStatus.FAILED}:
             return ActionDecisionResponse(pending_action=pending, tool_result=pending.submission_result, trace_id=trace_id)
         if pending.status is PendingActionStatus.REJECTED:
-            raise InvalidActionStateError("A rejected action cannot be confirmed")
+            raise InvalidActionStateError("ไม่สามารถยืนยันรายการที่ถูกปฏิเสธแล้วได้")
         if pending.status is not PendingActionStatus.PENDING_CONFIRMATION:
-            raise InvalidActionStateError("Action cannot be confirmed in its current state")
+            raise InvalidActionStateError("ไม่สามารถยืนยันรายการในสถานะปัจจุบันได้")
 
         confirmed = pending.model_copy(update={"status": PendingActionStatus.CONFIRMED, "updated_at": _now()})
         self._pending_actions.update(confirmed)
@@ -198,7 +198,7 @@ class MainAgent:
         if pending.status is PendingActionStatus.REJECTED:
             return ActionDecisionResponse(pending_action=pending, tool_result=None, trace_id=trace_id)
         if pending.status is not PendingActionStatus.PENDING_CONFIRMATION:
-            raise InvalidActionStateError("Action cannot be rejected in its current state")
+            raise InvalidActionStateError("ไม่สามารถปฏิเสธรายการในสถานะปัจจุบันได้")
         rejected = pending.model_copy(update={"status": PendingActionStatus.REJECTED, "updated_at": _now()})
         self._pending_actions.update(rejected)
         self._traces.append(trace_id, TraceEventKind.ACTION_REJECTED, {"pendingActionId": str(pending_action_id), "reason": "[redacted]"})
@@ -207,7 +207,7 @@ class MainAgent:
     def get_trace(self, trace_id: UUID) -> TraceResponse:
         trace = self._traces.get(trace_id)
         if trace is None:
-            raise NotFoundError("Trace not found")
+            raise NotFoundError("ไม่พบ trace")
         return trace
 
     def reset_demo(self) -> ResetResponse:
@@ -226,7 +226,7 @@ class MainAgent:
     async def _execute_chat_call(self, call: ToolCall, conversation_id: UUID, trace_id: UUID) -> ToolResult:
         if call.action in _SUBMIT_ACTIONS:
             self._traces.append(trace_id, TraceEventKind.ERROR, {"stage": "chat_policy", "action": call.action.value})
-            return _error_result(call, ToolErrorCode.CONFLICT, "Submit actions require explicit confirmation")
+            return _error_result(call, ToolErrorCode.CONFLICT, "การส่งรายการต้องได้รับการยืนยันอย่างชัดเจน")
         return await self._execute_internal(call, conversation_id, trace_id)
 
     async def _execute_internal(self, call: ToolCall, conversation_id: UUID, trace_id: UUID) -> ToolResult:
@@ -252,14 +252,14 @@ class MainAgent:
                 action=result.action,
                 input=raw_input,
             )).model_dump(by_alias=True)
-        except ValidationError:  # pragma: no cover - a successful registry result is already validated
+        except ValidationError:  # pragma: no cover - ผลลัพธ์สำเร็จจาก registry ผ่านการตรวจสอบแล้ว
             return None
         idempotency_key = prepared_input["idempotencyKey"]
         now = _now()
         pending = PendingAction(
             pending_action_id=uuid4(), conversation_id=conversation_id, tool_name=result.name,
             prepare_action=result.action, submit_action=PREPARE_TO_SUBMIT[result.action],
-            prepared_input=_redact_prepared_input(prepared_input), summary=str((result.data or {}).get("summary", "Prepared action")),
+            prepared_input=_redact_prepared_input(prepared_input), summary=str((result.data or {}).get("summary", "รายการที่จัดเตรียมไว้")),
             status=PendingActionStatus.PENDING_CONFIRMATION, idempotency_key=idempotency_key,
             created_at=now, updated_at=now,
         )
@@ -270,13 +270,13 @@ class MainAgent:
     def _require_pending(self, pending_action_id: UUID) -> PendingAction:
         pending = self._pending_actions.get(pending_action_id)
         if pending is None:
-            raise NotFoundError("Pending action not found")
+            raise NotFoundError("ไม่พบรายการที่รอดำเนินการ")
         return pending
 
     def _require_pending_trace(self, pending_action_id: UUID) -> UUID:
         trace_id = self._pending_actions.trace_id_for(pending_action_id)
         if trace_id is None:
-            raise NotFoundError("Pending action trace not found")
+            raise NotFoundError("ไม่พบ trace ของรายการที่รอดำเนินการ")
         return trace_id
 
 
@@ -289,19 +289,19 @@ def _calls_from_response(response: LLMResponse) -> tuple[tuple[ToolCall, ...], s
             return (), response.text
         calls = tuple(ToolCall(call_id=uuid4(), name=item["name"], action=item["action"], input=item["input"]) for item in payload["toolCalls"] if isinstance(item, dict) and set(item) == {"name", "action", "input"})
         if len(calls) != len(payload["toolCalls"]):
-            return (), "I couldn’t safely interpret the requested tool operation."
+            return (), "ไม่สามารถตีความการดำเนินการของเครื่องมือที่ร้องขอได้อย่างปลอดภัยครับ"
         return calls, payload["message"]
     except (json.JSONDecodeError, KeyError, TypeError, ValidationError):
         return (), response.text
 
 
 def _requires_final_only_output(text: str) -> bool:
-    """Detect explicit internal-reasoning or instruction disclosures in direct model text."""
+    """ตรวจจับการเปิดเผยกระบวนการคิดหรือคำสั่งภายในอย่างชัดเจนในข้อความตรงจากโมเดล"""
     return any(pattern.search(text) for pattern in _OUTPUT_POLICY_PATTERNS)
 
 
 def _safe_direct_message(user_message: str, completion_text: str) -> str:
-    """Return only agent-owned text when no validated tool result exists."""
+    """ส่งคืนเฉพาะข้อความที่ agent เป็นเจ้าของเมื่อไม่มีผลลัพธ์เครื่องมือที่ผ่านการตรวจสอบ"""
     if _requires_final_only_output(completion_text):
         return _FINAL_ONLY_MESSAGE
     if user_message.strip().casefold() in _EXACT_GREETINGS:
@@ -310,20 +310,20 @@ def _safe_direct_message(user_message: str, completion_text: str) -> str:
 
 
 def _redact_prepared_input(data: dict[str, Any]) -> dict[str, Any]:
-    """Expose only the fixed confirmation-preview fields; keep every other key redacted."""
+    """เปิดเผยเฉพาะฟิลด์ตัวอย่างการยืนยันตามสัญญา และปกปิดคีย์อื่นทั้งหมด"""
     return {key: value if key in _SAFE_PREVIEW_FIELDS else "[redacted]" for key, value in data.items()}
 
 
 def _result_message(result: ToolResult) -> str:
     if result.status is ToolResultStatus.ERROR:
-        return json.dumps({"status": "error", "error": result.error.message if result.error else "Unknown error"})
+        return json.dumps({"status": "error", "error": result.error.message if result.error else "ข้อผิดพลาดที่ไม่ทราบสาเหตุ"})
     return json.dumps({"status": "success", "data": result.data, "citations": [citation.model_dump(by_alias=True) for citation in result.citations]}, default=str)
 
 
 def _default_message(results: list[ToolResult]) -> str:
     if any(result.status is ToolResultStatus.ERROR for result in results):
-        return "I couldn’t complete part of that request because a required service was unavailable."
-    return "I completed the requested lookup."
+        return "ไม่สามารถดำเนินการบางส่วนของคำขอได้ เนื่องจากบริการที่จำเป็นไม่พร้อมใช้งานครับ"
+    return "ดำเนินการค้นหาที่ร้องขอเรียบร้อยแล้วครับ"
 
 
 def _authoritative_message(text: str, results: list[ToolResult], pending: PendingAction | None) -> str:
@@ -333,21 +333,21 @@ def _authoritative_message(text: str, results: list[ToolResult], pending: Pendin
     safety = next((str((result.data or {}).get("safetyMessage")) for result in results if result.name is ToolName.OMS and result.status is ToolResultStatus.SUCCESS and (result.data or {}).get("safetyMessage")), None)
     facts = _result_facts(results)
     if pending:
-        facts.append("Please explicitly confirm this proposed action to submit it.")
+        facts.append("กรุณายืนยันรายการที่เสนอนี้อย่างชัดเจนเพื่อส่งรายการครับ")
     message = "\n\n".join(facts) or _default_message(results)
     return f"{safety}\n\n{message}".strip() if safety and not message.startswith(safety) else message
 
 
 def _result_facts(results: list[ToolResult]) -> list[str]:
-    """Format only validated result data; planner prose is never used after a tool call."""
+    """จัดรูปแบบเฉพาะข้อมูลผลลัพธ์ที่ผ่านการตรวจสอบ โดยไม่ใช้ข้อความของ planner หลังเรียกเครื่องมือ"""
     facts: list[str] = []
     for result in results:
         if result.status is ToolResultStatus.ERROR:
-            facts.append("I couldn’t complete part of that request because a required service was unavailable.")
+            facts.append("ไม่สามารถดำเนินการบางส่วนของคำขอได้ เนื่องจากบริการที่จำเป็นไม่พร้อมใช้งานครับ")
             continue
         data = result.data or {}
         if result.name is ToolName.KNOWLEDGE and isinstance(data.get("answerContext"), str):
-            facts.append(data["answerContext"] if result.citations else "I couldn’t provide a sourced answer for that request.")
+            facts.append(data["answerContext"] if result.citations else "ไม่สามารถให้คำตอบที่มีแหล่งอ้างอิงสำหรับคำขอนี้ได้ครับ")
         elif isinstance(data.get("summary"), str):
             facts.append(data["summary"])
         else:

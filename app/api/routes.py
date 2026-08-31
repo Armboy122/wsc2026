@@ -1,7 +1,7 @@
-"""Frozen HTTP routes for the PEA One Agent platform.
+"""เส้นทาง HTTP ตามสัญญาของแพลตฟอร์ม PEA One Agent
 
-All handlers delegate to the Main Agent interface; they contain no reasoning
-and never invoke tools directly.
+ตัวจัดการทั้งหมดมอบหมายงานให้ interface ของ Main Agent โดยไม่มีการให้เหตุผล
+และไม่เรียกเครื่องมือโดยตรง
 """
 
 from __future__ import annotations
@@ -70,7 +70,7 @@ async def get_trace(request: Request, trace_id: uuid.UUID) -> TraceResponse:
     try:
         return agent_service.agent.get_trace(trace_id)
     except LookupError as exc:
-        raise NotFoundException(detail="trace not found") from exc
+        raise NotFoundException(detail="ไม่พบ trace") from exc
 
 
 @router.post("/api/v1/reset", response_model=ResetResponse)

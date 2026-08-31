@@ -1,4 +1,4 @@
-"""Provider adapter contracts. Providers translate; they do not hold PEA policy."""
+"""สัญญาของ provider adapter โดย provider ทำหน้าที่แปลงข้อมูลและไม่เก็บนโยบาย PEA"""
 
 from __future__ import annotations
 
@@ -10,8 +10,8 @@ from app.llm.models import LLMRequest, LLMResponse
 @runtime_checkable
 class LLMAdapter(Protocol):
     async def complete(self, request: LLMRequest) -> LLMResponse:
-        """Complete one provider-neutral request."""
+        """ดำเนินการคำขอที่ไม่ขึ้นกับ provider หนึ่งรายการให้เสร็จ"""
 
 
 class LLMUnavailableError(RuntimeError):
-    """A provider could not return a safe, usable completion."""
+    """provider ไม่สามารถส่งคำตอบที่ปลอดภัยและใช้งานได้"""

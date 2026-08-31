@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Score the deterministic PEA HTTP demo through its public endpoints."""
+"""ให้คะแนนเดโม PEA HTTP ที่ให้ผลลัพธ์แน่นอนผ่าน endpoint สาธารณะ"""
 from __future__ import annotations
 
 import json
@@ -31,18 +31,18 @@ def request(path: str, payload: dict | None = None) -> tuple[int, dict, float]:
             try:
                 decoded = json.loads(raw)
             except (UnicodeDecodeError, json.JSONDecodeError):
-                decoded = {"error": "Server returned invalid JSON."}
-            return response.status, decoded if isinstance(decoded, dict) else {"error": "Invalid JSON object."}, (time.perf_counter() - started) * 1000
+                decoded = {"error": "เซิร์ฟเวอร์ส่งคืน JSON ที่ไม่ถูกต้อง"}
+            return response.status, decoded if isinstance(decoded, dict) else {"error": "ออบเจ็กต์ JSON ไม่ถูกต้อง"}, (time.perf_counter() - started) * 1000
     except HTTPError as exc:
         try:
             raw = exc.read()
             decoded = json.loads(raw)
-            body = decoded if isinstance(decoded, dict) else {"error": "HTTP error response was not an object."}
+            body = decoded if isinstance(decoded, dict) else {"error": "การตอบกลับข้อผิดพลาด HTTP ไม่ใช่ออบเจ็กต์"}
         except (OSError, UnicodeDecodeError, json.JSONDecodeError):
             body = {"error": f"HTTP {exc.code}"}
         return exc.code, body, (time.perf_counter() - started) * 1000
     except (URLError, TimeoutError, OSError) as exc:
-        return 0, {"error": f"Server unavailable: {exc}"}, (time.perf_counter() - started) * 1000
+        return 0, {"error": f"เซิร์ฟเวอร์ไม่พร้อมใช้งาน: {exc}"}, (time.perf_counter() - started) * 1000
 
 
 def valid_envelope(body: dict) -> bool:
@@ -85,13 +85,13 @@ def main() -> int:
 
     reset_status, _, _ = request("/api/v1/reset", {})
     if reset_status not in (200, 204):
-        report["notes"].append(f"Demo reset before evaluation returned HTTP {reset_status}.")
+        report["notes"].append(f"การรีเซ็ตเดโมก่อนประเมินส่งคืน HTTP {reset_status}")
     health_status, health, health_ms = request("/health")
     report["healthStatus"], report["health"] = health_status, health
     if health.get("knowledgeBackend") != "ready":
-        report["notes"].append("Gemini configuration missing or unavailable; knowledge scores reflect real provider failure, not fake success.")
+        report["notes"].append("ไม่มีการกำหนดค่า Gemini หรือไม่พร้อมใช้งาน คะแนนความรู้จึงสะท้อนความล้มเหลวจริงของผู้ให้บริการ ไม่ใช่ความสำเร็จที่สร้างขึ้น")
     if health_status != 200:
-        report["notes"].append("Server unavailable; no scenarios were scored.")
+        report["notes"].append("เซิร์ฟเวอร์ไม่พร้อมใช้งาน จึงไม่ได้ให้คะแนนสถานการณ์ใด")
         request("/api/v1/reset", {})
         report["responseTimeMs"] = {"health": round(health_ms, 2), "count": 0}
         print(json.dumps(report, indent=2, sort_keys=True))
@@ -136,7 +136,7 @@ def main() -> int:
     finally:
         after_status, _, _ = request("/api/v1/reset", {})
         if after_status not in (200, 204):
-            report["notes"].append(f"Demo reset after evaluation returned HTTP {after_status}.")
+            report["notes"].append(f"การรีเซ็ตเดโมหลังประเมินส่งคืน HTTP {after_status}")
 
     report["routingAccuracy"] = rate(routing_hits, routing_total)
     report["knowledgeCorrectness"] = rate(knowledge_hits, knowledge_total)

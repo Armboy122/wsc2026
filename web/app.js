@@ -1,24 +1,24 @@
 /* ============================================================
- * PEA One Agent — competition demo UI (AI-05)
- * Static, dependency-free client for the frozen v1 contract:
+ * PEA One Agent — UI สาธิตสำหรับการแข่งขัน (AI-05)
+ * ไคลเอนต์แบบสแตติกที่ไม่พึ่งพาไลบรารี สำหรับสัญญา v1 ที่ตรึงไว้:
  *   POST /api/v1/chat
  *   POST /api/v1/actions/{pendingActionId}/confirm
  *   POST /api/v1/actions/{pendingActionId}/reject
  *   GET  /api/v1/traces/{traceId}
  *   POST /api/v1/reset
  *
- * Safety rules baked into this file:
- *   - Never renders chain-of-thought; any thought-like key in
- *     trace event data is defensively redacted before display.
- *   - Operational results are always labelled SIMULATED.
- *   - Writes only ever leave the browser through the explicit
- *     confirm / reject routes — never through chat text.
+ * กฎความปลอดภัยที่ฝังอยู่ในไฟล์นี้:
+ *   - ไม่แสดง chain-of-thought โดยเด็ดขาด และปิดบังคีย์ใด ๆ ที่คล้ายข้อมูลความคิด
+ *     ในข้อมูลเหตุการณ์ trace เพื่อป้องกันไว้ก่อนแสดงผล
+ *   - ผลลัพธ์จากการดำเนินงานจะมีป้าย SIMULATED กำกับเสมอ
+ *   - ข้อมูลที่เขียนจะออกจากเบราว์เซอร์ผ่านเส้นทาง confirm / reject
+ *     ที่ระบุไว้อย่างชัดเจนเท่านั้น และจะไม่ส่งผ่านข้อความแชต
  * ============================================================ */
 
 (() => {
   'use strict';
 
-  /* ---------- Frozen routes ---------- */
+  /* ---------- เส้นทางที่ตรึงไว้ ---------- */
   const API = {
     chat: '/api/v1/chat',
     confirm: (id) => `/api/v1/actions/${encodeURIComponent(id)}/confirm`,
@@ -27,7 +27,7 @@
     reset: '/api/v1/reset',
   };
 
-  /* Keys that must never be displayed, even if a backend bug leaks them. */
+  /* คีย์ที่ห้ามแสดงโดยเด็ดขาด แม้บั๊กของระบบหลังบ้านจะทำให้ข้อมูลรั่วไหลออกมา */
   const COT_KEY_RE = /thought|thinking|reasoning|chain[_-]?of[_-]?thought|cot|scratchpad/i;
 
   const TRACE_KINDS = {
@@ -51,16 +51,16 @@
     502: 'บริการต้นทางไม่พร้อมใช้งาน (502)',
   };
 
-  /* ---------- State ---------- */
+  /* ---------- สถานะ ---------- */
   const state = {
     conversationId: null,
     lastTraceId: null,
-    busy: false,        // a chat round-trip is in flight
-    actionBusy: false,  // a confirm/reject round-trip is in flight
+    busy: false,        // กำลังรับส่งข้อมูลแชตแบบไปกลับ
+    actionBusy: false,  // กำลังรับส่งข้อมูล confirm/reject แบบไปกลับ
     traceOpen: false,
   };
 
-  /* ---------- Elements ---------- */
+  /* ---------- องค์ประกอบ ---------- */
   const els = {
     thread: document.getElementById('thread'),
     welcome: document.getElementById('welcome'),
@@ -80,7 +80,7 @@
     srStatus: document.getElementById('sr-status'),
   };
 
-  /* ---------- Utilities ---------- */
+  /* ---------- ฟังก์ชันอรรถประโยชน์ ---------- */
 
   function escapeHtml(value) {
     return String(value)
@@ -171,13 +171,13 @@
     try {
       payload = await res.json();
     } catch (err) {
-      /* empty or non-JSON body */
+      /* เนื้อหาว่างเปล่าหรือไม่ได้อยู่ในรูปแบบ JSON */
     }
     if (!res.ok) throw new ApiError(res.status, extractApiMessage(payload, res.status));
     return payload;
   }
 
-  /* Defensive redaction: strip anything thought-like from trace payloads. */
+  /* การปิดบังเชิงป้องกัน: ลบข้อมูลใด ๆ ที่คล้ายความคิดออกจากข้อมูล trace ที่ส่งมา */
   function redactThoughts(value) {
     if (Array.isArray(value)) return value.map(redactThoughts);
     if (value && typeof value === 'object') {
@@ -190,7 +190,7 @@
     return value;
   }
 
-  /* ---------- Thread rendering ---------- */
+  /* ---------- การแสดงผลเธรด ---------- */
 
   function timestampHtml(iso, alignClass) {
     const t = fmtTime(iso);
@@ -249,7 +249,7 @@
     if (!busy) els.input.focus();
   }
 
-  /* Tool chips: honest, compact record of which tools ran. */
+  /* ชิปเครื่องมือ: บันทึกอย่างตรงไปตรงมาและกระชับว่าเรียกใช้เครื่องมือใดบ้าง */
   function renderToolChips(toolResults) {
     if (!Array.isArray(toolResults) || !toolResults.length) return '';
     const chips = toolResults
@@ -315,7 +315,7 @@
     return rows;
   }
 
-  /* ---------- Pending action card ---------- */
+  /* ---------- การ์ดการกระทำที่รอดำเนินการ ---------- */
 
   const SIM_LABEL = '<span class="pa-sim">SIMULATED · ข้อมูลจำลอง</span>';
 
@@ -485,7 +485,7 @@
     body.innerHTML = resultHtml;
   }
 
-  /* ---------- Assistant message ---------- */
+  /* ---------- ข้อความจากผู้ช่วย ---------- */
 
   function addAgentMessage(resp) {
     const el = document.createElement('article');
@@ -515,7 +515,7 @@
     scrollThread();
   }
 
-  /* ---------- Chat send ---------- */
+  /* ---------- การส่งแชต ---------- */
 
   async function sendMessage(text) {
     const message = (text || '').trim();
@@ -566,7 +566,7 @@
     }
   }
 
-  /* ---------- Trace panel ---------- */
+  /* ---------- แผง trace ---------- */
 
   function updateTraceIdLabel() {
     els.traceIdLabel.textContent = state.lastTraceId
@@ -652,7 +652,7 @@
     els.traceEvents.appendChild(frag);
   }
 
-  /* ---------- Reset ---------- */
+  /* ---------- การรีเซ็ต ---------- */
 
   async function resetDemo() {
     els.resetBtn.disabled = true;
@@ -683,7 +683,7 @@
     }
   }
 
-  /* ---------- Composer wiring ---------- */
+  /* ---------- การเชื่อมการทำงานของช่องเขียนข้อความ ---------- */
 
   function autosize() {
     els.input.style.height = 'auto';
@@ -715,8 +715,8 @@
     chip.addEventListener('click', () => {
       const prompt = chip.dataset.prompt || chip.textContent.trim();
       if (chip.hasAttribute('data-prefill')) {
-        /* Insert a skeleton the presenter completes — nothing is sent and no
-         * complaint facts are invented by the UI. */
+        /* แทรกโครงแบบให้ผู้นำเสนอกรอกจนสมบูรณ์ โดยยังไม่ส่งข้อมูลใด ๆ และ UI
+         * จะไม่สร้างข้อเท็จจริงของเรื่องร้องเรียนขึ้นเอง */
         els.input.value = prompt;
         autosize();
         els.input.focus();
@@ -731,7 +731,7 @@
 
   els.resetBtn.addEventListener('click', resetDemo);
 
-  /* ---------- Trace wiring ---------- */
+  /* ---------- การเชื่อมการทำงานของ trace ---------- */
 
   els.traceToggle.addEventListener('click', () => {
     if (state.traceOpen) closeTrace();
@@ -746,7 +746,7 @@
     if (e.key === 'Escape' && state.traceOpen) closeTrace();
   });
 
-  /* ---------- Init ---------- */
+  /* ---------- การเริ่มต้น ---------- */
 
   updateTraceIdLabel();
   autosize();

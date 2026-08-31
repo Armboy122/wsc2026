@@ -1,12 +1,12 @@
-# PEA One Agent QA integration report
+# รายงานการผสานรวม QA ของ PEA One Agent
 
-## Scope
+## ขอบเขต
 
-AI-06 owns the black-box frozen-contract checks in `tests/test_mvp_evaluation.py`, deterministic datasets, `scripts/evaluate`, and this report. Production modules and frozen contracts are read-only. Tests exercise public HTTP routes and preserve write-safety policy.
+AI-06 รับผิดชอบการตรวจสอบสัญญาที่ตรึงไว้แบบกล่องดำใน `tests/test_mvp_evaluation.py` ชุดข้อมูลแบบกำหนดผลลัพธ์แน่นอน `scripts/evaluate` และรายงานฉบับนี้ โมดูลสำหรับใช้งานจริงและสัญญาที่ตรึงไว้เป็นแบบอ่านอย่างเดียว การทดสอบเรียกใช้เส้นทาง HTTP สาธารณะและคงไว้ซึ่งนโยบายความปลอดภัยในการเขียนข้อมูล
 
-## Reproducible setup and run
+## การตั้งค่าและการเรียกใช้งานที่ทำซ้ำได้
 
-From the repository root, install the development and hosted-knowledge extras, enter Gemini settings without displaying them, then start the application and open its UI:
+จากไดเรกทอรีรากของที่เก็บซอร์สโค้ด ให้ติดตั้งส่วนเสริมสำหรับการพัฒนาและระบบความรู้แบบโฮสต์ ป้อนการตั้งค่า Gemini โดยไม่แสดงค่า จากนั้นเริ่มแอปพลิเคชันและเปิดส่วนติดต่อผู้ใช้:
 
 ```bash
 python3 -m pip install -e ".[dev,knowledge]"
@@ -16,67 +16,67 @@ python3 -m uvicorn app.main:app --reload
 open http://127.0.0.1:8000
 ```
 
-In another terminal:
+ในหน้าต่างเทอร์มินัลอีกหน้าต่างหนึ่ง:
 
 ```bash
 python3 -m pytest -q
 ./scripts/evaluate http://127.0.0.1:8000
 ```
 
-`GEMINI_API_KEY` and `GEMINI_FILE_SEARCH_STORE` are required for hosted Gemini File Search. Gemini is fail-closed: missing or unavailable configuration leaves health degraded and must not become a successful knowledge result. OMS, Sabuy, and VOC are **SIMULATED** throughout the demo.
+Gemini File Search แบบโฮสต์จำเป็นต้องใช้ `GEMINI_API_KEY` และ `GEMINI_FILE_SEARCH_STORE` โดย Gemini ใช้แนวทาง fail-closed กล่าวคือ การตั้งค่าที่ขาดหายหรือไม่พร้อมใช้งานจะทำให้สถานะ health เป็น degraded และต้องไม่ถูกแสดงเป็นผลลัพธ์ความรู้ที่สำเร็จ OMS, Sabuy และ VOC เป็น **SIMULATED** ตลอดการสาธิต
 
-## Dataset inventory
+## รายการชุดข้อมูล
 
-| Dataset | Cases | Coverage |
+| ชุดข้อมูล | จำนวนกรณี | ความครอบคลุม |
 |---|---:|---|
-| Knowledge | 40 | retrieval, citations, no-evidence behavior |
-| OMS | 10 | status, safety-first outage reporting with explicit location/symptoms (**SIMULATED**) |
-| Sabuy | 10 | fixture account reads and payment preparation (**SIMULATED**) |
-| VOC | 10 | categories and case preparation with explicit subject/detail (**SIMULATED**) |
-| Multi-tool | 10 | bounded multi-action orchestration |
-| Adversarial | 10 | injection, leakage, invalid fields, duplicate/write safety |
+| ความรู้ | 40 | การค้นคืนข้อมูล การอ้างอิง และพฤติกรรมเมื่อไม่มีหลักฐาน |
+| OMS | 10 | สถานะและการรายงานไฟฟ้าดับโดยให้ความปลอดภัยมาก่อน พร้อมระบุตำแหน่ง/อาการอย่างชัดเจน (**SIMULATED**) |
+| Sabuy | 10 | การอ่านข้อมูลบัญชีตัวอย่างทดสอบและการเตรียมชำระเงิน (**SIMULATED**) |
+| VOC | 10 | หมวดหมู่และการเตรียมกรณี โดยระบุ subject/detail อย่างชัดเจน (**SIMULATED**) |
+| หลายเครื่องมือ | 10 | การประสานหลายการดำเนินการภายในขอบเขตที่กำหนด |
+| เชิงโต้แย้ง | 10 | การแทรกแซงคำสั่ง การรั่วไหล ฟิลด์ที่ไม่ถูกต้อง และความปลอดภัยด้านข้อมูลซ้ำ/การเขียน |
 
-All operational identifiers are exact demo fixtures: `PEA-1001` through `PEA-1003`, and `BKK-01`, `CNX-02`, `HKT-03`. The suite retains 40/10/10/10/10/10 cases.
+ตัวระบุสำหรับการปฏิบัติงานทั้งหมดเป็นข้อมูลตัวอย่างทดสอบของการสาธิตที่ระบุไว้อย่างแน่นอน ได้แก่ `PEA-1001` ถึง `PEA-1003` และ `BKK-01`, `CNX-02`, `HKT-03` โดยชุดการทดสอบยังคงมีกรณีทดสอบ 40/10/10/10/10/10 กรณี
 
-## Gates and scoring
+## เกณฑ์ผ่านและการให้คะแนน
 
-The evaluator resets demo state before and after scoring, consumes only public HTTP envelopes, handles HTTP/non-JSON/network failures without crashing, and prints numeric `routingAccuracy`, `knowledgeCorrectness`, `citationPresence`, `unsupportedClaimRate`, `writeSafety`, `scenarioCompletion`, and response-time statistics. `unsupportedClaimRate` is a violation rate (lower is better). Missing Gemini configuration is reported in `notes` and knowledge results are not treated as successful.
+ตัวประเมินจะรีเซ็ตสถานะการสาธิตก่อนและหลังการให้คะแนน ใช้เฉพาะ envelope HTTP สาธารณะ จัดการความล้มเหลวของ HTTP/ข้อมูลที่ไม่ใช่ JSON/เครือข่ายโดยไม่หยุดทำงาน และแสดงค่าตัวเลข `routingAccuracy`, `knowledgeCorrectness`, `citationPresence`, `unsupportedClaimRate`, `writeSafety`, `scenarioCompletion` รวมถึงสถิติเวลาตอบสนอง `unsupportedClaimRate` คืออัตราการละเมิด (ยิ่งต่ำยิ่งดี) การขาดการตั้งค่า Gemini จะถูกรายงานใน `notes` และผลลัพธ์ความรู้จะไม่ถูกถือว่าสำเร็จ
 
-The pytest suite additionally proves envelope validation, simulation markers, no chat submission, idempotent confirmation, terminal rejection, trace ordering/redaction, reset, and malformed action failures. The outage journey uses a valid explicit prepare request and asserts a real pending action before rejection.
+ชุดการทดสอบของ pytest ยังพิสูจน์เพิ่มเติมถึงการตรวจสอบ envelope เครื่องหมายการจำลอง การไม่ส่งข้อความสนทนา การยืนยันแบบ idempotent การปฏิเสธในสถานะสุดท้าย ลำดับ/การปกปิดข้อมูลใน trace การรีเซ็ต และความล้มเหลวของ action ที่มีรูปแบบไม่ถูกต้อง เส้นทางเหตุการณ์ไฟฟ้าดับใช้คำขอ prepare ที่ถูกต้องและชัดเจน พร้อมยืนยันว่ามี pending action จริงก่อนถูกปฏิเสธ
 
-## Final hardened release evidence
+## หลักฐานสุดท้ายของการเผยแพร่ที่ผ่านการเสริมความแข็งแกร่ง
 
-The lead-supplied final evidence used the reassigned **OpenAI Terra** model. Full `pytest` completed with **131 passed** and **4 deprecation warnings**. The live evaluator at `127.0.0.1:8010` evaluated all **90 dataset cases plus health**:
+หลักฐานสุดท้ายที่หัวหน้าทีมจัดให้ใช้โมเดล **OpenAI Terra** ซึ่งได้รับการมอบหมายใหม่ การรัน `pytest` ทั้งหมดเสร็จสิ้นด้วย **131 passed** และ **4 deprecation warnings** ตัวประเมินที่ทำงานจริง ณ `127.0.0.1:8010` ประเมินครบทั้ง **กรณีจากชุดข้อมูล 90 กรณี รวมทั้ง health**:
 
-| Check | Result |
+| รายการตรวจสอบ | ผลลัพธ์ |
 |---|---:|
 | `routingAccuracy` | 1.0 |
 | `writeSafety` | 1.0 |
 | `scenarioCompletion` | 1.0 |
 | `completion` | 1.0 |
 | `unsupportedClaimRate` | 0.0 |
-| Mean response time | 0.86 ms |
-| P95 response time | 1.07 ms |
-| Maximum response time | 5.38 ms |
+| เวลาตอบสนองเฉลี่ย | 0.86 ms |
+| เวลาตอบสนอง P95 | 1.07 ms |
+| เวลาตอบสนองสูงสุด | 5.38 ms |
 | `knowledgeCorrectness` | 0.0 |
 | `citationPresence` | 0.025 |
-| Health | degraded: knowledge unavailable |
+| สถานะระบบ | degraded: knowledge unavailable |
 
-The `citationPresence` value of `0.025` is the single `mustCite=false` negative control. It does **not** evidence grounded citations. `knowledgeCorrectness` remains `0.0` and health is degraded because knowledge is unavailable.
+ค่า `citationPresence` เท่ากับ `0.025` มาจากชุดควบคุมเชิงลบเพียงรายการเดียวที่กำหนด `mustCite=false` ค่านี้ **ไม่ใช่** หลักฐานของการอ้างอิงที่มีแหล่งข้อมูลรองรับ `knowledgeCorrectness` ยังคงเป็น `0.0` และ health มีสถานะ degraded เนื่องจากความรู้ไม่พร้อมใช้งาน
 
-The repository intentionally ships no authoritative PEA source documents under `knowledge/source`; unsourced sample facts were removed. OMS, Sabuy, and VOC remain visibly **SIMULATED**. No secret values are recorded in this report.
+ที่เก็บซอร์สโค้ดนี้จงใจไม่รวมเอกสารต้นทาง PEA ที่เชื่อถือได้ไว้ภายใต้ `knowledge/source` และได้นำข้อเท็จจริงตัวอย่างที่ไม่มีแหล่งอ้างอิงออกแล้ว OMS, Sabuy และ VOC ยังคงแสดงอย่างชัดเจนว่าเป็น **SIMULATED** รายงานนี้ไม่มีการบันทึกค่าความลับใด ๆ
 
-## Release gate
+## เกณฑ์การเผยแพร่
 
-**Release status: NOT READY.** The operational and write-safety scores do not demonstrate a successful external knowledge integration, and unavailable external integration is not reported as passed. Release requires both of the following:
+**สถานะการเผยแพร่: NOT READY.** คะแนนด้านการปฏิบัติงานและความปลอดภัยในการเขียนข้อมูลไม่ได้แสดงให้เห็นว่าการผสานรวมความรู้ภายนอกสำเร็จ และระบบจะไม่รายงานว่าการผสานรวมภายนอกที่ไม่พร้อมใช้งานผ่านเกณฑ์ การเผยแพร่ต้องมีคุณสมบัติครบทั้งสองข้อต่อไปนี้:
 
-1. Lead-approved authoritative PEA documents must be synced to a real Gemini File Search store with credentials, followed by a live run that passes citations.
-2. If the competition requires a live judge provider rather than the deterministic `DemoLLMAdapter`, that provider's `LLMAdapter` must be supplied and connected. The code includes only the provider-agnostic `JudgeLLMClient` seam.
+1. ต้อง sync เอกสาร PEA ที่เชื่อถือได้และผ่านการอนุมัติจากหัวหน้าทีมไปยังคลัง Gemini File Search จริงพร้อมข้อมูลรับรอง แล้วจึงรันกับระบบจริงให้ผ่านเกณฑ์การอ้างอิง
+2. หากการแข่งขันกำหนดให้ใช้ผู้ให้บริการสำหรับกรรมการที่ทำงานจริงแทน `DemoLLMAdapter` ที่ให้ผลลัพธ์แน่นอน ต้องจัดหาและเชื่อมต่อ `LLMAdapter` ของผู้ให้บริการนั้น โดยโค้ดมีเพียงจุดเชื่อมต่อ `JudgeLLMClient` ที่ไม่ขึ้นกับผู้ให้บริการ
 
-No simulated or fabricated citation result may satisfy either gate.
+ผลลัพธ์การอ้างอิงที่จำลองหรือสร้างขึ้นเองไม่สามารถทำให้ผ่านเกณฑ์ใดได้
 
-## Current integrated truth
+## ข้อเท็จจริงของการผสานรวมในปัจจุบัน
 
-`app.main` is present and composes one Main Agent with exactly four registered tools. The deterministic demo adapter is available offline; Gemini readiness may be degraded when credentials/configuration are absent, which is an explicit environment state rather than a fake knowledge success.
+มี `app.main` อยู่จริงและประกอบด้วย Main Agent หนึ่งตัวพร้อมเครื่องมือที่ลงทะเบียนไว้อย่างแน่นอนสี่รายการ อะแดปเตอร์สาธิตที่ให้ผลลัพธ์แน่นอนสามารถใช้งานแบบออฟไลน์ได้ ส่วนความพร้อมของ Gemini อาจมีสถานะ degraded เมื่อไม่มีข้อมูลรับรอง/การตั้งค่า ซึ่งเป็นสถานะของสภาพแวดล้อมที่ระบุอย่างชัดเจน ไม่ใช่การแสดงผลความรู้สำเร็จที่ไม่เป็นจริง
 
-Evaluation repair traceability: commit `07419b1` is preserved. OpenAI Luna omitted the mandatory `[model=...]` tag on repair commits `07419b1` and `f41b5e1`, meeting the reassignment threshold; ownership is reassigned to OpenAI Terra. Commit `f41b5e1` contains the fixture-ID test repair implemented by OpenAI Luna, but its message omitted the mandatory model tag.
+การตรวจสอบย้อนกลับของการแก้ไขการประเมิน: ยังคงเก็บ commit `07419b1` ไว้ OpenAI Luna ไม่ได้ใส่แท็ก `[model=...]` ที่บังคับใช้ใน commit การแก้ไข `07419b1` และ `f41b5e1` จึงถึงเกณฑ์สำหรับการมอบหมายใหม่ และความรับผิดชอบถูกมอบหมายให้ OpenAI Terra ส่วน commit `f41b5e1` มีการแก้ไขการทดสอบสำหรับ fixture-ID ที่ OpenAI Luna ดำเนินการ แต่ข้อความ commit ไม่ได้ใส่แท็กโมเดลที่บังคับใช้

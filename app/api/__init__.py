@@ -1,1 +1,1 @@
-"""PEA One Agent platform routes and HTTP contracts."""
+"""เส้นทางและสัญญา HTTP ของแพลตฟอร์ม PEA One Agent"""

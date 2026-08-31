@@ -1,4 +1,4 @@
-"""Tests for the simulated Sabuy tool (sabuy_tool)."""
+"""ทดสอบเครื่องมือ Sabuy จำลอง (sabuy_tool)"""
 
 from __future__ import annotations
 

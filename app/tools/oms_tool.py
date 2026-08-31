@@ -1,8 +1,8 @@
-"""Simulated OMS (outage management) tool (``oms_tool``).
+"""เครื่องมือ OMS (จัดการไฟฟ้าขัดข้อง) แบบจำลอง (``oms_tool``)
 
-Exposes the frozen ``get_outage_status``, ``prepare_outage_report``, and internal
-``submit_outage_report`` actions. All results are simulated and outage
-read/prepare results always carry a ``safetyMessage``.
+เปิดเผยการกระทำตามสัญญา ``get_outage_status``, ``prepare_outage_report`` และการกระทำภายใน
+``submit_outage_report`` ผลลัพธ์ทั้งหมดเป็นข้อมูลจำลอง และผลลัพธ์การอ่านหรือเตรียม
+ข้อมูลไฟฟ้าขัดข้องมี ``safetyMessage`` เสมอ
 """
 
 from __future__ import annotations
@@ -15,7 +15,7 @@ from app.tools._base import SimulatedTool
 
 
 class OmsTool(SimulatedTool):
-    """Top-level OMS tool; owns only the three frozen OMS actions."""
+    """เครื่องมือ OMS ระดับบนสุด ซึ่งเป็นเจ้าของเฉพาะการกระทำ OMS ตามสัญญาสามรายการ"""
 
     name = ToolName.OMS
 
@@ -37,4 +37,4 @@ class OmsTool(SimulatedTool):
                 input_model.pending_action_id,
                 input_model.idempotency_key,
             )
-        raise ValueError(f"Unhandled action {action.value}")
+        raise ValueError(f"ไม่มีการจัดการการกระทำ {action.value}")

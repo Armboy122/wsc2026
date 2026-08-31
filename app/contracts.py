@@ -1,4 +1,4 @@
-"""Frozen v1 transport and tool contracts; no feature implementation lives here."""
+"""สัญญา transport และเครื่องมือ v1 แบบคงที่ โดยไม่มีการทำงานของฟีเจอร์อยู่ที่นี่"""
 
 from __future__ import annotations
 
@@ -12,13 +12,13 @@ from pydantic import BaseModel, ConfigDict, Field, TypeAdapter, model_validator
 
 
 def to_camel(value: str) -> str:
-    """Use one JSON naming convention at every external seam."""
+    """ใช้รูปแบบการตั้งชื่อ JSON แบบเดียวกันที่ทุกจุดเชื่อมต่อภายนอก"""
     head, *tail = value.split("_")
     return head + "".join(part.capitalize() for part in tail)
 
 
 class FrozenModel(BaseModel):
-    """Base for every cross-module value object."""
+    """คลาสพื้นฐานสำหรับออบเจ็กต์ค่าที่ใช้ข้ามโมดูลทุกตัว"""
 
     model_config = ConfigDict(
         frozen=True,
@@ -104,7 +104,7 @@ class ToolCall(FrozenModel):
     @model_validator(mode="after")
     def action_belongs_to_tool(self) -> "ToolCall":
         if self.action not in TOOL_ACTIONS[self.name]:
-            raise ValueError(f"action {self.action.value} is not owned by {self.name.value}")
+            raise ValueError(f"การกระทำ {self.action.value} ไม่ได้อยู่ภายใต้ {self.name.value}")
         return self
 
 
@@ -126,15 +126,15 @@ class ToolResult(FrozenModel):
     @model_validator(mode="after")
     def enforce_result_shape(self) -> "ToolResult":
         if self.status is ToolResultStatus.SUCCESS and (self.data is None or self.error is not None):
-            raise ValueError("successful result requires data and no error")
+            raise ValueError("ผลลัพธ์ที่สำเร็จต้องมีข้อมูลและไม่มีข้อผิดพลาด")
         if self.status is ToolResultStatus.ERROR and (self.error is None or self.data is not None):
-            raise ValueError("error result requires error and no data")
+            raise ValueError("ผลลัพธ์ที่ผิดพลาดต้องมีข้อผิดพลาดและไม่มีข้อมูล")
         if self.name is ToolName.KNOWLEDGE and self.simulation:
-            raise ValueError("knowledge results cannot be simulated")
+            raise ValueError("ผลลัพธ์ความรู้ต้องไม่เป็นข้อมูลจำลอง")
         if self.name is not ToolName.KNOWLEDGE and not self.simulation:
-            raise ValueError("operational tool results must be simulated")
+            raise ValueError("ผลลัพธ์เครื่องมือปฏิบัติการต้องเป็นข้อมูลจำลอง")
         if self.name is not ToolName.KNOWLEDGE and self.citations:
-            raise ValueError("only knowledge results may include citations")
+            raise ValueError("เฉพาะผลลัพธ์ความรู้เท่านั้นที่มีแหล่งอ้างอิงได้")
         return self
 
 
@@ -163,11 +163,11 @@ class PendingAction(FrozenModel):
     @model_validator(mode="after")
     def validate_action_pair(self) -> "PendingAction":
         if PREPARE_TO_SUBMIT.get(self.prepare_action) is not self.submit_action:
-            raise ValueError("submit action does not match prepare action")
+            raise ValueError("การกระทำสำหรับส่งรายการไม่ตรงกับการกระทำสำหรับจัดเตรียม")
         if self.status is PendingActionStatus.SUBMITTED and self.submission_result is None:
-            raise ValueError("submitted action requires submission result")
+            raise ValueError("การกระทำที่ส่งแล้วต้องมีผลลัพธ์การส่งรายการ")
         if self.status in {PendingActionStatus.PENDING_CONFIRMATION, PendingActionStatus.REJECTED} and self.submission_result is not None:
-            raise ValueError("unsubmitted action cannot have a submission result")
+            raise ValueError("การกระทำที่ยังไม่ได้ส่งต้องไม่มีผลลัพธ์การส่งรายการ")
         return self
 
 
@@ -238,7 +238,7 @@ class HealthResponse(FrozenModel):
     simulation_mode: Literal[True] = Field(True, serialization_alias="simulationMode")
 
 
-# Action-specific input and output contracts.
+# สัญญาข้อมูลนำเข้าและผลลัพธ์เฉพาะแต่ละการกระทำ
 class KnowledgeSearchInput(FrozenModel):
     query: str = Field(min_length=1, max_length=1000)
     max_results: int = Field(default=3, ge=1, le=5, serialization_alias="maxResults")
@@ -265,10 +265,12 @@ class EmptyInput(FrozenModel):
 
 
 class VocCategory(str, Enum):
-    BILLING = "billing"
+    POWER_QUALITY = "power_quality"
     SERVICE = "service"
-    SAFETY = "safety"
-    OTHER = "other"
+    COMPLIMENT = "compliment"
+    TIP_OFF = "tip_off"
+    OPERATIONS = "operations"
+    STAKEHOLDER_FEEDBACK = "stakeholder_feedback"
 
 
 class ContactChannel(str, Enum):
@@ -340,7 +342,7 @@ class VocCategoryItem(FrozenModel):
 
 
 class VocCategoryListOutput(FrozenModel):
-    categories: tuple[VocCategoryItem, ...] = Field(min_length=1, max_length=4)
+    categories: tuple[VocCategoryItem, ...] = Field(min_length=1, max_length=6)
 
 
 class VocPrepareCaseOutput(FrozenModel):
@@ -410,10 +412,10 @@ OUTPUT_MODELS: ClassVar[dict[ToolAction, type[FrozenModel]]] = {
 
 
 def validate_tool_input(call: ToolCall) -> FrozenModel:
-    """Validate a frozen envelope's payload against its declared action."""
+    """ตรวจสอบ payload ของ envelope แบบคงที่กับการกระทำที่ประกาศไว้"""
     return TypeAdapter(INPUT_MODELS[call.action]).validate_python(call.input)
 
 
 def validate_tool_success_data(action: ToolAction, data: dict[str, Any]) -> FrozenModel:
-    """Validate action-specific successful tool data before wrapping ToolResult."""
+    """ตรวจสอบข้อมูลเครื่องมือที่สำเร็จเฉพาะการกระทำก่อนห่อเป็น ToolResult"""
     return TypeAdapter(OUTPUT_MODELS[action]).validate_python(data)

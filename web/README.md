@@ -1,89 +1,89 @@
-# PEA One Agent — Competition Demo UI (AI-05)
+# PEA One Agent — ส่วนติดต่อสาธิตการแข่งขัน (AI-05)
 
-Lightweight static one-screen chat UI for the hackathon demo. No framework, no build step,
-no install step — four plain files: `index.html`, `styles.css`, `app.js`, and this README.
+ส่วนติดต่อแชตแบบคงที่หน้าเดียวขนาดเบาสำหรับการสาธิตในงานแฮ็กกาธอน ไม่ใช้เฟรมเวิร์ก ไม่มีขั้นตอนสร้าง
+และไม่มีขั้นตอนติดตั้ง — มีไฟล์ธรรมดาสี่ไฟล์ ได้แก่ `index.html`, `styles.css`, `app.js` และไฟล์คำอธิบายนี้
 
-## What it is
+## สิ่งนี้คืออะไร
 
-A single-screen conversation interface (Thai-first) that talks **only** to the frozen v1
-HTTP contract defined in `../CONTRACTS.md` / `../app/contracts.py`:
+อินเทอร์เฟซการสนทนาแบบหน้าเดียว (เน้นภาษาไทยเป็นหลัก) ที่สื่อสาร **เฉพาะ** กับสัญญา HTTP v1
+ที่ตรึงไว้ตามคำจำกัดความใน `../CONTRACTS.md` / `../app/contracts.py`:
 
-| Route | Used for |
+| เส้นทาง | ใช้สำหรับ |
 |---|---|
-| `POST /api/v1/chat` | Send a message, render the assistant reply, citations, tool chips, and pending action |
-| `POST /api/v1/actions/{pendingActionId}/confirm` | Human confirmation of a prepared write (optional `confirmationNote`) |
-| `POST /api/v1/actions/{pendingActionId}/reject` | Terminal rejection (required non-empty `reason`) |
-| `GET /api/v1/traces/{traceId}` | Ordered, redacted trace events in the "การตรวจสอบ" drawer |
-| `POST /api/v1/reset` | Clear conversations, pending actions, simulated state, and traces |
+| `POST /api/v1/chat` | ส่งข้อความ แสดงคำตอบของผู้ช่วย การอ้างอิง ชิปเครื่องมือ และการกระทำที่รอดำเนินการ |
+| `POST /api/v1/actions/{pendingActionId}/confirm` | ให้มนุษย์ยืนยันการเขียนข้อมูลที่เตรียมไว้ (`confirmationNote` เป็นตัวเลือก) |
+| `POST /api/v1/actions/{pendingActionId}/reject` | ปฏิเสธและสิ้นสุดการดำเนินการ (ต้องมี `reason` ที่ไม่เป็นค่าว่าง) |
+| `GET /api/v1/traces/{traceId}` | แสดงเหตุการณ์ trace ที่เรียงตามลำดับและปกปิดข้อมูลแล้วในแผง "การตรวจสอบ" |
+| `POST /api/v1/reset` | ล้างบทสนทนา การกระทำที่รอดำเนินการ สถานะจำลอง และ trace |
 
-No other endpoints are called (`/health` is not needed by this UI). Field names follow the
-camelCase JSON convention of the frozen models exactly (`conversationId`, `traceId`,
-`pendingAction`, `preparedInput`, `idempotencyKey`, …).
+ส่วนติดต่อนี้ไม่เรียกจุดเชื่อมต่ออื่น (`/health` ไม่จำเป็นสำหรับส่วนติดต่อนี้) ชื่อฟิลด์ใช้รูปแบบ
+camelCase JSON ของโมเดลที่ตรึงไว้ทุกประการ (`conversationId`, `traceId`,
+`pendingAction`, `preparedInput`, `idempotencyKey`, …)
 
-## Running it
+## การเรียกใช้งาน
 
-The UI calls the API with same-origin relative paths (`/api/v1/...`), so the expected
-deployment is the single FastAPI demo process serving this directory at `/` (e.g. a
-StaticFiles mount) — the same origin then serves both the page and the API.
+ส่วนติดต่อเรียก API ด้วยเส้นทางสัมพัทธ์จากต้นทางเดียวกัน (`/api/v1/...`) ดังนั้นรูปแบบการนำไปใช้งานที่คาดหวังคือ
+ใช้โปรเซสสาธิต FastAPI เพียงโปรเซสเดียวให้บริการไดเรกทอรีนี้ที่ `/` (เช่น เชื่อมด้วย
+StaticFiles) — จากนั้นต้นทางเดียวกันจะให้บริการทั้งหน้าเว็บและ API
 
-- **Integrated demo:** serve `web/` from the FastAPI process and open the app URL.
-- **Visual preview only** (no backend): `python3 -m http.server 8080 --directory web`
-  and open `http://localhost:8080`. The page renders fully; every API call will surface
-  through the designed error state ("ไม่สามารถเชื่อมต่อเซิร์ฟเวอร์ได้"), which is itself
-  part of the demo script.
-- Opening `index.html` directly from the filesystem also works for visual inspection;
-  fonts fall back gracefully if offline (Anuphan → Thai system fallbacks).
+- **การสาธิตแบบผสานรวม:** ให้บริการ `web/` จากโปรเซส FastAPI แล้วเปิด URL ของแอป
+- **ดูตัวอย่างภาพเท่านั้น** (ไม่มีระบบหลังบ้าน): `python3 -m http.server 8080 --directory web`
+  แล้วเปิด `http://localhost:8080` หน้าเว็บจะแสดงผลครบถ้วน ส่วนการเรียก API ทุกครั้งจะแสดง
+  ผ่านสถานะข้อผิดพลาดที่ออกแบบไว้ ("ไม่สามารถเชื่อมต่อเซิร์ฟเวอร์ได้") ซึ่งเป็นส่วนหนึ่ง
+  ของสคริปต์สาธิต
+- การเปิด `index.html` โดยตรงจากระบบไฟล์ก็ใช้ตรวจสอบภาพได้เช่นกัน
+  หากออฟไลน์ ระบบจะเลือกใช้ฟอนต์สำรองอย่างเหมาะสม (Anuphan → ฟอนต์ระบบภาษาไทยสำรอง)
 
-## Features
+## ความสามารถ
 
-- **Conversation**: user/assistant bubbles with timestamps, auto-scroll, typing indicator.
-- **Input & send**: auto-growing textarea (max 4,000 chars per contract), Enter to send,
-  Shift+Enter for newline, and five scripted prompt buttons aligned with the deterministic
-  demo journeys: hosted-knowledge search (On-Peak tariff), Sabuy account read (PEA-1001),
-  Sabuy payment prepare (350 บาท · PEA-1001), VOC case template, and a multi-tool OMS
-  outage status + knowledge check (BKK-01 + safety policy). The VOC button inserts the
-  `Complaint; subject: ...; detail: ...` skeleton into the composer instead of sending, so
-  the complaint subject and detail always come from the presenter — the UI invents no facts.
-- **Loading / error states**: busy lock during a round-trip, normalized error notices for
-  404/409/422/5xx and network failure; FastAPI `detail` payloads are decoded into a
-  user-safe message.
-- **Citations**: rendered only from `ChatResponse.citations` (Gemini File Search), with
-  title, snippet, page chip, and source link. Simulated facts are never shown as citations.
-- **Trace**: drawer for the latest `traceId` with ordered events (Thai label + contract
-  kind), refresh, and expandable redacted `data` JSON.
-- **Pending-action preview**: card with status badge, tool + action, simulated label,
-  redacted `preparedInput`, and note/reason field.
-- **Confirm / cancel**: confirm posts `confirmationNote` (optional); reject requires a
-  non-empty reason (validated client-side before the call). Terminal cards show the
-  receipt (receiptId / caseId / reportId) or the rejection; buttons lock while a decision
-  is in flight and 409s surface inline on the card.
-- **Reset**: clears server demo state and the local screen; conversation restarts fresh.
-- **SIMULATED BACKEND badge**: always visible in the header, plus per-result SIMULATED
-  chips and a simulated-only footnote on every submitted action.
+- **การสนทนา**: บับเบิลข้อความของผู้ใช้/ผู้ช่วยพร้อมเวลา เลื่อนอัตโนมัติ และตัวบ่งชี้ขณะพิมพ์
+- **การป้อนและส่งข้อความ**: ช่องข้อความขยายความสูงอัตโนมัติ (สูงสุด 4,000 อักขระตามสัญญา), กด Enter เพื่อส่ง,
+  กด Shift+Enter เพื่อขึ้นบรรทัดใหม่ และมีปุ่มคำสั่งตามสคริปต์ห้าปุ่มที่สอดคล้องกับ
+  เส้นทางสาธิตแบบกำหนดผลลัพธ์แน่นอน ได้แก่ ค้นหาความรู้ที่โฮสต์ไว้ (อัตรา On-Peak), อ่านบัญชี Sabuy (PEA-1001),
+  เตรียมการชำระเงิน Sabuy (350 บาท · PEA-1001), เทมเพลตเคส VOC และสถานะไฟดับ OMS แบบหลายเครื่องมือ
+  พร้อมตรวจสอบความรู้ (BKK-01 + นโยบายความปลอดภัย) ปุ่ม VOC จะแทรกโครง
+  `Complaint; subject: ...; detail: ...` ลงในช่องเขียนแทนการส่ง เพื่อให้หัวข้อและรายละเอียด
+  ของเรื่องร้องเรียนมาจากผู้นำเสนอเสมอ — ส่วนติดต่อจะไม่สร้างข้อเท็จจริงขึ้นเอง
+- **สถานะกำลังโหลด / ข้อผิดพลาด**: ล็อกการใช้งานระหว่างการรับส่งข้อมูล แสดงข้อความแจ้งข้อผิดพลาดที่ปรับรูปแบบแล้วสำหรับ
+  404/409/422/5xx และเครือข่ายล้มเหลว พร้อมถอดรหัสข้อมูล `detail` ของ FastAPI เป็น
+  ข้อความที่ปลอดภัยสำหรับผู้ใช้
+- **การอ้างอิง**: แสดงจาก `ChatResponse.citations` (Gemini File Search) เท่านั้น โดยมี
+  ชื่อเรื่อง ข้อความย่อ ชิปเลขหน้า และลิงก์แหล่งที่มา ข้อเท็จจริงจำลองจะไม่แสดงเป็นการอ้างอิง
+- **ร่องรอยการทำงาน**: แผงสำหรับ `traceId` ล่าสุด พร้อมเหตุการณ์ตามลำดับ (ป้ายภาษาไทย + ชนิดตามสัญญา),
+  ปุ่มรีเฟรช และ `data` JSON ที่ปกปิดข้อมูลแล้วและขยายดูได้
+- **ตัวอย่างการกระทำที่รอดำเนินการ**: การ์ดที่มีป้ายสถานะ เครื่องมือ + การกระทำ ป้ายข้อมูลจำลอง,
+  `preparedInput` ที่ปกปิดข้อมูลแล้ว และช่องหมายเหตุ/เหตุผล
+- **ยืนยัน / ยกเลิก**: การยืนยันจะโพสต์ `confirmationNote` (เป็นตัวเลือก) ส่วนการปฏิเสธต้องมี
+  เหตุผลที่ไม่เป็นค่าว่าง (ตรวจสอบฝั่งไคลเอนต์ก่อนเรียก) การ์ดสถานะสิ้นสุดจะแสดง
+  ใบรับรอง (receiptId / caseId / reportId) หรือผลการปฏิเสธ ปุ่มจะถูกล็อกระหว่างที่กำลัง
+  ตัดสินใจ และข้อผิดพลาด 409 จะแสดงภายในบรรทัดบนการ์ด
+- **รีเซ็ต**: ล้างสถานะการสาธิตของเซิร์ฟเวอร์และหน้าจอในเครื่อง แล้วเริ่มบทสนทนาใหม่
+- **ป้าย SIMULATED BACKEND**: แสดงในส่วนหัวตลอดเวลา พร้อมชิป SIMULATED แยกตามผลลัพธ์
+  และเชิงอรรถว่าเป็นข้อมูลจำลองเท่านั้นบนทุกการกระทำที่ส่งแล้ว
 
-## Safety posture
+## แนวทางด้านความปลอดภัย
 
-- **No chain-of-thought is ever displayed.** Trace rendering shows only the contract event
-  kinds; any thought-like keys (`thought`, `reasoning`, `chain-of-thought`, …) are
-  defensively redacted client-side even if a backend bug leaked them.
-- **Never implies production data.** Every operational surface repeats the simulated
-  label; only knowledge citations are presented as real retrieved sources.
-- **Writes leave the browser only through the confirm/reject routes.** Nothing in the chat
-  path can submit a write, and no client-side flag is ever trusted as a confirmation.
+- **ไม่แสดงลำดับความคิด (chain-of-thought) ไม่ว่าในกรณีใด** การแสดงร่องรอยการทำงานจะแสดงเฉพาะชนิดเหตุการณ์ตามสัญญา
+  ส่วนคีย์ใด ๆ ที่มีลักษณะเป็นความคิด (`thought`, `reasoning`, `chain-of-thought`, …) จะถูก
+  ปกปิดเชิงป้องกันที่ฝั่งไคลเอนต์ แม้ข้อบกพร่องของระบบหลังบ้านจะทำให้ข้อมูลดังกล่าวรั่วออกมา
+- **ไม่ทำให้เข้าใจว่าเป็นข้อมูลจากระบบใช้งานจริง** ทุกส่วนที่เกี่ยวข้องกับการปฏิบัติงานจะแสดงป้าย
+  ข้อมูลจำลองซ้ำอย่างชัดเจน มีเพียงการอ้างอิงความรู้เท่านั้นที่แสดงเป็นแหล่งข้อมูลจริงที่ดึงมา
+- **ข้อมูลเขียนจะออกจากเบราว์เซอร์ผ่านเส้นทางยืนยัน/ปฏิเสธเท่านั้น** ไม่มีสิ่งใดในเส้นทางแชต
+  ที่ส่งการเขียนข้อมูลได้ และจะไม่เชื่อถือตัวบ่งชี้ฝั่งไคลเอนต์ว่าเป็นการยืนยัน
 
-## Accessibility & design
+## การช่วยการเข้าถึงและการออกแบบ
 
-- Mobile-first single column (`100dvh` shell, sticky composer, horizontally scrolling
-  prompt chips); on desktop the conversation centers at a comfortable reading width.
-- Purple professional system: ink-violet header with an engineering grid texture, violet
-  actions, amber reserved for simulation labelling, green/red only for outcomes.
-- Fonts: Anuphan (Thai/Latin UI) + IBM Plex Mono (ids, trace, timestamps) via Google
-  Fonts, with system Thai fallbacks when offline.
-- WCAG-minded: skip link, landmarks, `role="log"` conversation, `aria-live` status
-  announcements, focus management on pending actions, ≥44px touch targets, visible
-  focus rings, `prefers-reduced-motion` support, and contrast-checked palette.
+- คอลัมน์เดียวโดยออกแบบสำหรับมือถือก่อน (โครง `100dvh`, ช่องเขียนแบบตรึงตำแหน่ง, ชิปคำสั่งที่เลื่อนแนวนอน)
+  ส่วนบนเดสก์ท็อป บทสนทนาจะอยู่กึ่งกลางด้วยความกว้างที่อ่านสบาย
+- ระบบสีม่วงแบบมืออาชีพ: ส่วนหัวสีหมึกม่วงพร้อมพื้นผิวตารางเชิงวิศวกรรม การกระทำสีม่วง
+  ใช้สีอำพันเฉพาะป้ายข้อมูลจำลอง และใช้สีเขียว/แดงเฉพาะผลลัพธ์
+- ฟอนต์: Anuphan (UI ภาษาไทย/Latin) + IBM Plex Mono (ids, trace, timestamps) ผ่าน Google
+  Fonts พร้อมฟอนต์ระบบภาษาไทยสำรองเมื่อออฟไลน์
+- คำนึงถึง WCAG: ลิงก์ข้าม จุดสังเกตโครงสร้างเนื้อหา, บทสนทนา `role="log"`, การประกาศสถานะ
+  `aria-live`, การจัดการจุดโฟกัสสำหรับการกระทำที่รอดำเนินการ, เป้าหมายสัมผัส ≥44px, วงแหวน
+  โฟกัสที่มองเห็นได้, รองรับ `prefers-reduced-motion` และชุดสีที่ตรวจสอบอัตราส่วนความต่างแล้ว
 
-## Ownership
+## ความเป็นเจ้าของ
 
-This directory (`web/**`) is owned by AI-05. `ARCHITECTURE.md`, `CONTRACTS.md`, and
-`app/contracts.py` are read-only references for this UI and are never modified here.
+ไดเรกทอรีนี้ (`web/**`) อยู่ภายใต้ความรับผิดชอบของ AI-05 ส่วน `ARCHITECTURE.md`, `CONTRACTS.md` และ
+`app/contracts.py` เป็นข้อมูลอ้างอิงแบบอ่านอย่างเดียวสำหรับส่วนติดต่อนี้ และจะไม่มีการแก้ไขที่นี่

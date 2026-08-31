@@ -1,4 +1,4 @@
-"""Tests for startup validation and bootstrap wiring."""
+"""ทดสอบการตรวจสอบความถูกต้องและการเชื่อมส่วนประกอบเมื่อเริ่มระบบ"""
 
 from __future__ import annotations
 
@@ -11,7 +11,7 @@ from app.core.startup import REQUIRED_TOOLS, validate_tool_registry
 
 
 class _FrozenNamesRegistry:
-    """Mirrors the integrated ToolRegistry.names frozenset property."""
+    """จำลองคุณสมบัติ frozenset ของ ToolRegistry.names ที่ใช้งานจริง"""
 
     @property
     def names(self) -> frozenset[ToolName]:
@@ -28,7 +28,7 @@ class _ListNamesRegistry:
 
 
 def test_validate_tool_registry_accepts_frozenset_property() -> None:
-    """Regression: getattr(registry, 'names')() failed when names is a property."""
+    """ทดสอบย้อนหลัง: getattr(registry, 'names')() เคยล้มเหลวเมื่อ names เป็นคุณสมบัติ"""
     validate_tool_registry(_FrozenNamesRegistry())
 
 

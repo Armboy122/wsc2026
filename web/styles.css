@@ -1,35 +1,35 @@
 /* ============================================================
-   PEA One Agent — competition demo UI (AI-05)
-   Design: "control-room violet" — professional, mobile-first,
-   accessible. Purple/ink-violet system on lavender paper,
-   amber for simulation labelling, engineering grid texture.
+   PEA One Agent — ส่วนติดต่อผู้ใช้สาธิตสำหรับการแข่งขัน (AI-05)
+   การออกแบบ: "ห้องควบคุมสีม่วง" — ดูเป็นมืออาชีพ เน้นมือถือก่อน
+   เข้าถึงได้ ระบบสีม่วง/ม่วงหมึกบนพื้นหลังกระดาษลาเวนเดอร์
+   สีอำพันสำหรับป้ายกำกับการจำลอง พร้อมพื้นผิวตารางเชิงวิศวกรรม
    ============================================================ */
 
-/* ---------- Tokens ---------- */
+/* ---------- โทเค็น ---------- */
 :root {
-  /* ink violets */
+  /* สีม่วงหมึก */
   --ink-900: #1E1440;
   --ink-800: #2A1D52;
   --ink-700: #372868;
 
-  /* violet actions */
+  /* การกระทำสีม่วง */
   --violet-700: #4A2BA6;
   --violet-600: #5B34C7;
   --violet-100: #E9E2FA;
   --violet-000: #F3EFFC;
 
-  /* surfaces */
+  /* พื้นผิว */
   --paper: #FAF8FE;
   --card: #FFFFFF;
   --line: #E2DAF2;
   --line-strong: #CFC2EC;
 
-  /* text */
+  /* ข้อความ */
   --text-900: #241B3A;
   --text-600: #5C5470;
   --text-400: #6B6285;
 
-  /* semantic */
+  /* ความหมายเชิงสถานะ */
   --amber-bg: #FFEFC7;
   --amber-border: #E5C478;
   --amber-text: #5C3A00;
@@ -42,7 +42,7 @@
   --red-text: #A61B12;
   --red-btn: #B3261E;
 
-  /* shape & depth */
+  /* รูปทรงและมิติความลึก */
   --radius: 14px;
   --radius-sm: 10px;
   --shadow-1: 0 1px 2px rgba(38, 24, 82, 0.06), 0 4px 14px rgba(38, 24, 82, 0.07);
@@ -53,10 +53,10 @@
   --font-mono: "IBM Plex Mono", "SFMono-Regular", Menlo, Consolas, monospace;
 
   --focus-ring: #7C5CFF;
-  --tap: 44px; /* minimum touch target */
+  --tap: 44px; /* ขนาดเป้าหมายสัมผัสขั้นต่ำ */
 }
 
-/* ---------- Base ---------- */
+/* ---------- พื้นฐาน ---------- */
 *, *::before, *::after { box-sizing: border-box; }
 
 html { -webkit-text-size-adjust: 100%; }
@@ -80,7 +80,7 @@ button { font: inherit; color: inherit; }
 
 .mono { font-family: var(--font-mono); }
 
-/* ---------- Accessibility helpers ---------- */
+/* ---------- ตัวช่วยการเข้าถึง ---------- */
 .visually-hidden {
   position: absolute !important;
   width: 1px; height: 1px;
@@ -118,7 +118,7 @@ button { font: inherit; color: inherit; }
   border-radius: 6px;
 }
 
-/* ---------- App shell ---------- */
+/* ---------- โครงแอป ---------- */
 .app {
   display: flex;
   flex-direction: column;
@@ -129,7 +129,7 @@ button { font: inherit; color: inherit; }
   background: transparent;
 }
 
-/* ---------- Header ---------- */
+/* ---------- ส่วนหัว ---------- */
 .app-header {
   display: flex;
   flex-wrap: wrap;
@@ -184,7 +184,7 @@ button { font: inherit; color: inherit; }
 
 .header-buttons { display: flex; gap: 0.5rem; }
 
-/* SIMULATED BACKEND badge — always visible, high contrast */
+/* ป้ายแบ็กเอนด์จำลอง — มองเห็นเสมอและมีคอนทราสต์สูง */
 .sim-badge {
   display: inline-flex;
   align-items: center;
@@ -244,7 +244,7 @@ button { font: inherit; color: inherit; }
   cursor: not-allowed;
 }
 
-/* ---------- Thread (conversation) ---------- */
+/* ---------- เธรด (การสนทนา) ---------- */
 .thread {
   flex: 1;
   overflow-y: auto;
@@ -256,7 +256,7 @@ button { font: inherit; color: inherit; }
   overscroll-behavior: contain;
 }
 
-/* Welcome / notices */
+/* ข้อความต้อนรับ / การแจ้งเตือน */
 .notice {
   border: 1px solid var(--line);
   border-left: 4px solid var(--violet-600);
@@ -288,7 +288,7 @@ button { font: inherit; color: inherit; }
   font-size: 0.85rem;
 }
 
-/* Messages */
+/* ข้อความสนทนา */
 .msg { display: flex; gap: 0.6rem; animation: rise 0.28s ease both; }
 
 .msg-user { justify-content: flex-end; }
@@ -353,7 +353,7 @@ button { font: inherit; color: inherit; }
   to { opacity: 1; transform: translateY(0); }
 }
 
-/* Typing indicator */
+/* ตัวบ่งชี้การพิมพ์ */
 .typing { display: flex; align-items: flex-end; gap: 0.6rem; }
 .typing .bubble {
   display: inline-flex;
@@ -379,7 +379,7 @@ button { font: inherit; color: inherit; }
   30% { transform: translateY(-5px); opacity: 1; }
 }
 
-/* Tool result chips — honesty about what was called */
+/* ชิปผลลัพธ์เครื่องมือ — แสดงอย่างตรงไปตรงมาว่าเรียกใช้อะไร */
 .tool-chips {
   display: flex;
   flex-wrap: wrap;
@@ -413,7 +413,7 @@ button { font: inherit; color: inherit; }
   letter-spacing: 0.05em;
 }
 
-/* Citations (knowledge only) */
+/* การอ้างอิง (เฉพาะฐานความรู้) */
 .citations { width: 100%; }
 
 .citations-title {
@@ -495,7 +495,7 @@ button { font: inherit; color: inherit; }
 }
 .citation-link:hover, .citation-link:focus-visible { color: var(--ink-800); }
 
-/* ---------- Pending action card (confirm / cancel) ---------- */
+/* ---------- การ์ดการกระทำที่รอดำเนินการ (ยืนยัน / ยกเลิก) ---------- */
 .pending-card {
   width: 100%;
   border: 1.5px solid var(--amber-border);
@@ -656,7 +656,7 @@ button { font: inherit; color: inherit; }
 
 .pa-meta { margin: 0.45rem 0 0; font-size: 0.74rem; color: var(--text-400); }
 
-/* ---------- Composer ---------- */
+/* ---------- ช่องเขียนข้อความ ---------- */
 .composer {
   border-top: 1px solid var(--line);
   background: rgba(255, 255, 255, 0.92);
@@ -757,7 +757,7 @@ button { font: inherit; color: inherit; }
   text-align: center;
 }
 
-/* ---------- Trace drawer ---------- */
+/* ---------- แผงร่องรอยการทำงาน ---------- */
 .trace-backdrop {
   position: fixed;
   inset: 0;
@@ -891,7 +891,7 @@ button { font: inherit; color: inherit; }
 
 .te-time { font-size: 0.66rem; color: var(--text-400); }
 
-/* category colour rails on the sequence chip */
+/* แถบสีหมวดหมู่บนชิปลำดับ */
 .trace-event.cat-llm .te-seq { color: var(--ink-800); background: var(--violet-100); }
 .trace-event.cat-tool .te-seq { color: var(--violet-700); background: var(--violet-000); border: 1px solid var(--line-strong); }
 .trace-event.cat-action .te-seq { color: var(--amber-text); background: var(--amber-bg); border: 1px solid var(--amber-border); }
@@ -951,7 +951,7 @@ button { font: inherit; color: inherit; }
   padding-top: 0.6rem;
 }
 
-/* ---------- Responsive ---------- */
+/* ---------- การตอบสนองตามขนาดหน้าจอ ---------- */
 @media (min-width: 640px) {
   .app-header { padding: 0.95rem 1.4rem; }
   .brand-title { font-size: 1.22rem; }
@@ -968,7 +968,7 @@ button { font: inherit; color: inherit; }
   .trace-head-actions .ghost-btn span { display: none; }
 }
 
-/* ---------- Reduced motion ---------- */
+/* ---------- ลดการเคลื่อนไหว ---------- */
 @media (prefers-reduced-motion: reduce) {
   *, *::before, *::after {
     animation-duration: 0.01ms !important;

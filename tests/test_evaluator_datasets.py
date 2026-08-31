@@ -1,4 +1,4 @@
-"""Evaluator fixture invariants owned by AI-06."""
+"""ค่าคงสภาพของ fixture สำหรับตัวประเมินที่ AI-06 ดูแล"""
 from __future__ import annotations
 
 import json

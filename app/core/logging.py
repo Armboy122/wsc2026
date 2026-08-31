@@ -1,4 +1,4 @@
-"""Structured, request-scoped logging utilities."""
+"""ยูทิลิตี logging แบบมีโครงสร้างและจำกัดขอบเขตตามคำขอ"""
 
 from __future__ import annotations
 
@@ -19,7 +19,7 @@ def set_request_id(request_id: str | None) -> None:
 
 
 class _RedactingFormatter(logging.Formatter):
-    """Console formatter that redacts obvious sensitive values."""
+    """ตัวจัดรูปแบบ console ที่ปกปิดค่าลับที่เห็นได้ชัด"""
 
     SENSITIVE_KEYS = frozenset(
         {"token", "password", "secret", "api_key", "apikey", "authorization", "cookie"}
@@ -40,7 +40,7 @@ class _RedactingFormatter(logging.Formatter):
             record.msg = f"[req:{record.request_id}] {record.msg}"
         if record.exc_info:
             return super().format(record)
-        # Best-effort redaction of structured extras.
+        # พยายามปกปิดข้อมูลใน structured extras ให้ดีที่สุด
         for key in self.SENSITIVE_KEYS:
             if hasattr(record, key):
                 setattr(record, key, "[REDACTED]")
@@ -48,7 +48,7 @@ class _RedactingFormatter(logging.Formatter):
 
 
 def configure_logging(level: str = "info") -> None:
-    """Configure a minimal, structured console logger."""
+    """กำหนดค่า logger สำหรับ console แบบมีโครงสร้างและเรียบง่าย"""
     root = logging.getLogger()
     root.setLevel(getattr(logging, level.upper(), logging.INFO))
     handler = logging.StreamHandler(sys.stdout)
@@ -61,7 +61,7 @@ def get_logger(name: str) -> logging.Logger:
 
 
 def log_extra(**kwargs: Any) -> dict[str, Any]:
-    """Return a dict with the current request id merged into log extras."""
+    """ส่งคืน dict ที่รวม request id ปัจจุบันเข้ากับข้อมูลเสริมของ log"""
     extra: dict[str, Any] = {"request_id": get_request_id()}
     extra.update(kwargs)
     return extra

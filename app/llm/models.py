@@ -1,4 +1,4 @@
-"""Provider-neutral values used at the Main Agent LLM boundary."""
+"""ค่าที่ไม่ขึ้นกับ provider ซึ่งใช้ที่ขอบเขต LLM ของ Main Agent"""
 
 from __future__ import annotations
 
@@ -11,7 +11,7 @@ from app.contracts import ToolCall, ToolName
 
 @dataclass(frozen=True, slots=True)
 class LLMMessage:
-    """A deliberately small chat message; it never carries hidden reasoning."""
+    """ข้อความแชตขนาดเล็กโดยเจตนา ซึ่งไม่เก็บกระบวนการคิดที่ซ่อนอยู่"""
 
     role: str
     content: str
@@ -19,7 +19,7 @@ class LLMMessage:
 
 @dataclass(frozen=True, slots=True)
 class ToolDefinition:
-    """A tool catalogue item visible to an LLM provider."""
+    """รายการในแค็ตตาล็อกเครื่องมือที่ LLM provider มองเห็น"""
 
     name: ToolName
     description: str
@@ -35,7 +35,7 @@ class LLMRequest:
 
 @dataclass(frozen=True, slots=True)
 class LLMResponse:
-    """A provider response translated into local, validated tool calls."""
+    """คำตอบจาก provider ที่แปลงเป็นการเรียกเครื่องมือภายในและผ่านการตรวจสอบแล้ว"""
 
     text: str = ""
     tool_calls: tuple[ToolCall, ...] = ()

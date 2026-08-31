@@ -1,6 +1,8 @@
 [
-  { "code": "billing", "label": "Billing & Payment" },
-  { "code": "service", "label": "Service Request" },
-  { "code": "safety", "label": "Safety Concern" },
-  { "code": "other", "label": "Other" }
+  { "code": "power_quality", "label": "แจ้งปัญหาคุณภาพไฟฟ้า" },
+  { "code": "service", "label": "แจ้งปัญหาด้านบริการ" },
+  { "code": "compliment", "label": "ชื่นชม" },
+  { "code": "tip_off", "label": "แจ้งเบาะแส" },
+  { "code": "operations", "label": "แจ้งปัญหาการดำเนินงาน" },
+  { "code": "stakeholder_feedback", "label": "ชื่นชม เสนอแนะ ข้อคิดเห็น" }
 ]

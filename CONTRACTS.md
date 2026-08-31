@@ -1,22 +1,22 @@
-# PEA One Agent — Frozen Contracts (v1)
+# PEA One Agent — สัญญาที่ตรึงไว้ (v1)
 
-These contracts are the integration authority for the hackathon. The matching Pydantic v2 definitions are in `app/contracts.py`. Changes require lead approval and a versioned migration; workers must not silently add fields (`extra="forbid"`). All identifiers are opaque UUID strings unless otherwise stated. Timestamps are RFC 3339 UTC strings.
+สัญญาเหล่านี้เป็นข้อกำหนดอ้างอิงสูงสุดสำหรับการผสานระบบในงานแฮกกาธอน นิยาม Pydantic v2 ที่สอดคล้องกันอยู่ใน `app/contracts.py` การเปลี่ยนแปลงต้องได้รับอนุมัติจากผู้รับผิดชอบหลักและดำเนินการผ่านการย้ายเวอร์ชัน ผู้ปฏิบัติงานต้องไม่เพิ่มฟิลด์โดยพลการ (`extra="forbid"`) ตัวระบุทั้งหมดเป็นสตริง UUID แบบ opaque เว้นแต่จะระบุไว้เป็นอย่างอื่น การประทับเวลาเป็นสตริง UTC ตาม RFC 3339
 
-## Common rules
+## กฎทั่วไป
 
-- JSON fields use `camelCase` at HTTP and tool/LLM seams; Python models use `snake_case` with Pydantic aliases.
-- All client-supplied write payloads require a non-empty `idempotencyKey` (maximum 128 characters).
-- `simulation` is required and `true` for every Sabuy, VOC, and OMS result.
-- Tool calls have a generated `callId`; tools do not accept a client-selected call id.
-- `ToolResult.status` is `success` or `error`; errors are typed, user-safe, and never contain credentials.
-- `Citation` appears only for knowledge retrieval. Simulated facts are not represented as citations.
-- Tool input/output data is validated with the action-specific model below, in addition to the frozen envelope.
+- ฟิลด์ JSON ใช้ `camelCase` ที่รอยต่อของ HTTP และ tool/LLM ส่วนโมเดล Python ใช้ `snake_case` พร้อม alias ของ Pydantic
+- เพย์โหลดสำหรับการเขียนทั้งหมดที่ไคลเอนต์ส่งมาต้องมี `idempotencyKey` ที่ไม่ว่าง (สูงสุด 128 อักขระ)
+- ผลลัพธ์ Sabuy, VOC และ OMS ทุกรายการต้องมี `simulation` และมีค่าเป็น `true`
+- การเรียกเครื่องมือมี `callId` ที่ระบบสร้างขึ้น โดยเครื่องมือไม่รับ call id ที่ไคลเอนต์เป็นผู้กำหนด
+- `ToolResult.status` เป็น `success` หรือ `error` โดยข้อผิดพลาดต้องมีชนิดชัดเจน ปลอดภัยสำหรับผู้ใช้ และต้องไม่มีข้อมูลรับรอง
+- `Citation` ปรากฏเฉพาะในการสืบค้นองค์ความรู้ ข้อเท็จจริงจำลองจะไม่แสดงในรูปแบบการอ้างอิง
+- ข้อมูลอินพุต/เอาต์พุตของเครื่องมือจะได้รับการตรวจสอบด้วยโมเดลเฉพาะแอ็กชันด้านล่างเพิ่มเติมจาก envelope ที่ตรึงไว้
 
-## Public HTTP interface
+## อินเทอร์เฟซ HTTP สาธารณะ
 
 ### `POST /api/v1/chat`
 
-Request (`ChatRequest`):
+คำขอ (`ChatRequest`):
 
 ```json
 {
@@ -26,7 +26,7 @@ Request (`ChatRequest`):
 }
 ```
 
-Response (`ChatResponse`):
+การตอบกลับ (`ChatResponse`):
 
 ```json
 {
@@ -39,17 +39,17 @@ Response (`ChatResponse`):
 }
 ```
 
-`pendingAction` is non-null only after a successful `prepare_*` tool action. Chat does not submit writes.
+`pendingAction` จะไม่เป็น null เฉพาะหลังจากแอ็กชันเครื่องมือแบบ `prepare_*` สำเร็จเท่านั้น การสนทนาจะไม่ส่งคำสั่งเขียน
 
 ### `POST /api/v1/actions/{pending_action_id}/confirm`
 
-Request (`ConfirmActionRequest`):
+คำขอ (`ConfirmActionRequest`):
 
 ```json
 { "confirmationNote": "optional text, max 500 characters" }
 ```
 
-Response (`ActionDecisionResponse`):
+การตอบกลับ (`ActionDecisionResponse`):
 
 ```json
 {
@@ -59,41 +59,41 @@ Response (`ActionDecisionResponse`):
 }
 ```
 
-The route submits the corresponding internal `submit_*` action once. A repeat confirmation returns the original completed response without a second backend effect. Confirming a rejected action returns 409.
+เส้นทางนี้ส่งแอ็กชันภายในแบบ `submit_*` ที่สอดคล้องกันหนึ่งครั้ง การยืนยันซ้ำจะคืนการตอบกลับเดิมที่เสร็จสมบูรณ์แล้ว โดยไม่ก่อให้เกิดผลกับระบบเบื้องหลังเป็นครั้งที่สอง การยืนยันแอ็กชันที่ถูกปฏิเสธจะคืนค่า 409
 
 ### `POST /api/v1/actions/{pending_action_id}/reject`
 
-Request (`RejectActionRequest`):
+คำขอ (`RejectActionRequest`):
 
 ```json
 { "reason": "required non-empty text, max 500 characters" }
 ```
 
-Response uses `ActionDecisionResponse` with `pendingAction.status = "rejected"` and `toolResult = null`. A repeat reject returns the same terminal result. Rejecting a confirmed/submitted action returns 409.
+การตอบกลับใช้ `ActionDecisionResponse` โดยมี `pendingAction.status = "rejected"` และ `toolResult = null` การปฏิเสธซ้ำจะคืนผลลัพธ์สถานะสิ้นสุดเดิม การปฏิเสธแอ็กชันที่ได้รับการยืนยัน/ส่งแล้วจะคืนค่า 409
 
 ### `GET /api/v1/traces/{trace_id}`
 
-Returns `TraceResponse`:
+คืนค่า `TraceResponse`:
 
 ```json
 { "traceId": "UUID", "events": [] }
 ```
 
-Events are chronological by `sequence`; request message text and payload fields marked sensitive are redacted before persistence.
+เหตุการณ์เรียงตามลำดับเวลาโดย `sequence` ข้อความคำขอและฟิลด์เพย์โหลดที่ทำเครื่องหมายว่าเป็นข้อมูลละเอียดอ่อนจะถูกปกปิดก่อนจัดเก็บ
 
 ### `POST /api/v1/reset`
 
-Returns `ResetResponse`:
+คืนค่า `ResetResponse`:
 
 ```json
 { "reset": true }
 ```
 
-Clears all in-process conversations, pending actions, simulated backend state, and trace data. This endpoint is for the managed demo environment only.
+ล้าง conversation ทั้งหมดใน process, pending action, สถานะ backend จำลอง และข้อมูล trace endpoint นี้ใช้สำหรับสภาพแวดล้อมสาธิตที่มีการจัดการเท่านั้น
 
 ### `GET /health`
 
-Returns `HealthResponse`:
+คืนค่า `HealthResponse`:
 
 ```json
 {
@@ -104,124 +104,124 @@ Returns `HealthResponse`:
 }
 ```
 
-No credential, endpoint URL, account number, or customer data may be exposed.
+ห้ามเปิดเผย credential, URL ของ endpoint, หมายเลขบัญชี หรือข้อมูลลูกค้า
 
-## Frozen domain models
+## โมเดลโดเมนที่ตรึงไว้
 
 ### `Citation`
 
-| Field | Type | Rules |
+| ฟิลด์ | ชนิด | กฎ |
 |---|---|---|
-| `sourceId` | string | Gemini File Search document/chunk identifier |
-| `title` | string | non-empty display title |
-| `uri` | string | non-empty Gemini-returned source URI |
-| `snippet` | string | non-empty retrieved excerpt, max 1,000 chars |
-| `page` | integer/null | positive when supplied |
+| `sourceId` | string | identifier ของ document/chunk ใน Gemini File Search |
+| `title` | string | ชื่อสำหรับแสดงผลที่ไม่ว่าง |
+| `uri` | string | URI ของแหล่งข้อมูลที่ Gemini ส่งกลับและต้องไม่ว่าง |
+| `snippet` | string | ข้อความบางส่วนที่สืบค้นได้และต้องไม่ว่าง สูงสุด 1,000 อักขระ |
+| `page` | integer/null | ต้องเป็นค่าบวกเมื่อระบุ |
 
 ### `ToolCall`
 
-| Field | Type | Rules |
+| ฟิลด์ | ชนิด | กฎ |
 |---|---|---|
-| `callId` | UUID | generated by agent/runtime |
-| `name` | enum | exactly one of the four top-level tool names |
-| `action` | enum | one of the actions in the table below |
-| `input` | object | action-specific frozen schema |
+| `callId` | UUID | สร้างโดย agent/runtime |
+| `name` | enum | ต้องเป็นหนึ่งในชื่อ tool ระดับบนสุดทั้งสี่รายการเท่านั้น |
+| `action` | enum | หนึ่งใน action ที่อยู่ในตารางด้านล่าง |
+| `input` | object | schema ที่ตรึงไว้และเฉพาะเจาะจงตาม action |
 
-A tool rejects a call whose `name` does not own the specified `action`.
+Tool จะปฏิเสธการเรียกที่ `name` ไม่ได้เป็นเจ้าของ `action` ที่ระบุ
 
 ### `ToolResult`
 
-| Field | Type | Rules |
+| ฟิลด์ | ชนิด | กฎ |
 |---|---|---|
-| `callId` | UUID | equals the originating call |
-| `name` | `ToolName` | equals originating call |
-| `action` | `ToolAction` | equals originating call |
-| `status` | `success` / `error` | terminal tool result |
-| `data` | object/null | action-specific output, present for success |
-| `error` | `ToolError`/null | present for error |
-| `citations` | `Citation[]` | only knowledge success may contain items |
-| `simulation` | boolean | `false` only for knowledge results |
+| `callId` | UUID | เท่ากับ call ต้นทาง |
+| `name` | `ToolName` | เท่ากับ call ต้นทาง |
+| `action` | `ToolAction` | เท่ากับ call ต้นทาง |
+| `status` | `success` / `error` | ผลลัพธ์สถานะสิ้นสุดของ tool |
+| `data` | object/null | output เฉพาะ action ซึ่งมีอยู่เมื่อสำเร็จ |
+| `error` | `ToolError`/null | มีอยู่เมื่อเกิด error |
+| `citations` | `Citation[]` | เฉพาะผลลัพธ์ knowledge ที่สำเร็จเท่านั้นที่มีรายการได้ |
+| `simulation` | boolean | เป็น `false` เฉพาะผลลัพธ์ knowledge |
 
-`ToolError` has `code` (`invalid_input`, `not_found`, `unavailable`, `conflict`, `internal`) and a user-safe `message` (max 500 chars).
+`ToolError` มี `code` (`invalid_input`, `not_found`, `unavailable`, `conflict`, `internal`) และ `message` ที่ปลอดภัยสำหรับผู้ใช้ (สูงสุด 500 อักขระ)
 
 ### `PendingAction`
 
-| Field | Type | Rules |
+| ฟิลด์ | ชนิด | กฎ |
 |---|---|---|
-| `pendingActionId` | UUID | server generated |
-| `conversationId` | UUID | owning conversation |
-| `toolName` | `sabuy_tool` / `voc_tool` / `oms_tool` | knowledge cannot write |
-| `prepareAction` | prepare action enum | original validated action |
-| `submitAction` | submit action enum | predetermined mapping only |
-| `preparedInput` | object | redacted copy; never stores payment tokens |
-| `summary` | string | human-readable proposed effect, max 500 chars |
-| `status` | `pending_confirmation`, `confirmed`, `submitted`, `rejected`, `failed` | state-machine constrained |
-| `idempotencyKey` | string | copied from write request |
-| `createdAt`, `updatedAt` | UTC datetime | server assigned |
-| `submissionResult` | `ToolResult`/null | assigned after submission |
+| `pendingActionId` | UUID | สร้างโดย server |
+| `conversationId` | UUID | conversation ที่เป็นเจ้าของ |
+| `toolName` | `sabuy_tool` / `voc_tool` / `oms_tool` | knowledge ไม่สามารถเขียนได้ |
+| `prepareAction` | prepare action enum | action ต้นฉบับที่ผ่านการตรวจสอบแล้ว |
+| `submitAction` | submit action enum | ใช้ได้เฉพาะ mapping ที่กำหนดไว้ล่วงหน้า |
+| `preparedInput` | object | สำเนาที่ปกปิดข้อมูลแล้ว และไม่จัดเก็บ payment token |
+| `summary` | string | ผลที่เสนอในรูปแบบที่มนุษย์อ่านได้ สูงสุด 500 อักขระ |
+| `status` | `pending_confirmation`, `confirmed`, `submitted`, `rejected`, `failed` | ถูกจำกัดตาม state machine |
+| `idempotencyKey` | string | คัดลอกจากคำขอเขียน |
+| `createdAt`, `updatedAt` | UTC datetime | กำหนดโดย server |
+| `submissionResult` | `ToolResult`/null | กำหนดหลังการส่ง |
 
 ### `TraceEvent`
 
-| Field | Type | Rules |
+| ฟิลด์ | ชนิด | กฎ |
 |---|---|---|
-| `eventId` | UUID | generated |
-| `traceId` | UUID | request trace |
-| `sequence` | positive integer | strictly increasing per trace |
-| `at` | UTC datetime | server assigned |
+| `eventId` | UUID | สร้างโดยระบบ |
+| `traceId` | UUID | trace ของคำขอ |
+| `sequence` | positive integer | เพิ่มขึ้นอย่างเคร่งครัดในแต่ละ trace |
+| `at` | UTC datetime | กำหนดโดย server |
 | `kind` | enum | `chat_received`, `llm_requested`, `llm_responded`, `tool_called`, `tool_result`, `action_prepared`, `action_confirmed`, `action_rejected`, `action_submitted`, `error` |
-| `data` | object | redacted structured diagnostics; max 20 keys |
+| `data` | object | ข้อมูลวินิจฉัยแบบมีโครงสร้างที่ปกปิดข้อมูลแล้ว สูงสุด 20 key |
 
-## Tool catalogue and exact action schemas
+## รายการ tool และ schema ของ action ที่แน่นอน
 
 ### 1. `knowledge_tool`
 
-**Backend:** Gemini File Search Hosted RAG. `simulation = false`.
+**ระบบเบื้องหลัง:** Gemini File Search Hosted RAG โดย `simulation = false`
 
-| Action | Input | Success data |
+| การดำเนินการ | ข้อมูลนำเข้า | ข้อมูลเมื่อสำเร็จ |
 |---|---|---|
-| `search` | `{ "query": string(1..1000), "maxResults": integer(1..5, default 3) }` | `{ "answerContext": string(1..4000), "resultCount": integer(0..5) }` plus one or more `Citation` when `resultCount > 0` |
+| `search` | `{ "query": string(1..1000), "maxResults": integer(1..5, default 3) }` | `{ "answerContext": string(1..4000), "resultCount": integer(0..5) }` พร้อม `Citation` อย่างน้อยหนึ่งรายการเมื่อ `resultCount > 0` |
 
-The tool must return an empty answer context and zero citations when Gemini has no matching material. It must not substitute local retrieval.
+เมื่อ Gemini ไม่มีเนื้อหาที่ตรงกัน tool ต้องคืนบริบทคำตอบว่างและไม่มี citation และต้องไม่ใช้การสืบค้นภายในเครื่องทดแทน
 
 ### 2. `sabuy_tool`
 
-**Backend:** `SimulatedSabuyBackend`; every output declares `simulation: true`.
+**ระบบเบื้องหลัง:** `SimulatedSabuyBackend` โดย output ทุกรายการประกาศ `simulation: true`
 
-| Action | Input | Success data |
+| การดำเนินการ | ข้อมูลนำเข้า | ข้อมูลเมื่อสำเร็จ |
 |---|---|---|
 | `get_account_summary` | `{ "accountRef": string(1..64) }` | `{ "accountRef": string, "customerDisplayName": string, "outstandingBalanceThb": decimal-string, "dueDate": date/null, "paymentStatus": "current"\|"overdue"\|"paid" }` |
 | `prepare_payment` | `{ "accountRef": string(1..64), "amountThb": decimal-string > 0, "paymentMethod": "demo_card"\|"demo_bank", "idempotencyKey": string(1..128) }` | `{ "accountRef": string, "amountThb": decimal-string, "paymentMethod": enum, "summary": string }` |
-| `submit_payment` | internal only: `{ "pendingActionId": UUID, "idempotencyKey": string }` | `{ "receiptId": string, "accountRef": string, "amountThb": decimal-string, "status": "accepted" }` |
+| `submit_payment` | สำหรับใช้ภายในเท่านั้น: `{ "pendingActionId": UUID, "idempotencyKey": string }` | `{ "receiptId": string, "accountRef": string, "amountThb": decimal-string, "status": "accepted" }` |
 
-`submit_payment` may only be invoked by the Main Agent after confirmation and must de-duplicate by `idempotencyKey`.
+Main Agent เรียกใช้ `submit_payment` ได้หลังการยืนยันเท่านั้น และต้องขจัดรายการซ้ำด้วย `idempotencyKey`
 
 ### 3. `voc_tool`
 
-**Backend:** `SimulatedVocBackend`; every output declares `simulation: true`.
+**ระบบเบื้องหลัง:** `SimulatedVocBackend` โดย output ทุกรายการประกาศ `simulation: true`
 
-| Action | Input | Success data |
+| การดำเนินการ | ข้อมูลนำเข้า | ข้อมูลเมื่อสำเร็จ |
 |---|---|---|
 | `list_categories` | `{}` | `{ "categories": [{ "code": "billing"\|"service"\|"safety"\|"other", "label": string }] }` |
 | `prepare_case` | `{ "category": enum, "subject": string(1..140), "detail": string(1..2000), "contactChannel": "phone"\|"email"\|"none", "idempotencyKey": string(1..128) }` | `{ "category": enum, "subject": string, "summary": string }` |
-| `submit_case` | internal only: `{ "pendingActionId": UUID, "idempotencyKey": string }` | `{ "caseId": string, "status": "submitted", "category": enum }` |
+| `submit_case` | สำหรับใช้ภายในเท่านั้น: `{ "pendingActionId": UUID, "idempotencyKey": string }` | `{ "caseId": string, "status": "submitted", "category": enum }` |
 
-A prepared VOC case is only a draft; it does not create a simulated case until submit.
+กรณี VOC ที่จัดเตรียมไว้เป็นเพียงฉบับร่างเท่านั้น และจะยังไม่สร้างกรณีจำลองจนกว่าจะ submit
 
 ### 4. `oms_tool`
 
-**Backend:** `SimulatedOmsBackend`; every output declares `simulation: true`.
+**ระบบเบื้องหลัง:** `SimulatedOmsBackend` โดย output ทุกรายการประกาศ `simulation: true`
 
-| Action | Input | Success data |
+| การดำเนินการ | ข้อมูลนำเข้า | ข้อมูลเมื่อสำเร็จ |
 |---|---|---|
 | `get_outage_status` | `{ "areaCode": string(1..32) }` | `{ "areaCode": string, "status": "normal"\|"planned_outage"\|"unplanned_outage", "updatedAt": UTC datetime, "estimatedRestoreAt": UTC datetime/null, "safetyMessage": string }` |
 | `prepare_outage_report` | `{ "areaCode": string(1..32), "locationNote": string(1..500), "symptoms": string(1..1000), "idempotencyKey": string(1..128) }` | `{ "areaCode": string, "summary": string, "safetyMessage": string }` |
-| `submit_outage_report` | internal only: `{ "pendingActionId": UUID, "idempotencyKey": string }` | `{ "reportId": string, "status": "submitted", "areaCode": string }` |
+| `submit_outage_report` | สำหรับใช้ภายในเท่านั้น: `{ "pendingActionId": UUID, "idempotencyKey": string }` | `{ "reportId": string, "status": "submitted", "areaCode": string }` |
 
-OMS outage output must always include `safetyMessage`; the Main Agent must present it before optional model explanation.
+output เหตุไฟฟ้าขัดข้องของ OMS ต้องมี `safetyMessage` เสมอ และ Main Agent ต้องแสดงข้อความนี้ก่อนคำอธิบายเพิ่มเติมจากโมเดล
 
-## Required model-to-action validation
+## การตรวจสอบ model-to-action ที่จำเป็น
 
-The runtime validates input through the matching `*Input` Pydantic model before tool invocation and validates success data through its matching `*Output` model before constructing `ToolResult`. The minimum mapping is:
+runtime ตรวจสอบ input ผ่านโมเดล Pydantic `*Input` ที่ตรงกันก่อนเรียกใช้ tool และตรวจสอบข้อมูลความสำเร็จผ่านโมเดล `*Output` ที่ตรงกันก่อนสร้าง `ToolResult` โดยมี mapping ขั้นต่ำดังนี้:
 
 ```text
 knowledge_tool.search                    KnowledgeSearchInput/Output
@@ -236,10 +236,10 @@ oms_tool.prepare_outage_report           OmsPrepareOutageReportInput/Output
 oms_tool.submit_outage_report            SubmitPreparedActionInput/OmsOutageReportOutput
 ```
 
-## Explicit non-goals
+## สิ่งที่ไม่ใช่เป้าหมายอย่างชัดเจน
 
-- No live PEA payment, customer, outage, CRM, or OMS action.
-- No tool beyond the four listed top-level tools.
-- No automatic confirmation, background submission, or confirmation by chat text.
-- No custom vector database, document chunker, embedding pipeline, or local RAG fallback.
-- No durable multi-user production persistence, authentication, payments, or deployment hardening.
+- ไม่มีการชำระเงิน การดำเนินการกับลูกค้า เหตุไฟฟ้าขัดข้อง CRM หรือ OMS ของ PEA จริง
+- ไม่มี tool อื่นนอกเหนือจาก tool ระดับบนสุดสี่รายการที่ระบุไว้
+- ไม่มีการยืนยันอัตโนมัติ การส่งในเบื้องหลัง หรือการยืนยันผ่านข้อความแชต
+- ไม่มีฐานข้อมูลเวกเตอร์แบบกำหนดเอง ตัวแบ่ง document, pipeline สำหรับ embedding หรือ local RAG สำรอง
+- ไม่มีการจัดเก็บถาวรสำหรับ production แบบหลายผู้ใช้ authentication, payments หรือการเสริมความแข็งแกร่งสำหรับ deployment

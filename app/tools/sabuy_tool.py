@@ -1,7 +1,7 @@
-"""Simulated Sabuy bill-payment tool (``sabuy_tool``).
+"""เครื่องมือชำระค่าไฟ Sabuy แบบจำลอง (``sabuy_tool``)
 
-Exposes the frozen ``get_account_summary``, ``prepare_payment``, and internal
-``submit_payment`` actions. All results are simulated.
+เปิดเผยการกระทำตามสัญญา ``get_account_summary``, ``prepare_payment`` และการกระทำภายใน
+``submit_payment`` โดยผลลัพธ์ทั้งหมดเป็นข้อมูลจำลอง
 """
 
 from __future__ import annotations
@@ -14,7 +14,7 @@ from app.tools._base import SimulatedTool
 
 
 class SabuyTool(SimulatedTool):
-    """Top-level Sabuy tool; owns only the three frozen Sabuy actions."""
+    """เครื่องมือ Sabuy ระดับบนสุด ซึ่งเป็นเจ้าของเฉพาะการกระทำ Sabuy ตามสัญญาสามรายการ"""
 
     name = ToolName.SABUY
 
@@ -36,4 +36,4 @@ class SabuyTool(SimulatedTool):
                 input_model.pending_action_id,
                 input_model.idempotency_key,
             )
-        raise ValueError(f"Unhandled action {action.value}")
+        raise ValueError(f"ไม่มีการจัดการการกระทำ {action.value}")

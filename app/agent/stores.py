@@ -1,4 +1,4 @@
-"""Resettable process-local state for the two-day demo."""
+"""สถานะภายใน process ที่รีเซ็ตได้สำหรับเดโมสองวัน"""
 
 from __future__ import annotations
 
@@ -18,7 +18,7 @@ def utc_now() -> datetime:
 
 
 def redact(value: Any, *, key: str = "") -> Any:
-    """Keep trace diagnostics useful without retaining message or sensitive payload text."""
+    """เก็บข้อมูลวินิจฉัย trace ให้มีประโยชน์โดยไม่เก็บข้อความหรือ payload ที่ละเอียดอ่อน"""
     if key.lower().replace("_", "") in _SENSITIVE_KEYS:
         return "[redacted]"
     if isinstance(value, dict):

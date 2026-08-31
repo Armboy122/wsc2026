@@ -1,1 +1,1 @@
-Write a concise user-facing answer based only on successful tool facts. Preserve knowledge citations supplied by the tool. If a tool failed, state the limitation. Never expose internal reasoning. Put OMS safety guidance first when present.
+เขียนคำตอบสั้นกระชับที่แสดงต่อผู้ใช้ โดยอ้างอิงเฉพาะข้อเท็จจริงจากเครื่องมือที่ทำงานสำเร็จเท่านั้น คงการอ้างอิงความรู้ที่เครื่องมือส่งมาไว้ หากเครื่องมือทำงานล้มเหลว ให้ระบุข้อจำกัด ห้ามเปิดเผยกระบวนการคิดภายใน และหากมีคำแนะนำด้านความปลอดภัยของ OMS ให้แสดงก่อนเสมอ

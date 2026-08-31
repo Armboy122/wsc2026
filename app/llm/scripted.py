@@ -1,4 +1,4 @@
-"""Deterministic adapter for demos and tests."""
+"""อะแดปเตอร์แบบกำหนดผลลัพธ์ได้สำหรับเดโมและการทดสอบ"""
 
 from __future__ import annotations
 
@@ -10,7 +10,7 @@ from app.llm.models import LLMRequest, LLMResponse
 
 
 class ScriptedLLMAdapter:
-    """Return responses in order without inspecting data or contacting a provider."""
+    """ส่งคืนคำตอบตามลำดับโดยไม่ตรวจข้อมูลหรือติดต่อ provider"""
 
     def __init__(self, responses: Iterable[LLMResponse] = ()) -> None:
         self._responses: deque[LLMResponse] = deque(responses)
@@ -19,7 +19,7 @@ class ScriptedLLMAdapter:
     async def complete(self, request: LLMRequest) -> LLMResponse:
         self.requests.append(request)
         if not self._responses:
-            raise LLMUnavailableError("No scripted LLM response is available")
+            raise LLMUnavailableError("ไม่มีคำตอบ LLM แบบ scripted ที่พร้อมใช้งาน")
         return self._responses.popleft()
 
     def append(self, response: LLMResponse) -> None:

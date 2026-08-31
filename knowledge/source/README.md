@@ -1,19 +1,13 @@
-# Authoritative PEA Export Directory
+# ไดเรกทอรีเอกสารส่งออก PEA ที่เชื่อถือได้
 
-This directory is the **only** part of the knowledge corpus that
-`scripts/sync_knowledge.py` ever uploads to the Gemini File Search store.
+ไดเรกทอรีนี้เป็นส่วน **เดียว** ของคลังความรู้ที่ `scripts/sync_knowledge.py`
+จะอัปโหลดไปยังคลังจัดเก็บ Gemini File Search
 
-Policy (safety-critical):
+นโยบาย (มีความสำคัญต่อความปลอดภัย):
 
-- Only **lead-approved, authoritative PEA exports** may be placed here.
-- The repository intentionally ships **none**: this file is a non-factual
-  placeholder, and no PEA rates, tiers, billing, payment, outage, or contact
-  facts are bundled with the repo.
-- No model-generated, sample, or demo "PEA" content may be added here.
-  Enterprise facts must never come from model invention.
-- This file is documentation, not knowledge content: it is excluded from
-  sync like every `README.md` and metadata file.
+- ให้วางเฉพาะ **เอกสารส่งออก PEA ที่เชื่อถือได้และหัวหน้าทีมอนุมัติแล้ว** ที่นี่
+- ที่เก็บซอร์สโค้ดนี้จงใจไม่บรรจุเอกสารดังกล่าว: ไฟล์นี้เป็นเพียงเอกสารแทนชั่วคราวที่ไม่มีข้อเท็จจริง และไม่มีข้อมูลอัตราไฟฟ้า ขั้นอัตรา การเรียกเก็บเงิน การชำระเงิน ไฟฟ้าดับ หรือช่องทางติดต่อของ PEA รวมอยู่ในที่เก็บซอร์สโค้ด
+- ห้ามเพิ่มเนื้อหา “PEA” ที่สร้างโดยโมเดล เนื้อหาตัวอย่าง หรือเนื้อหาสาธิตที่นี่ ข้อเท็จจริงขององค์กรต้องไม่มาจากการสร้างขึ้นของโมเดล
+- ไฟล์นี้เป็นเอกสารประกอบ ไม่ใช่เนื้อหาความรู้ จึงถูกตัดออกจากการ sync เช่นเดียวกับ `README.md` และไฟล์ข้อมูลกำกับทุกไฟล์
 
-Until a lead-approved export is added, a sync run over this tree uploads
-nothing ("up to date; nothing to do"), and `knowledge_tool.search` returns
-no evidence for questions the store does not cover.
+จนกว่าจะมีเอกสารส่งออกที่หัวหน้าทีมอนุมัติเพิ่มเข้ามา การรัน sync บนโครงสร้างนี้จะไม่อัปโหลดสิ่งใด ("up to date; nothing to do") และ `knowledge_tool.search` จะไม่ส่งหลักฐานสำหรับคำถามที่คลังจัดเก็บไม่ครอบคลุม

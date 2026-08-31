@@ -1,4 +1,4 @@
-"""Tests for platform HTTP routes using a scripted Main Agent stub."""
+"""ทดสอบเส้นทาง HTTP ของแพลตฟอร์มด้วยตัวแทนจำลอง Main Agent ที่กำหนดลำดับการทำงานไว้"""
 
 from __future__ import annotations
 
@@ -26,7 +26,7 @@ from app.core.startup import create_platform_app
 
 
 class ScriptedMainAgent:
-    """Minimal in-memory stub satisfying MainAgent protocol for route tests."""
+    """ตัวแทนจำลองในหน่วยความจำขนาดเล็กที่สุดที่เป็นไปตามข้อกำหนด MainAgent สำหรับทดสอบเส้นทาง"""
 
     name = "scripted"
 
@@ -187,7 +187,7 @@ async def test_reject_pending_action(client: AsyncClient) -> None:
         prepare_action=ToolAction.VOC_PREPARE_CASE,
         submit_action=ToolAction.VOC_SUBMIT_CASE,
         prepared_input={},
-        summary="Open VOC case",
+        summary="เปิดเคส VOC",
         status=PendingActionStatus.PENDING_CONFIRMATION,
         idempotency_key="idem-2",
         created_at=datetime.now(UTC),
@@ -195,7 +195,7 @@ async def test_reject_pending_action(client: AsyncClient) -> None:
     )
     response = await client.post(
         f"/api/v1/actions/{pending_id}/reject",
-        json={"reason": "changed my mind"},
+        json={"reason": "เปลี่ยนใจแล้ว"},
     )
     assert response.status_code == 200
     assert response.json()["pendingAction"]["status"] == "rejected"

@@ -1,4 +1,4 @@
-"""Fixed, validated registry for the four permitted top-level tools."""
+"""registry แบบคงที่และผ่านการตรวจสอบสำหรับเครื่องมือระดับบนสุดสี่ตัวที่อนุญาต"""
 
 from __future__ import annotations
 
@@ -33,11 +33,11 @@ class Tool(Protocol):
     name: ToolName
 
     async def execute(self, call: ToolCall, context: ToolContext) -> ToolResult:
-        """Execute a prevalidated call using the supplied request context."""
+        """ดำเนินการเรียกที่ตรวจสอบแล้วโดยใช้บริบทคำขอที่ได้รับ"""
 
 
 class ToolRegistry:
-    """Registry that can contain exactly the frozen four tools, once each."""
+    """registry ที่เก็บเครื่องมือตามสัญญาได้สี่ตัวพอดี ตัวละหนึ่งรายการ"""
 
     _required_names = frozenset(ToolName)
 
@@ -45,22 +45,22 @@ class ToolRegistry:
         by_name: dict[ToolName, Tool] = {}
         for tool in tools:
             if tool.name in by_name:
-                raise ValueError(f"duplicate tool registration: {tool.name.value}")
+                raise ValueError(f"ลงทะเบียนเครื่องมือซ้ำ: {tool.name.value}")
             by_name[tool.name] = tool
         if frozenset(by_name) != self._required_names:
             missing = self._required_names - frozenset(by_name)
             extra = frozenset(by_name) - self._required_names
-            raise ValueError(f"registry must contain exactly four frozen tools; missing={missing}, extra={extra}")
+            raise ValueError(f"registry ต้องมีเครื่องมือคงที่สี่ตัวพอดี; ขาด={missing}, เกิน={extra}")
         for name, tool in by_name.items():
             if name is not ToolName.KNOWLEDGE and not callable(getattr(tool, "reset", None)):
-                raise ValueError(f"operational tool must be resettable: {name.value}")
+                raise ValueError(f"เครื่องมือปฏิบัติการต้องรีเซ็ตได้: {name.value}")
         self._tools = by_name
 
     def reset(self) -> None:
-        """Reset every operational tool exactly once for a fresh demo run."""
+        """รีเซ็ตเครื่องมือปฏิบัติการทุกตัวเพียงหนึ่งครั้งสำหรับการรันเดโมใหม่"""
         for name, tool in self._tools.items():
             if name is not ToolName.KNOWLEDGE:
-                tool.reset()  # type: ignore[attr-defined]  # Validated at registration.
+                tool.reset()  # type: ignore[attr-defined]  # ตรวจสอบแล้วขณะลงทะเบียน
 
     @property
     def names(self) -> frozenset[ToolName]:
@@ -68,24 +68,24 @@ class ToolRegistry:
 
     async def execute(self, call: ToolCall, context: ToolContext) -> ToolResult:
         if call.name not in self._tools or call.action not in TOOL_ACTIONS[call.name]:
-            return _error_result(call, ToolErrorCode.INVALID_INPUT, "Unknown tool or action")
+            return _error_result(call, ToolErrorCode.INVALID_INPUT, "ไม่รู้จักเครื่องมือหรือการกระทำ")
         try:
             validate_tool_input(call)
         except ValidationError:
-            return _error_result(call, ToolErrorCode.INVALID_INPUT, "Tool input does not match the action contract")
+            return _error_result(call, ToolErrorCode.INVALID_INPUT, "ข้อมูลนำเข้าของเครื่องมือไม่ตรงกับสัญญาของการกระทำ")
 
         try:
             result = await self._tools[call.name].execute(call, context)
         except Exception:
-            return _error_result(call, ToolErrorCode.UNAVAILABLE, "The requested service is temporarily unavailable")
+            return _error_result(call, ToolErrorCode.UNAVAILABLE, "บริการที่ร้องขอไม่พร้อมใช้งานชั่วคราว")
 
         if result.call_id != call.call_id or result.name != call.name or result.action != call.action:
-            return _error_result(call, ToolErrorCode.INTERNAL, "The service returned an invalid result")
+            return _error_result(call, ToolErrorCode.INTERNAL, "บริการส่งผลลัพธ์ที่ไม่ถูกต้อง")
         if result.status is ToolResultStatus.SUCCESS:
             try:
                 validate_tool_success_data(call.action, result.data or {})
             except ValidationError:
-                return _error_result(call, ToolErrorCode.INTERNAL, "The service returned invalid data")
+                return _error_result(call, ToolErrorCode.INTERNAL, "บริการส่งข้อมูลที่ไม่ถูกต้อง")
         return result
 
 

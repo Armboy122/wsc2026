@@ -1,4 +1,4 @@
-"""Startup validation and bootstrap wiring for the FastAPI platform."""
+"""การตรวจสอบเมื่อเริ่มต้นและการเชื่อมต่อ bootstrap สำหรับแพลตฟอร์ม FastAPI"""
 
 from __future__ import annotations
 
@@ -20,7 +20,7 @@ REQUIRED_TOOLS: frozenset[ToolName] = frozenset(
 
 
 def _resolve_tool_names(tool_registry: Any) -> set[ToolName]:
-    """Read tool names whether the registry exposes a callable seam or a property."""
+    """อ่านชื่อเครื่องมือไม่ว่า registry จะเปิดเผยผ่าน callable seam หรือ property"""
     names_attr = getattr(tool_registry, "names", None)
     if names_attr is None:
         return set()
@@ -31,17 +31,17 @@ def _resolve_tool_names(tool_registry: Any) -> set[ToolName]:
 
 
 def validate_tool_registry(tool_registry: Any) -> None:
-    """Ensure the Main Agent registered exactly the four frozen tools once each."""
+    """ตรวจสอบว่า Main Agent ลงทะเบียนเครื่องมือตามสัญญาครบสี่ตัว ตัวละหนึ่งครั้ง"""
     names = _resolve_tool_names(tool_registry)
     if names != set(REQUIRED_TOOLS):
         raise RuntimeError(
-            f"Tool registry must contain exactly {sorted(n.value for n in REQUIRED_TOOLS)}, "
-            f"got {sorted(getattr(n, 'value', str(n)) for n in names)}"
+            f"registry เครื่องมือต้องมีรายการต่อไปนี้ครบถ้วนพอดี {sorted(n.value for n in REQUIRED_TOOLS)}, "
+            f"แต่ได้รับ {sorted(getattr(n, 'value', str(n)) for n in names)}"
         )
 
 
 def create_platform_app(settings: Settings | None = None) -> FastAPI:
-    """Create a bare FastAPI app with platform middleware and exception handlers."""
+    """สร้างแอป FastAPI พื้นฐานพร้อม middleware และตัวจัดการข้อยกเว้นของแพลตฟอร์ม"""
     settings = settings or load_settings()
     configure_logging(settings.log_level)
 
@@ -61,7 +61,7 @@ def create_platform_app(settings: Settings | None = None) -> FastAPI:
 
 
 def startup_event(app: FastAPI, tool_registry: Any | None = None) -> None:
-    """Run startup validation; wire adapters if supplied by the lead."""
+    """เรียกการตรวจสอบเมื่อเริ่มต้น และเชื่อมต่ออะแดปเตอร์หากผู้ดูแลส่งมาให้"""
     if tool_registry is not None:
         validate_tool_registry(tool_registry)
     logger.info("platform_startup_complete", extra={"simulation_mode": True})

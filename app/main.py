@@ -1,8 +1,8 @@
-"""PEA One Agent application composition root.
+"""จุดประกอบหลักของแอปพลิเคชัน PEA One Agent
 
-This module only wires the frozen platform, one Main Agent, four top-level tools,
-and the static competition UI. Business policy remains in the Main Agent and
-tool modules.
+โมดูลนี้ทำหน้าที่เชื่อมแพลตฟอร์มตามสัญญา, Main Agent หนึ่งตัว, เครื่องมือระดับบนสุดสี่ตัว
+และ UI แบบ static สำหรับการแข่งขันเท่านั้น นโยบายธุรกิจยังคงอยู่ใน Main Agent
+และโมดูลเครื่องมือ
 """
 
 from __future__ import annotations
@@ -29,7 +29,7 @@ from app.tools.voc_tool import VocTool
 
 
 class _KnowledgeReadiness:
-    """Expose a credential-free readiness probe to the health route."""
+    """เปิดเผยตัวตรวจสอบความพร้อมที่ไม่มีข้อมูลรับรองให้เส้นทาง health"""
 
     def __init__(self, backend: GeminiFileSearchKnowledgeBackend) -> None:
         self._backend = backend
@@ -57,10 +57,10 @@ async def _conflict_handler(
 
 settings = load_settings()
 if settings.llm_adapter_name != "demo":
-    raise RuntimeError(f"Unsupported LLM adapter: {settings.llm_adapter_name}")
+    raise RuntimeError(f"ไม่รองรับ LLM adapter: {settings.llm_adapter_name}")
 if settings.knowledge_backend_name != "gemini_file_search":
     raise RuntimeError(
-        f"Unsupported knowledge backend: {settings.knowledge_backend_name}"
+        f"ไม่รองรับ backend ความรู้: {settings.knowledge_backend_name}"
     )
 
 knowledge_backend = GeminiFileSearchKnowledgeBackend(

@@ -1,1 +1,1 @@
-"""Simulated operational tool modules (sabuy, voc, oms)."""
+"""โมดูลเครื่องมือปฏิบัติการแบบจำลอง (sabuy, voc, oms)"""

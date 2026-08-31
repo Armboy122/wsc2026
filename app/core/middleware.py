@@ -1,4 +1,4 @@
-"""Request ID generation, structured logging context, and local demo CORS."""
+"""การสร้าง Request ID, บริบท logging แบบมีโครงสร้าง และ CORS สำหรับเดโมภายในเครื่อง"""
 
 from __future__ import annotations
 
@@ -20,7 +20,7 @@ REQUEST_ID_HEADER = "x-request-id"
 
 
 class RequestIdMiddleware(BaseHTTPMiddleware):
-    """Attach or propagate a request id and emit structured access logs."""
+    """แนบหรือส่งต่อ request id และบันทึก access log แบบมีโครงสร้าง"""
 
     async def dispatch(
         self,
@@ -50,7 +50,7 @@ class RequestIdMiddleware(BaseHTTPMiddleware):
 
 
 def get_request_id() -> str | None:
-    """Return the request id bound by RequestIdMiddleware, if any."""
+    """ส่งคืน request id ที่ RequestIdMiddleware ผูกไว้ หากมี"""
     return get_request_id_from_context()
 
 

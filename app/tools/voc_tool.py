@@ -1,7 +1,7 @@
-"""Simulated VOC (voice-of-customer) tool (``voc_tool``).
+"""เครื่องมือ VOC (เสียงของลูกค้า) แบบจำลอง (``voc_tool``)
 
-Exposes the frozen ``list_categories``, ``prepare_case``, and internal
-``submit_case`` actions. All results are simulated.
+เปิดเผยการกระทำตามสัญญา ``list_categories``, ``prepare_case`` และการกระทำภายใน
+``submit_case`` โดยผลลัพธ์ทั้งหมดเป็นข้อมูลจำลอง
 """
 
 from __future__ import annotations
@@ -14,7 +14,7 @@ from app.tools._base import SimulatedTool
 
 
 class VocTool(SimulatedTool):
-    """Top-level VOC tool; owns only the three frozen VOC actions."""
+    """เครื่องมือ VOC ระดับบนสุด ซึ่งเป็นเจ้าของเฉพาะการกระทำ VOC ตามสัญญาสามรายการ"""
 
     name = ToolName.VOC
 
@@ -37,4 +37,4 @@ class VocTool(SimulatedTool):
                 input_model.pending_action_id,
                 input_model.idempotency_key,
             )
-        raise ValueError(f"Unhandled action {action.value}")
+        raise ValueError(f"ไม่มีการจัดการการกระทำ {action.value}")

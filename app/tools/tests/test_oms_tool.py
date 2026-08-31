@@ -1,4 +1,4 @@
-"""Tests for the simulated OMS tool (oms_tool)."""
+"""ทดสอบเครื่องมือ OMS จำลอง (oms_tool)"""
 
 from __future__ import annotations
 
