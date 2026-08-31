@@ -16,7 +16,10 @@ from fastapi.staticfiles import StaticFiles
 from app.agent.main_agent import InvalidActionStateError, MainAgent, NotFoundError
 from app.agent.registry import ToolRegistry
 from app.api.routes import router
-from app.backends.full_document_knowledge import FullDocumentKnowledgeBackend
+from app.backends.full_document_knowledge import (
+    SUPPORTED_PROVIDERS,
+    FullDocumentKnowledgeBackend,
+)
 from app.core.config import load_settings
 from app.core.di import adapter_service, agent_service
 from app.core.errors import ConflictException, NotFoundException, platform_exception_handler
@@ -62,11 +65,16 @@ if settings.knowledge_backend_name != "full_document":
     raise RuntimeError(
         f"ไม่รองรับ backend ความรู้: {settings.knowledge_backend_name}"
     )
+if settings.knowledge_provider not in SUPPORTED_PROVIDERS:
+    raise RuntimeError(f"ไม่รองรับ Knowledge provider: {settings.knowledge_provider}")
 
+_using_maxplus = settings.knowledge_provider == "maxplus_openai"
 knowledge_backend = FullDocumentKnowledgeBackend(
-    api_key=settings.gemini_api_key,
+    api_key=(settings.maxplus_api_key if _using_maxplus else settings.gemini_api_key),
     source_root=settings.knowledge_source_root,
-    model=settings.gemini_long_context_model,
+    model=(settings.maxplus_model if _using_maxplus else settings.gemini_long_context_model),
+    provider=settings.knowledge_provider,
+    base_url=(settings.maxplus_base_url if _using_maxplus else None),
 )
 llm_adapter = DemoLLMAdapter()
 tool_registry = ToolRegistry(

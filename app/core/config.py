@@ -12,7 +12,7 @@ def _comma_origins(raw: str) -> tuple[str, ...]:
 
 
 # ชื่อฟิลด์ที่ห้ามแสดงผ่าน repr/str/logging โดยเด็ดขาด
-_SECRET_FIELD_NAMES: frozenset[str] = frozenset({"gemini_api_key"})
+_SECRET_FIELD_NAMES: frozenset[str] = frozenset({"gemini_api_key", "maxplus_api_key"})
 
 
 @dataclass(frozen=True)
@@ -28,7 +28,11 @@ class Settings:
     )
     llm_adapter_name: str = "demo"
     knowledge_backend_name: str = "full_document"
+    knowledge_provider: str = "gemini"
     gemini_api_key: str | None = None
+    maxplus_api_key: str | None = None
+    maxplus_base_url: str = "https://api.maxplus-ai.cc/v1"
+    maxplus_model: str = "gpt-5.4-mini"
     knowledge_source_root: Path = field(
         default_factory=lambda: Path(__file__).resolve().parents[2]
         / "knowledge"
@@ -58,7 +62,13 @@ class Settings:
             knowledge_backend_name=env.get(
                 "KNOWLEDGE_BACKEND_NAME", "full_document"
             ).lower(),
+            knowledge_provider=env.get("KNOWLEDGE_PROVIDER", "gemini").lower(),
             gemini_api_key=_get("GEMINI_API_KEY"),
+            maxplus_api_key=_get("MAXPLUS_API_KEY"),
+            maxplus_base_url=env.get(
+                "MAXPLUS_BASE_URL", "https://api.maxplus-ai.cc/v1"
+            ).rstrip("/"),
+            maxplus_model=env.get("MAXPLUS_MODEL", "gpt-5.4-mini"),
             knowledge_source_root=Path(
                 env.get(
                     "KNOWLEDGE_SOURCE_ROOT",

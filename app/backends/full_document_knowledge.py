@@ -1,4 +1,4 @@
-"""Fail-closed Gemini long-context knowledge backend for approved DOCX files.
+"""Fail-closed provider-swappable long-context backend for approved DOCX files.
 
 The first model call receives catalog metadata only and selects document identifiers.  A
 second call receives only the selected, complete documents; this module never uses File
@@ -16,13 +16,19 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Callable
 from urllib.parse import quote
+from urllib.request import Request, urlopen
 from xml.etree import ElementTree
 
 from app.contracts import Citation, ToolErrorCode
 
 ENV_API_KEY = "GEMINI_API_KEY"
 ENV_FALLBACK_API_KEY = "GOOGLE_API_KEY"
+ENV_MAXPLUS_API_KEY = "MAXPLUS_API_KEY"
+DEFAULT_PROVIDER = "gemini"
+SUPPORTED_PROVIDERS = frozenset({"gemini", "maxplus_openai"})
 DEFAULT_MODEL = "gemini-3.5-flash"
+DEFAULT_MAXPLUS_BASE_URL = "https://api.maxplus-ai.cc/v1"
+DEFAULT_MAXPLUS_MODEL = "gpt-5.4-mini"
 DEFAULT_TIMEOUT_SECONDS = 60.0
 DEFAULT_READINESS_TIMEOUT_SECONDS = 5.0
 DEFAULT_SOURCE_ROOT = Path(__file__).resolve().parents[2] / "knowledge" / "source"
@@ -65,8 +71,56 @@ class _Document:
     title: str
 
 
+class _OpenAICompatibleClient:
+    """ไคลเอนต์ JSON แบบเล็กสำหรับ MaxPlus OpenAI-compatible Chat Completions"""
+
+    def __init__(
+        self,
+        *,
+        api_key: str,
+        base_url: str,
+        timeout_seconds: float,
+        urlopen: Callable[..., Any] = urlopen,
+    ) -> None:
+        self._api_key = api_key
+        self._base_url = base_url.rstrip("/")
+        self._timeout_seconds = timeout_seconds
+        self._urlopen = urlopen
+
+    def generate_json(self, model: str, prompt: str) -> Any:
+        body = json.dumps(
+            {
+                "model": model,
+                "max_tokens": 4096,
+                "temperature": 0,
+                "stream": False,
+                "messages": [{"role": "user", "content": prompt}],
+            },
+            ensure_ascii=False,
+        ).encode("utf-8")
+        request = Request(
+            f"{self._base_url}/chat/completions",
+            data=body,
+            headers={
+                "Authorization": f"Bearer {self._api_key}",
+                "Content-Type": "application/json",
+            },
+            method="POST",
+        )
+        with self._urlopen(request, timeout=self._timeout_seconds) as response:
+            raw = response.read(2_000_001)
+        if len(raw) > 2_000_000:
+            return None
+        try:
+            envelope = json.loads(raw)
+            content = envelope["choices"][0]["message"]["content"]
+            return json.loads(content) if isinstance(content, str) else None
+        except (KeyError, IndexError, TypeError, json.JSONDecodeError):
+            return None
+
+
 class FullDocumentKnowledgeBackend:
-    """Route a query to allowlisted DOCX files, then ground Gemini on their full text."""
+    """Route a query to allowlisted DOCX files, then ground it with the selected provider."""
 
     def __init__(
         self,
@@ -74,16 +128,27 @@ class FullDocumentKnowledgeBackend:
         api_key: str | None = None,
         source_root: Path | str = DEFAULT_SOURCE_ROOT,
         model: str | None = None,
+        provider: str = DEFAULT_PROVIDER,
+        base_url: str | None = None,
         timeout_seconds: float = DEFAULT_TIMEOUT_SECONDS,
         readiness_timeout_seconds: float = DEFAULT_READINESS_TIMEOUT_SECONDS,
         client_factory: ClientFactory | None = None,
         hard_context_chars: int = DEFAULT_HARD_CONTEXT_CHARS,
     ) -> None:
-        self._api_key = api_key if api_key is not None else (
-            os.environ.get(ENV_API_KEY) or os.environ.get(ENV_FALLBACK_API_KEY)
-        )
+        self._provider = provider.lower()
+        if api_key is not None:
+            self._api_key = api_key
+        elif self._provider == "maxplus_openai":
+            self._api_key = os.environ.get(ENV_MAXPLUS_API_KEY)
+        else:
+            self._api_key = os.environ.get(ENV_API_KEY) or os.environ.get(
+                ENV_FALLBACK_API_KEY
+            )
         self._source_root = Path(source_root)
-        self._model = model or DEFAULT_MODEL
+        self._model = model or (
+            DEFAULT_MAXPLUS_MODEL if self._provider == "maxplus_openai" else DEFAULT_MODEL
+        )
+        self._base_url = (base_url or DEFAULT_MAXPLUS_BASE_URL).rstrip("/")
         self._timeout_seconds = timeout_seconds
         self._readiness_timeout_seconds = readiness_timeout_seconds
         self._client_factory = client_factory
@@ -94,8 +159,20 @@ class FullDocumentKnowledgeBackend:
     def model(self) -> str:
         return self._model
 
+    @property
+    def provider(self) -> str:
+        return self._provider
+
     def is_configured(self) -> bool:
-        return bool(self._api_key and self._source_root.is_dir() and self._hard_context_chars > 0)
+        provider_ready = self._provider in SUPPORTED_PROVIDERS and (
+            self._provider != "maxplus_openai" or self._base_url.startswith("https://")
+        )
+        return bool(
+            provider_ready
+            and self._api_key
+            and self._source_root.is_dir()
+            and self._hard_context_chars > 0
+        )
 
     async def is_ready(self) -> bool:
         if not self.is_configured():
@@ -154,9 +231,18 @@ class FullDocumentKnowledgeBackend:
             raise KnowledgeBackendError(ToolErrorCode.UNAVAILABLE, USER_SAFE_UNAVAILABLE) from exc
 
     def _make_client(self) -> Any:
+        if not self._api_key:
+            raise ValueError("missing provider API key")
         if self._client_factory is not None:
             return self._client_factory(self._api_key)
+        if self._provider == "maxplus_openai":
+            return _OpenAICompatibleClient(
+                api_key=self._api_key,
+                base_url=self._base_url,
+                timeout_seconds=self._timeout_seconds,
+            )
         from google import genai
+
         return genai.Client(api_key=self._api_key)
 
     def _catalog(self) -> dict[str, _Document]:
@@ -274,6 +360,9 @@ class FullDocumentKnowledgeBackend:
 
 
 def _json_response(client: Any, model: str, prompt: str) -> Any:
+    generate_json = getattr(client, "generate_json", None)
+    if callable(generate_json):
+        return generate_json(model, prompt)
     response = client.models.generate_content(
         model=model,
         contents=prompt,

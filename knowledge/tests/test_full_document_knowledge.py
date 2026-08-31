@@ -3,13 +3,18 @@
 from __future__ import annotations
 
 import asyncio
+import json
 import time
 import zipfile
 from pathlib import Path
 from types import SimpleNamespace
 from urllib.parse import unquote
 
-from app.backends.full_document_knowledge import FullDocumentKnowledgeBackend
+from app.backends.full_document_knowledge import (
+    FullDocumentKnowledgeBackend,
+    _OpenAICompatibleClient,
+    _json_response,
+)
 
 
 def write_docx(
@@ -62,6 +67,50 @@ def backend(tmp_path: Path, responses: list[str], **kwargs):
         api_key="test-key", source_root=tmp_path, client_factory=lambda _: client, **kwargs
     )
     return instance, client
+
+
+def test_maxplus_openai_client_posts_chat_completion_and_parses_json() -> None:
+    captured = {}
+
+    class Response:
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *_args):
+            return None
+
+        def read(self, _size: int = -1) -> bytes:
+            return json.dumps(
+                {"choices": [{"message": {"content": '{"sourceIds":["rates.docx"]}'}}]}
+            ).encode()
+
+    def urlopen(request, timeout):
+        captured["url"] = request.full_url
+        captured["headers"] = dict(request.header_items())
+        captured["body"] = json.loads(request.data)
+        captured["timeout"] = timeout
+        return Response()
+
+    client = _OpenAICompatibleClient(
+        api_key="ccsk-secret",
+        base_url="https://api.maxplus-ai.cc/gpt-lite/v1/",
+        timeout_seconds=7,
+        urlopen=urlopen,
+    )
+
+    result = _json_response(client, "gpt-5.4-mini", "route this")
+
+    assert result == {"sourceIds": ["rates.docx"]}
+    assert captured["url"] == "https://api.maxplus-ai.cc/gpt-lite/v1/chat/completions"
+    assert captured["headers"]["Authorization"] == "Bearer ccsk-secret"
+    assert captured["body"] == {
+        "model": "gpt-5.4-mini",
+        "max_tokens": 4096,
+        "temperature": 0,
+        "stream": False,
+        "messages": [{"role": "user", "content": "route this"}],
+    }
+    assert captured["timeout"] == 7
 
 
 def test_search_sends_only_selected_complete_file_and_safe_citation(tmp_path: Path) -> None:

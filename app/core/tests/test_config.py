@@ -15,6 +15,10 @@ def test_default_settings() -> None:
     assert settings.llm_adapter_name == "demo"
     assert settings.knowledge_backend_name == "full_document"
     assert settings.gemini_api_key is None
+    assert settings.knowledge_provider == "gemini"
+    assert settings.maxplus_api_key is None
+    assert settings.maxplus_base_url == "https://api.maxplus-ai.cc/v1"
+    assert settings.maxplus_model == "gpt-5.4-mini"
     assert settings.knowledge_source_root == (
         Path(__file__).resolve().parents[3] / "knowledge" / "source"
     )
@@ -30,6 +34,10 @@ def test_env_override() -> None:
             "LLM_ADAPTER_NAME": "judge",
             "KNOWLEDGE_BACKEND_NAME": "other",
             "GEMINI_API_KEY": "sk-test",
+            "KNOWLEDGE_PROVIDER": "maxplus_openai",
+            "MAXPLUS_API_KEY": "ccsk-test",
+            "MAXPLUS_BASE_URL": "https://api.maxplus-ai.cc/gpt-lite/v1/",
+            "MAXPLUS_MODEL": "gpt-5.4-mini-fast",
             "KNOWLEDGE_SOURCE_ROOT": "/srv/pea-knowledge",
             "GEMINI_LONG_CONTEXT_MODEL": "gemini-3.6-pro",
         }
@@ -40,13 +48,18 @@ def test_env_override() -> None:
     assert settings.llm_adapter_name == "judge"
     assert settings.knowledge_backend_name == "other"
     assert settings.gemini_api_key == "sk-test"
+    assert settings.knowledge_provider == "maxplus_openai"
+    assert settings.maxplus_api_key == "ccsk-test"
+    assert settings.maxplus_base_url == "https://api.maxplus-ai.cc/gpt-lite/v1"
+    assert settings.maxplus_model == "gpt-5.4-mini-fast"
     assert settings.knowledge_source_root == Path("/srv/pea-knowledge")
     assert settings.gemini_long_context_model == "gemini-3.6-pro"
 
 
 def test_empty_api_key_is_normalized_to_none() -> None:
-    settings = Settings.from_env({"GEMINI_API_KEY": ""})
+    settings = Settings.from_env({"GEMINI_API_KEY": "", "MAXPLUS_API_KEY": "  "})
     assert settings.gemini_api_key is None
+    assert settings.maxplus_api_key is None
 
 
 def test_load_dotenv(tmp_path: Path) -> None:
@@ -90,12 +103,14 @@ def test_settings_repr_does_not_expose_secrets() -> None:
     settings = Settings.from_env(
         {
             "GEMINI_API_KEY": "super-secret",
+            "MAXPLUS_API_KEY": "ccsk-also-secret",
             "KNOWLEDGE_SOURCE_ROOT": "/private/knowledge",
             "GEMINI_LONG_CONTEXT_MODEL": "gemini-3.6-pro",
         }
     )
     text = repr(settings)
     assert "super-secret" not in text
+    assert "ccsk-also-secret" not in text
     assert "/private/knowledge" in text
     assert "gemini-3.6-pro" in text
     assert "[REDACTED]" in text

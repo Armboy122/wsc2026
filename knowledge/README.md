@@ -90,7 +90,7 @@ citation ทุกตัวต้องผ่านกฎต่อไปนี�
 
 ## Context budget
 
-- ห้ามส่งทั้ง 27 ไฟล์ทุกคำถาม
+- ห้ามส่งทั้ง 38 ไฟล์ทุกคำถาม
 - ห้ามตัดท้ายไฟล์ที่เลือกเพื่อให้พอดี context window
 - หากหลายไฟล์ที่จำเป็นรวมกันเกิน context budget ให้ขอให้ผู้ใช้จำกัดหัวข้อ หรือคืน typed failure
 - สามารถใช้ in-memory extraction cache หรือ provider context cache ต่อชุดไฟล์ได้ แต่ต้องไม่เปลี่ยน
@@ -100,13 +100,17 @@ citation ทุกตัวต้องผ่านกฎต่อไปนี�
 
 | ตัวแปร | ความหมาย |
 |---|---|
-| `GEMINI_API_KEY` | คีย์ Google AI Studio; ห้ามบันทึกใน repository หรือ trace |
-| `GEMINI_LONG_CONTEXT_MODEL` | โมเดลที่ใช้สำหรับ Document Router และการตอบจาก full-file context; ค่าเริ่มต้นที่ใช้งานได้และตรวจสอบแล้วคือ `gemini-3.5-flash` |
+| `KNOWLEDGE_PROVIDER` | `gemini` (ค่าเริ่มต้น) หรือ `maxplus_openai` |
+| `GEMINI_API_KEY` | คีย์ Google AI Studio เมื่อเลือก `gemini`; ห้ามบันทึกใน repository หรือ trace |
+| `GEMINI_LONG_CONTEXT_MODEL` | โมเดล Google สำหรับ Document Router และ full-file answer; ค่าเริ่มต้นคือ `gemini-3.5-flash` |
+| `MAXPLUS_API_KEY` | inference key รูปแบบ `ccsk-…` เมื่อเลือก `maxplus_openai`; ห้ามใช้ management token `ccmk-…` |
+| `MAXPLUS_BASE_URL` | OpenAI-compatible base URL ที่ตรงกับ pool ของ key เช่น `https://api.maxplus-ai.cc/v1` |
+| `MAXPLUS_MODEL` | model id ที่ pool นั้นเปิดให้ key ใช้งาน เช่น `gpt-5.4-mini` |
 | `KNOWLEDGE_SOURCE_ROOT` | root ของ corpus; ค่าเริ่มต้นคือ `<repo>/knowledge/source` |
 
-runtime อ่านเฉพาะ `KNOWLEDGE_SOURCE_ROOT` และไม่ต้องใช้ชื่อ store หรือขั้นตอนอัปโหลดเอกสาร
+runtime อ่านเอกสารจาก `KNOWLEDGE_SOURCE_ROOT` โดยไม่ต้องใช้ชื่อ store หรือขั้นตอนอัปโหลดเอกสาร
 ใด ๆ `knowledge_tool` ต้องส่งเฉพาะเอกสารที่ Document Router เลือก พร้อมข้อความฉบับเต็มของ
-แต่ละ DOCX ให้ Long Context
+แต่ละ DOCX ให้ provider ที่กำหนด ทั้งสอง provider ใช้กฎ citation และ fail-closed ชุดเดียวกัน
 
 ## เกณฑ์ยอมรับ
 
