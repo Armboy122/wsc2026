@@ -27,7 +27,7 @@ Main Agent  <---->  LLMAdapter (judge-provided LLM implementation)
     |  |  |  +--> oms_tool ------> SimulatedOmsBackend
     |  |  +-----> voc_tool ------> SimulatedVocBackend
     |  +--------> sabuy_tool ----> SimulatedSabuyBackend
-    +-----------> knowledge_tool -> Gemini File Search Hosted RAG
+    +-----------> knowledge_tool -> Document Router -> Full selected DOCX text -> Gemini Long Context
         |
         v
 TraceStore + PendingActionStore (in-process, resettable demo state)
@@ -82,7 +82,12 @@ Tool Registry ถูกกำหนดตายตัวเมื่อเริ
 
 ### อะแดปเตอร์ระบบหลังบ้าน
 
-- `GeminiFileSearchKnowledgeBackend` เรียกเฉพาะ Gemini File Search Hosted RAG โดย tool จะส่งต่อ retrieval query และแปลง source metadata ที่ส่งคืนมาเป็น citations ตัวมันเองจะไม่ทำ embed, chunk, index, rank หรือ persist เอกสาร
+- `FullDocumentKnowledgeBackend` ใช้ **Document Routing + Full-file Long Context** โดยไม่ใช้ Gemini File Search, vector search, embedding หรือ chunk retrieval
+- ขั้นเลือกเอกสารส่งเฉพาะคำถามและ catalog ระดับเอกสาร (รหัสไฟล์ ชื่อไฟล์ และหัวข้อ) ให้โมเดลเลือกไฟล์ที่เกี่ยวข้องไม่เกิน `maxResults` รายการ รหัสไฟล์ที่โมเดลส่งคืนต้องอยู่ใน allowlist ของ catalog เท่านั้น
+- หลังเลือกแล้ว backend ต้องอ่านและแปลง **ข้อความฉบับเต็มของทุกไฟล์ที่เลือก** จาก `knowledge/source/` และส่งข้อความทั้งหมดพร้อมคำถามให้ Gemini Long Context ห้ามตัดเฉพาะบาง chunk หรือเติมไฟล์ที่ไม่เกี่ยวข้อง
+- หากคำถามเกี่ยวข้องหลายหัวข้อให้เลือกหลายไฟล์ฉบับเต็ม หากกำกวมหรือไม่มีไฟล์ที่ตรงต้องคืน no-evidence เพื่อให้ Main Agent ถามกลับหรือแจ้งว่าไม่มีข้อมูล ห้ามเดาคำตอบ
+- คำตอบต้องอ้างอิงเฉพาะไฟล์ที่ถูกเลือก และ citation ต้องใช้รหัสไฟล์/ชื่อไฟล์จริงพร้อมข้อความหลักฐานที่ตรวจสอบได้ว่าอยู่ในไฟล์นั้น
+- backend อาจ cache ข้อความฉบับเต็มที่แปลงแล้วใน memory ได้ แต่ห้ามใช้ cache เป็นดัชนีค้น chunk หากไฟล์ที่เลือกทั้งหมดเกิน context budget ต้องลดชุดผ่านการถามให้ชัดเจนหรือ fail closed ห้ามตัดท้ายไฟล์โดยเงียบ
 - `SimulatedSabuyBackend`, `SimulatedVocBackend` และ `SimulatedOmsBackend` ใช้ข้อมูล fixture ใน memory แบบ deterministic คำตอบของระบบเหล่านี้มี `simulation: true` และจะไม่มีการกล่าวอ้างว่า action ได้ส่งถึง PEA แล้ว
 
 สำหรับเดโม 2 วัน store จะอยู่ภายใน process และ reset ได้ การสูญเสียสถานะหลัง restart เป็นสิ่งที่ยอมรับได้และมีการระบุไว้ใน UI/สคริปต์เดโม
@@ -111,7 +116,7 @@ prepare_* -> pending_confirmation -> confirm endpoint -> submit_* -> submitted |
 ## ลำดับความสำคัญของข้อมูลและความจริง
 
 1. ผลลัพธ์จาก typed tool ที่สำเร็จเป็นแหล่งข้อมูลที่เชื่อถือได้สำหรับข้อเท็จจริงเชิงปฏิบัติการและผลลัพธ์ของ transaction
-2. ผลลัพธ์ retrieval จาก Gemini เป็นแหล่งข้อมูลที่เชื่อถือได้เฉพาะ knowledge ที่ส่งคืนพร้อม citations
+2. สำหรับ knowledge แหล่งข้อมูลที่เชื่อถือได้คือข้อความฉบับเต็มจากไฟล์ที่ Document Router เลือกเท่านั้น คำตอบจาก Gemini ใช้ได้เมื่ออ้างอิงไฟล์ที่เลือกและมี citation ซึ่งตรวจสอบย้อนกลับไปยังข้อความในไฟล์นั้นได้
 3. LLM อธิบายข้อเท็จจริงได้ แต่ต้องไม่แต่งรายละเอียดเกี่ยวกับ account, outage, case, payment หรือ citation
 4. หาก tool ล้มเหลวหรือไม่มีผลลัพธ์ คำตอบต้องระบุข้อจำกัดแทนการสร้างผลลัพธ์ขึ้นเอง
 
@@ -120,7 +125,7 @@ prepare_* -> pending_confirmation -> confirm endpoint -> submit_* -> submitted |
 - request ไม่ถูกต้องหรือละเมิด contract: HTTP 422
 - ไม่พบ conversation, trace หรือ pending action: HTTP 404
 - การเปลี่ยนสถานะไม่ถูกต้อง (เช่น ยืนยันรายการที่ถูกปฏิเสธแล้ว): HTTP 409
-- Gemini/judge LLM/simulated backend ใช้งานไม่ได้: ปรับให้อยู่ในรูป typed failure มาตรฐาน และใช้ HTTP 502 เฉพาะเมื่อ route ไม่สามารถสร้างคำตอบ chat/action ที่ถูกต้องได้
+- Gemini Long Context, Document Router, ตัวแปลงเอกสาร, judge LLM หรือ simulated backend ใช้งานไม่ได้: ปรับให้อยู่ในรูป typed failure มาตรฐาน และใช้ HTTP 502 เฉพาะเมื่อ route ไม่สามารถสร้างคำตอบ chat/action ที่ถูกต้องได้
 - tool ที่ไม่รู้จัก, action ที่ไม่รู้จัก หรือ action ที่ไม่ได้รับอนุญาตใน flow ปัจจุบัน: ทำงานแบบ fail closed และเพิ่ม trace error event
 
 ## ความเป็นเจ้าของไฟล์สำหรับผู้ปฏิบัติงานแบบขนาน
@@ -129,7 +134,7 @@ prepare_* -> pending_confirmation -> confirm endpoint -> submit_* -> submitted |
 |---|---|---|
 | หัวหน้าทีม/การผสานระบบ | `ARCHITECTURE.md`, `CONTRACTS.md`, `app/contracts.py`, `app/main.py`, `tests/test_contracts.py` | เป็นเจ้าของ frozen contract และการเชื่อม route; อนุมัติการเปลี่ยนแปลง contract ทั้งหมด |
 | ผู้ปฏิบัติงาน A — เอเจนต์ | `app/agent/`, `app/llm/` | import เฉพาะ `app.contracts`; เรียกเฉพาะ interface `ToolRegistry` |
-| ผู้ปฏิบัติงาน B — ฐานความรู้ | `app/tools/knowledge_tool.py`, `app/backends/gemini_file_search.py` | ห้ามเพิ่ม vector DB หรือเปลี่ยน public contract |
+| ผู้ปฏิบัติงาน B — ฐานความรู้ | `app/tools/knowledge_tool.py`, `app/backends/full_document_knowledge.py`, `knowledge/` | ใช้ document-level routing และ full-file context เท่านั้น; ห้ามเพิ่ม vector DB, chunk retrieval หรือเปลี่ยน public contract |
 | ผู้ปฏิบัติงาน C — งานปฏิบัติการจำลอง | `app/tools/sabuy_tool.py`, `app/tools/voc_tool.py`, `app/tools/oms_tool.py`, `app/backends/simulated_*.py` | ใช้ action และ model ที่ตรึงไว้ใน `app.contracts` |
 | ผู้ปฏิบัติงาน D — การตรวจสอบ/เอกสาร | `tests/`, `README.md`, `demo/` | ไม่แก้ไข production module หรือ contract |
 
@@ -137,15 +142,17 @@ prepare_* -> pending_confirmation -> confirm endpoint -> submit_* -> submitted |
 
 ## ลำดับงาน 2 วัน
 
-**วันที่ 1:** ตรึง contract; สร้าง stub สำหรับการตรวจสอบ route และ model; พัฒนาระบบหลังบ้านจำลองที่กำหนดผลได้แน่นอน; พัฒนาอะแดปเตอร์สำหรับ Gemini hosted retrieval; พัฒนาจุดเชื่อมต่อของ scripted/judge adapter; พิสูจน์ trace ของ prepare/confirm/reject
+**วันที่ 1:** ตรึง contract; สร้าง stub สำหรับการตรวจสอบ route และ model; พัฒนาระบบหลังบ้านจำลองที่กำหนดผลได้แน่นอน; พัฒนา Document Router และตัวแปลง DOCX แบบเต็มไฟล์; พัฒนาจุดเชื่อมต่อของ scripted/judge adapter; พิสูจน์ trace ของ prepare/confirm/reject
 
-**วันที่ 2:** เชื่อมต่อ judge adapter; จัดเตรียม corpus สำหรับ Gemini File Search; เพิ่ม fixture และเส้นทางความล้มเหลว; ซ้อมเส้นทางเดโมตามสคริปต์สี่เส้นทาง; รันรายการตรวจสอบการผสานระบบ
+**วันที่ 2:** เชื่อมต่อ judge adapter; เตรียม catalog ของเอกสารที่อนุมัติ; เชื่อม Gemini Long Context ด้วยข้อความเต็มของไฟล์ที่เลือก; เพิ่ม fixture และเส้นทางความล้มเหลว; ซ้อมเส้นทางเดโมตามสคริปต์สี่เส้นทาง; รันรายการตรวจสอบการผสานระบบ
 
 ## รายการตรวจสอบการผสานระบบ
 
 - [ ] startup ลงทะเบียน `knowledge_tool`, `sabuy_tool`, `voc_tool` และ `oms_tool` อย่างละหนึ่งครั้งเท่านั้น
 - [ ] `POST /api/v1/chat` ตรวจสอบ frozen request/response model และส่งคืน trace id
-- [ ] knowledge search ส่งคืน citations จาก Gemini File Search; ไม่มี dependency สำหรับ local embedding/index/vector
+- [ ] Document Router เลือกเฉพาะไฟล์ที่เกี่ยวข้องจาก allowlisted catalog และไม่เกิน `maxResults`
+- [ ] knowledge search ส่งข้อความฉบับเต็มของไฟล์ที่เลือกให้ Gemini Long Context โดยไม่ chunk, truncate หรือโหลดทั้ง corpus โดยไม่จำเป็น
+- [ ] knowledge citations อ้างถึงชื่อไฟล์จริงและข้อความหลักฐานที่ตรวจสอบได้; ไม่มี Gemini File Search, local embedding/index/vector หรือ chunk retrieval
 - [ ] คำตอบจาก Sabuy, VOC และ OMS ระบุ `simulation: true` อย่างชัดเจน
 - [ ] ทุกเส้นทางการเขียนพิสูจน์ลำดับ prepare -> human confirm -> submit; การ submit โดยตรงจากแชตจะถูกปฏิเสธ
 - [ ] การ confirm ซ้ำไม่สร้าง simulated payment, VOC case หรือ outage report ซ้ำ
@@ -156,4 +163,4 @@ prepare_* -> pending_confirmation -> confirm endpoint -> submit_* -> submitted |
 
 ## นิยามของคำว่าเสร็จสมบูรณ์
 
-prototype พร้อมสำหรับเดโมเมื่อ public route ใน `CONTRACTS.md` ทำงานกับ frozen Pydantic model ได้; Main Agent สามารถอธิบายคำตอบจาก Gemini hosted-RAG ที่มี citation; สามารถอ่านข้อมูล Sabuy/VOC/OMS ที่จำลองขึ้น; และสามารถ prepare, รอการยืนยันจากมนุษย์อย่างชัดเจน แล้ว submit การเขียนจำลองหนึ่งครั้งโดยมี trace ที่ตรวจสอบย้อนหลังได้ ระบบต้องทำงานเป็น FastAPI process หนึ่ง process มี Main Agent เพียงหนึ่งตัวและ tool ระดับบนสุดสี่รายการที่ประกาศไว้เท่านั้น และระบุอย่างชัดเจนว่าข้อมูลเชิงปฏิบัติการทั้งหมดที่ไม่ใช่ knowledge เป็นข้อมูลจำลอง
+prototype พร้อมสำหรับเดโมเมื่อ public route ใน `CONTRACTS.md` ทำงานกับ frozen Pydantic model ได้; Document Router เลือกเฉพาะไฟล์ที่เกี่ยวข้องและ Main Agent สามารถตอบตรงคำถามจากข้อความฉบับเต็มของไฟล์เหล่านั้นผ่าน Gemini Long Context พร้อม citation ที่ตรวจสอบได้; สามารถอ่านข้อมูล Sabuy/VOC/OMS ที่จำลองขึ้น; และสามารถ prepare, รอการยืนยันจากมนุษย์อย่างชัดเจน แล้ว submit การเขียนจำลองหนึ่งครั้งโดยมี trace ที่ตรวจสอบย้อนหลังได้ ระบบต้องทำงานเป็น FastAPI process หนึ่ง process มี Main Agent เพียงหนึ่งตัวและ tool ระดับบนสุดสี่รายการที่ประกาศไว้เท่านั้น และระบุอย่างชัดเจนว่าข้อมูลเชิงปฏิบัติการทั้งหมดที่ไม่ใช่ knowledge เป็นข้อมูลจำลอง

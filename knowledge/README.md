@@ -1,89 +1,117 @@
 # คลังความรู้ PEA
 
-ไดเรกทอรีรากของคลังข้อมูลสำหรับคลัง RAG แบบโฮสต์ของ Gemini File Search ที่รองรับ
-`knowledge_tool` (Worker B — ความรู้) โดยผู้ให้บริการใช้ **การแบ่งส่วนตามค่าเริ่มต้น**
-ของตนเอง (สคริปต์ sync จะไม่ส่งขนาดส่วนข้อมูลหรือระยะซ้อนทับที่กำหนดเอง)
+> สถานะ: สเปกเป้าหมายสำหรับการย้ายระบบ Knowledge จาก Gemini File Search ไปเป็น
+> **Document Routing + Full-file Long Context** โดย public contract ของ `knowledge_tool.search`
+> ยังคงเดิม
 
-## นโยบายแหล่งข้อมูลที่เชื่อถือได้ (สำคัญต่อความปลอดภัย)
+`knowledge_tool` ต้องเลือกเฉพาะเอกสารที่เกี่ยวข้องกับคำถาม แล้วส่ง **ข้อความฉบับเต็ม**
+ของเอกสารที่เลือกให้ Gemini Long Context เพื่อสร้างคำตอบที่ครบและตรงคำถาม ระบบนี้ไม่ใช่
+chunk-based RAG และห้ามโหลดทั้ง corpus ทุกครั้งโดยไม่มีความจำเป็น
 
-- ไฟล์ **เพียงกลุ่มเดียว** ที่จะถูกอัปโหลดไปยังคลังจัดเก็บคือไฟล์ภายใต้ `source/`
-- `source/` อาจมีได้เฉพาะ **เอกสารส่งออก PEA ที่เชื่อถือได้และผ่านการอนุมัติจากหัวหน้าทีม**
-  ที่เก็บซอร์สโค้ดนี้จงใจ **ไม่รวมไฟล์ดังกล่าว**: ไม่มีเอกสาร PEA ที่เป็นตัวอย่าง สาธิต หรือ
-  เขียนโดยโมเดลอยู่ในโครงสร้างนี้
-- ข้อเท็จจริงขององค์กร (อัตราค่าไฟฟ้า ระดับอัตรา การเรียกเก็บเงิน การชำระเงิน เหตุไฟฟ้าดับ
-  และข้อมูลติดต่อ) ต้องไม่มาจากการสร้างขึ้นเองของโมเดลโดยเด็ดขาด คลังข้อมูลตัวอย่าง `docs/`
-  ที่เคยรวมมา (รวมถึง `pea-electricity-rates.md`) ถูกนำออกแล้ว
-  เนื่องจากมีข้อเท็จจริงขององค์กรที่ไม่มีแหล่งอ้างอิง
-- `knowledge/source/README.md` เป็นเอกสารแทนชั่วคราวที่ไม่มีข้อเท็จจริง ใช้บันทึก
-  นโยบายนี้ เช่นเดียวกับ `README.md` และไฟล์ข้อมูลกำกับทุกไฟล์ ไฟล์นี้จะไม่ถูกอัปโหลด
-- หากไม่มีเอกสารส่งออกที่ได้รับอนุมัติใน `source/` การรัน sync จะเป็น no-op และ
-  `knowledge_tool.search` จะไม่ส่งคืนข้อมูลอ้างอิงสำหรับคำถามที่ไม่มีข้อมูลครอบคลุม
-  (fail-closed)
+## นโยบายแหล่งข้อมูลที่เชื่อถือได้
+
+- แหล่งข้อมูล runtime มีได้เฉพาะเอกสารที่ผ่านการอนุมัติภายใต้ `knowledge/source/`
+- corpus ปัจจุบันประกอบด้วย DOCX ที่ผู้ใช้อนุมัติ 27 ไฟล์
+- `knowledge/source/README.md`, metadata, manifest และไฟล์ซ่อนทุกชนิดไม่ใช่เอกสารความรู้
+- LLM ต้องตอบจากข้อความในไฟล์ที่เลือกเท่านั้น ห้ามใช้ความจำของโมเดลเติมข้อเท็จจริง PEA
+- หากไม่มีไฟล์หรือหลักฐานที่ตรงคำถาม ต้องคืน no-evidence และไม่มี citation
+- ชื่อไฟล์และพาธสัมพัทธ์เป็น identifier ที่ตรวจสอบย้อนหลังได้ ห้ามเปิดเผย absolute path
 
 ## โครงสร้าง
 
 ```text
 knowledge/
-  README.md            this file (never uploaded)
-  source/              the only uploadable subtree (lead-approved PEA exports)
-    README.md          non-factual placeholder (never uploaded)
-  manifest.json        SHA256 source manifest (generated, git-ignored)
-  tests/               knowledge system tests (run: python3 -m pytest knowledge/tests)
+  README.md            สเปก Knowledge และนโยบาย corpus
+  source/              เอกสาร authoritative ที่ Document Router เลือกได้
+    *.docx              แหล่งข้อมูลฉบับเต็ม
+    README.md           นโยบายเท่านั้น; ห้ามนำเข้า context
+  manifest.json        state เดิมของ File Search; ไม่ใช้ใน runtime เป้าหมาย
+  tests/               เทสต์ Document Router, full-file loading และ fail-closed
 ```
 
-## การกำหนดค่า
+## ขั้นตอนทำงานที่บังคับใช้
+
+### 1. สร้าง catalog ระดับเอกสาร
+
+เมื่อเริ่มระบบ backend ต้องค้นพบไฟล์ที่อนุมัติและสร้าง catalog โดยมีข้อมูลขั้นต่ำ:
+
+- `sourceId`: พาธสัมพัทธ์ เช่น `source/PEA_01_ขอใช้ไฟฟ้าใหม่_บุคคลธรรมดา.docx`
+- `title`: ชื่อไฟล์หรือหัวข้อแรกของเอกสาร
+- `topics`: หัวข้อบริการระดับเอกสารที่ดึงจากชื่อและ heading โดยไม่สร้างข้อเท็จจริงใหม่
+
+Catalog ห้ามมี chunk, embedding หรือข้อความสรุปที่โมเดลแต่งขึ้น
+
+### 2. เลือกไฟล์ที่เกี่ยวข้อง
+
+Document Router รับเฉพาะคำถามและ catalog ระดับเอกสาร แล้วคืน `sourceId` จาก allowlist
+ไม่เกิน `maxResults` รายการ โดยต้องเลือกชุดไฟล์ที่เล็กที่สุดซึ่งครอบคลุมคำถาม
+
+- คำถามหนึ่งบริการ: เลือกไฟล์หลักที่ตรงที่สุด และไฟล์ภาพรวมเฉพาะเมื่อจำเป็น
+- คำถามหลายบริการ: เลือกหลายไฟล์ฉบับเต็มได้
+- คำถามกำกวม: คืน no-evidence เพื่อให้ Main Agent ถามให้ชัดเจน
+- รหัสไฟล์ที่ไม่อยู่ใน catalog ต้องถูกปฏิเสธ ห้ามอ่านพาธจากข้อความที่โมเดลสร้าง
+
+### 3. โหลดข้อความทั้งไฟล์
+
+หลังตรวจ allowlist แล้ว backend ต้องแปลง DOCX ที่เลือกเป็นข้อความตามลำดับการอ่าน โดยรวม:
+
+- paragraph และ heading ทุกส่วน
+- numbered/bulleted list
+- ข้อความใน table cell
+- URL และตัวเลขตามต้นฉบับ
+
+ห้ามตัดเฉพาะส่วนต้น ห้ามเลือกเฉพาะย่อหน้าที่คล้ายคำถาม และห้ามแบ่งเป็น chunk เพื่อส่งเข้า
+LLM ข้อความที่แปลงแล้วอาจ cache ใน memory ตาม hash ของไฟล์ได้ แต่ cache ไม่ใช่ search index
+
+### 4. ส่งเข้า Gemini Long Context
+
+Prompt สำหรับตอบประกอบด้วย:
+
+1. คำสั่งให้ใช้เฉพาะเอกสารที่แนบมาและห้ามเดา
+2. คำถามของผู้ใช้
+3. ข้อความฉบับเต็มของแต่ละไฟล์ พร้อมขอบเขต `[SOURCE: <sourceId>] ... [/SOURCE]`
+4. รูปแบบผลลัพธ์แบบมีโครงสร้าง: คำตอบตรงคำถามและหลักฐานแยกตาม `sourceId`
+
+`answerContext` ต้องเป็นคำตอบที่อ่านได้และตรงคำถาม ไม่ใช่การคัดหัวเอกสาร รายการลิงก์ หรือ
+citation snippet มาต่อกัน
+
+### 5. ตรวจ citation
+
+citation ทุกตัวต้องผ่านกฎต่อไปนี้:
+
+- `sourceId` ต้องเป็นไฟล์ที่ Document Router เลือกจริง
+- `title` ต้องเป็นชื่อเอกสารจริง
+- `uri` ใช้ logical URI เช่น `knowledge://source/<encoded-relative-path>`
+- `snippet` ต้องเป็นข้อความหลักฐานจากไฟล์ฉบับเต็มนั้นและตรวจสอบ substring ได้
+- หากคำตอบหรือ snippet อ้างถึงไฟล์อื่น ให้ปฏิเสธผลลัพธ์และ fail closed
+
+## Context budget
+
+- ห้ามส่งทั้ง 27 ไฟล์ทุกคำถาม
+- ห้ามตัดท้ายไฟล์ที่เลือกเพื่อให้พอดี context window
+- หากหลายไฟล์ที่จำเป็นรวมกันเกิน context budget ให้ขอให้ผู้ใช้จำกัดหัวข้อ หรือคืน typed failure
+- สามารถใช้ in-memory extraction cache หรือ provider context cache ต่อชุดไฟล์ได้ แต่ต้องไม่เปลี่ยน
+  เนื้อหา การเลือกไฟล์ หรือกฎการอ้างอิง
+
+## การกำหนดค่าเป้าหมาย
 
 | ตัวแปร | ความหมาย |
 |---|---|
-| `GEMINI_FILE_SEARCH_STORE` | ชื่อทรัพยากรของคลังจัดเก็บ File Search เช่น `fileSearchStores/pea-knowledge` (สร้างคลังจัดเก็บใน Google AI Studio หรือผ่าน API) |
-| `GEMINI_API_KEY` | คีย์ API ของ Google AI Studio (ใช้ `GOOGLE_API_KEY` เป็นค่าสำรอง) |
-| `GEMINI_FILE_SEARCH_MODEL` | โมเดลสำหรับการสร้างคำตอบที่อ้างอิงแหล่งข้อมูล (ค่าเริ่มต้น `gemini-2.5-flash`) |
+| `GEMINI_API_KEY` | คีย์ Google AI Studio; ห้ามบันทึกใน repository หรือ trace |
+| `GEMINI_LONG_CONTEXT_MODEL` | โมเดลที่ใช้สำหรับ Document Router และการตอบจาก full-file context; ค่าเริ่มต้นที่อนุมัติคือ `gemini-3.6-flash` |
+| `KNOWLEDGE_SOURCE_ROOT` | root ของ corpus; ค่าเริ่มต้นคือ `<repo>/knowledge/source` |
 
-## การ sync
+`GEMINI_FILE_SEARCH_STORE` และการอัปโหลดผ่าน `scripts/sync_knowledge.py` ไม่อยู่ใน runtime
+เป้าหมายอีกต่อไป หลัง migration เสร็จสามารถเก็บสคริปต์ไว้เป็น legacy tooling หรือลบในงาน cleanup
+แยกต่างหากได้ แต่ต้องไม่มี code path ของ `knowledge_tool` เรียก File Search
 
-เรียกใช้จากไดเรกทอรีรากของที่เก็บซอร์สโค้ด (`google-genai` SDK จำเป็นสำหรับการ
-อัปโหลดจริงเท่านั้น ส่วน `--dry-run` ใช้งานได้โดยไม่ต้องมี SDK):
+## เกณฑ์ยอมรับ
 
-```bash
-pip install google-genai          # once, for real uploads
-
-python3 scripts/sync_knowledge.py --dry-run          # show the plan only
-python3 scripts/sync_knowledge.py                     # upload new/changed sources under source/ only
-python3 scripts/sync_knowledge.py --file source/<approved-export>.md
-python3 scripts/sync_knowledge.py --force             # re-upload unchanged sources as well
-python3 scripts/sync_knowledge.py --prune --yes       # also delete removed sources
-python3 scripts/sync_knowledge.py --root /path/to/export-corpus   # only /path/to/export-corpus/source/** is syncable
-python3 scripts/sync_knowledge.py --dry-run --prune --yes --verbose
-```
-
-พฤติกรรม:
-
-- ไดเรกทอรีรากของคลังข้อมูลเริ่มต้นคือ `<repo>/knowledge` และ manifest เริ่มต้นคือ
-  `knowledge/manifest.json` ส่วน `--root` ใช้แทนที่ไดเรกทอรีรากของคลังข้อมูล โดยโครงสร้างย่อยที่
-  sync ได้คือ `<root>/source/**` และ manifest จะมีค่าเริ่มต้นเป็น
-  `<root>/manifest.json` การระบุไดเรกทอรีรากที่ไม่มีไดเรกทอรี `source/` ถือเป็นข้อผิดพลาดจากการใช้งาน
-  (exit 2) ไม่ใช่ silent no-op
-- เฉพาะไฟล์ใต้ `source/` เท่านั้นที่ sync ได้ ส่วน `README.md` (ไม่ว่าจะใช้อักษรตัวพิมพ์แบบใดหรืออยู่ลึกระดับใด)
-  manifest ไฟล์ซ่อน และไฟล์ที่ไม่มีนามสกุลเอกสารจะไม่ถูก
-  อัปโหลด
-- manifest แบบ SHA256 จะจับคู่พาธสัมพัทธ์จากคลังข้อมูลแต่ละรายการ (เช่น
-  `source/<export>.md`) กับแฮชเนื้อหาและชื่อเอกสารระยะไกล
-- เฉพาะแหล่งข้อมูลที่ **ใหม่** หรือ **เปลี่ยนแปลง** เท่านั้นที่จะถูกอัปโหลด ส่วนไฟล์ที่ไม่เปลี่ยนแปลง
-  จะถูกปล่อยไว้ตามเดิม ขณะที่ `--force` จะอัปโหลดไฟล์ที่ไม่เปลี่ยนแปลงซ้ำด้วย
-- `--file PATH` จำกัดการรันไว้ที่พาธสัมพัทธ์จากคลังข้อมูลแบบเจาะจงหนึ่งรายการ
-  (หรือหลายรายการเมื่อใช้ซ้ำ) ภายใต้ `source/` ส่วนพาธอื่นถือเป็นข้อผิดพลาดจากการใช้งาน
-- การลบข้อมูลระยะไกลจะเกิดขึ้น **เฉพาะ** เมื่อระบุทั้ง `--prune` และ `--yes`
-  `--prune` ที่ไม่มี `--yes` จะแสดงคำเตือนและไม่ลบสิ่งใด รายการจาก
-  manifest ก่อนหน้า (ก่อนการแก้ไข) ที่ไม่สามารถอ้างถึงไฟล์ต้นทางได้อีก
-  จะกลายเป็นรายการที่อาจถูกตัดออก ทำให้เอกสารที่ไม่มีแหล่งอ้างอิงซึ่งเคยอัปโหลดไว้
-  สามารถถูกนำออกจากคลังจัดเก็บด้วย `--prune --yes`
-- การแบ่งส่วนใช้ค่าเริ่มต้นของผู้ให้บริการเสมอ โดยสคริปต์จะไม่ส่งการตั้งค่า
-  การแบ่งส่วน
-
-## ข้อจำกัดที่ทราบ (การสาธิต 2 วัน)
-
-- การอัปโหลดไฟล์ที่เปลี่ยนแปลงซ้ำจะสร้างเอกสารระยะไกลใหม่ โดย manifest
-  ติดตามชื่อเอกสารล่าสุด แต่ฉบับแก้ไขเก่าอาจยังคงอยู่ใน
-  คลังจัดเก็บจนกว่าจะทำความสะอาดผ่านคอนโซลของผู้ให้บริการ
-- การตัดข้อมูลจะลบตามชื่อเอกสารที่เก็บไว้ใน manifest ส่วนเอกสารที่อัปโหลด
-  นอกสคริปต์นี้จะไม่ถูกติดตามและจะไม่ถูกลบ
+- คำถาม “ต้องการขอใช้ไฟฟ้าต้องมีเอกสารอะไรบ้าง” เลือกไฟล์ขอใช้ไฟฟ้าที่เกี่ยวข้อง
+  และคำตอบต้องใช้หัวข้อเอกสารจากส่วนใดก็ได้ของไฟล์ ไม่ใช่เฉพาะ 1,000 อักขระแรก
+- เทสต์ยืนยันว่า fact ที่อยู่ท้าย DOCX ยังปรากฏในคำตอบได้
+- เทสต์ยืนยันว่าไฟล์ที่ไม่เกี่ยวข้องไม่ถูกส่งเข้า Long Context
+- เทสต์ยืนยันว่าคำถามหลายหัวข้อโหลดหลายไฟล์ฉบับเต็ม
+- เทสต์ยืนยันว่า router ไม่สามารถเลือกพาธนอก allowlist
+- เทสต์ยืนยันว่า no-match, context overflow, parse error และ citation mismatch ทำงานแบบ fail closed
+- ไม่มี dependency หรือคำขอ runtime ไปยัง Gemini File Search, vector DB, embedding หรือ chunk retrieval

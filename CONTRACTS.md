@@ -112,10 +112,10 @@
 
 | ฟิลด์ | ชนิด | กฎ |
 |---|---|---|
-| `sourceId` | string | identifier ของ document/chunk ใน Gemini File Search |
-| `title` | string | ชื่อสำหรับแสดงผลที่ไม่ว่าง |
-| `uri` | string | URI ของแหล่งข้อมูลที่ Gemini ส่งกลับและต้องไม่ว่าง |
-| `snippet` | string | ข้อความบางส่วนที่สืบค้นได้และต้องไม่ว่าง สูงสุด 1,000 อักขระ |
+| `sourceId` | string | พาธสัมพัทธ์หรือรหัสคงที่ของไฟล์ที่ Document Router เลือกจาก `knowledge/source/` |
+| `title` | string | ชื่อไฟล์หรือชื่อเอกสารจริงที่ไม่ว่าง |
+| `uri` | string | logical URI ที่ไม่เปิดเผย absolute path เช่น `knowledge://source/<encoded-relative-path>` และต้องไม่ว่าง |
+| `snippet` | string | ข้อความหลักฐานจากไฟล์ฉบับเต็มที่ใช้ตอบและตรวจสอบได้ว่าอยู่ในไฟล์นั้น สูงสุด 1,000 อักขระ |
 | `page` | integer/null | ต้องเป็นค่าบวกเมื่อระบุ |
 
 ### `ToolCall`
@@ -175,13 +175,22 @@ Tool จะปฏิเสธการเรียกที่ `name` ไม่�
 
 ### 1. `knowledge_tool`
 
-**ระบบเบื้องหลัง:** Gemini File Search Hosted RAG โดย `simulation = false`
+**ระบบเบื้องหลัง:** Document Routing + Full-file Gemini Long Context โดย `simulation = false` และ **ไม่ใช้ RAG/Gemini File Search**
 
 | การดำเนินการ | ข้อมูลนำเข้า | ข้อมูลเมื่อสำเร็จ |
 |---|---|---|
-| `search` | `{ "query": string(1..1000), "maxResults": integer(1..5, default 3) }` | `{ "answerContext": string(1..4000), "resultCount": integer(0..5) }` พร้อม `Citation` อย่างน้อยหนึ่งรายการเมื่อ `resultCount > 0` |
+| `search` | `{ "query": string(1..1000), "maxResults": integer(1..5, default 3) }`; `maxResults` คือจำนวนไฟล์ฉบับเต็มสูงสุดที่เลือกได้ | `{ "answerContext": string(1..4000), "resultCount": integer(0..5) }`; `resultCount` คือจำนวนไฟล์ฉบับเต็มที่ใช้ตอบ พร้อม `Citation` อย่างน้อยหนึ่งรายการต่อไฟล์ที่ใช้เมื่อ `resultCount > 0` |
 
-เมื่อ Gemini ไม่มีเนื้อหาที่ตรงกัน tool ต้องคืนบริบทคำตอบว่างและไม่มี citation และต้องไม่ใช้การสืบค้นภายในเครื่องทดแทน
+กฎการทำงานที่บังคับใช้:
+
+1. Document Router เห็นเฉพาะคำถามและ catalog ระดับไฟล์ ได้แก่ `sourceId`, ชื่อไฟล์ และหัวข้อเอกสาร แล้วเลือกรหัสไฟล์จาก allowlist ไม่เกิน `maxResults`
+2. backend ต้องโหลดและแปลงข้อความ **ทั้งไฟล์** ของทุกไฟล์ที่เลือก แล้วส่งข้อความฉบับเต็มพร้อมคำถามให้ Gemini Long Context ห้ามเลือก ตัด หรือจัดอันดับ chunk
+3. ต้องเลือกชุดไฟล์ที่เล็กที่สุดซึ่งครอบคลุมคำถาม ห้ามส่งทั้ง corpus เมื่อมีเพียงบางไฟล์ที่เกี่ยวข้อง
+4. หากคำถามครอบคลุมหลายบริการ สามารถเลือกหลายไฟล์ฉบับเต็มได้ หากคำถามกำกวมหรือไม่มีไฟล์ตรง ให้คืน no-evidence เพื่อให้ Main Agent ถามกลับหรือแจ้งข้อจำกัด
+5. `answerContext` คือคำตอบที่ครบและตรงคำถามซึ่งสร้างจากข้อความฉบับเต็ม ไม่ใช่หัวเอกสาร รายการลิงก์ หรือ citation snippet ดิบ
+6. citation ทุกตัวต้องอ้างถึงไฟล์ที่เลือกจริง และ `snippet` ต้องเป็นข้อความหลักฐานที่ตรวจสอบได้ว่าอยู่ในไฟล์ฉบับเต็มนั้น
+7. หากชุดไฟล์ที่เลือกเกิน context budget ห้ามตัดข้อความท้ายไฟล์โดยเงียบ ต้องลดขอบเขตด้วยคำถามชี้แจงหรือคืน typed failure
+8. เมื่อไม่มีไฟล์หรือหลักฐานตรงกัน tool ต้องคืน `answerContext` ว่าง, `resultCount = 0` และไม่มี citation โดยห้ามใช้ความจำของโมเดลตอบแทน
 
 ### 2. `sabuy_tool`
 
@@ -241,5 +250,5 @@ oms_tool.submit_outage_report            SubmitPreparedActionInput/OmsOutageRepo
 - ไม่มีการชำระเงิน การดำเนินการกับลูกค้า เหตุไฟฟ้าขัดข้อง CRM หรือ OMS ของ PEA จริง
 - ไม่มี tool อื่นนอกเหนือจาก tool ระดับบนสุดสี่รายการที่ระบุไว้
 - ไม่มีการยืนยันอัตโนมัติ การส่งในเบื้องหลัง หรือการยืนยันผ่านข้อความแชต
-- ไม่มีฐานข้อมูลเวกเตอร์แบบกำหนดเอง ตัวแบ่ง document, pipeline สำหรับ embedding หรือ local RAG สำรอง
+- ไม่มี Gemini File Search, vector database, embedding pipeline, document chunker, chunk retrieval หรือ RAG สำรอง; Knowledge ใช้เฉพาะการเลือกไฟล์ระดับ document แล้วส่งข้อความฉบับเต็มของไฟล์ที่เลือกเข้า Long Context
 - ไม่มีการจัดเก็บถาวรสำหรับ production แบบหลายผู้ใช้ authentication, payments หรือการเสริมความแข็งแกร่งสำหรับ deployment
