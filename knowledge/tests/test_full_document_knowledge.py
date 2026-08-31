@@ -97,6 +97,7 @@ def test_search_sends_only_selected_complete_file_and_safe_citation(tmp_path: Pa
     assert "SECRET-UNRELATED" not in router_prompt
     assert "TAIL-OF-RATES" in completion_prompt
     assert "SECRET-UNRELATED" not in completion_prompt
+    assert "at most 200 characters" in completion_prompt
 
 
 def test_router_uses_document_title_and_completion_includes_header_text(tmp_path: Path) -> None:
@@ -122,6 +123,32 @@ def test_router_uses_document_title_and_completion_includes_header_text(tmp_path
     assert "ข้อความสำคัญในส่วนหัว" not in client.calls[0]["contents"]
     assert "เนื้อหาหลัก" in client.calls[1]["contents"]
     assert "ข้อความสำคัญในส่วนหัว" in client.calls[1]["contents"]
+
+
+
+def test_docx_line_breaks_are_preserved_for_verbatim_citations(tmp_path: Path) -> None:
+    path = tmp_path / "steps.docx"
+    with zipfile.ZipFile(path, "w") as archive:
+        archive.writestr(
+            "word/document.xml",
+            '<?xml version="1.0" encoding="UTF-8"?>'
+            '<w:document xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main">'
+            '<w:body><w:p><w:r><w:t>ขั้นตอนที่ 1</w:t><w:br/>'
+            '<w:t>ขั้นตอนที่ 2</w:t></w:r></w:p></w:body></w:document>',
+        )
+    service, _ = backend(
+        tmp_path,
+        [
+            '{"sourceIds":["steps.docx"]}',
+            '{"answer":"คำตอบ","citations":[{"sourceId":"steps.docx",'
+            '"snippet":"ขั้นตอนที่ 1\\nขั้นตอนที่ 2"}]}',
+        ],
+    )
+
+    evidence = asyncio.run(service.search("ติดตั้งมิเตอร์อย่างไร", 1))
+
+    assert evidence.answer_context == "คำตอบ"
+    assert evidence.citations[0].snippet == "ขั้นตอนที่ 1\nขั้นตอนที่ 2"
 
 
 

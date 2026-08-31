@@ -8,7 +8,7 @@
 python3 -m pip install -e ".[dev,knowledge]"
 read -rsp "Gemini API key: " GEMINI_API_KEY; echo; export GEMINI_API_KEY
 export KNOWLEDGE_SOURCE_ROOT="$PWD/knowledge/source"
-export GEMINI_LONG_CONTEXT_MODEL="gemini-3.6-flash"
+export GEMINI_LONG_CONTEXT_MODEL="gemini-3.5-flash"
 python3 -m uvicorn app.main:app --reload
 open http://127.0.0.1:8000
 ```

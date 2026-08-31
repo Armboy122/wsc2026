@@ -18,7 +18,7 @@ def test_default_settings() -> None:
     assert settings.knowledge_source_root == (
         Path(__file__).resolve().parents[3] / "knowledge" / "source"
     )
-    assert settings.gemini_long_context_model == "gemini-3.6-flash"
+    assert settings.gemini_long_context_model == "gemini-3.5-flash"
 
 
 def test_env_override() -> None:

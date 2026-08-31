@@ -34,7 +34,7 @@ class Settings:
         / "knowledge"
         / "source"
     )
-    gemini_long_context_model: str = "gemini-3.6-flash"
+    gemini_long_context_model: str = "gemini-3.5-flash"
 
     @classmethod
     def from_env(cls, environ: dict[str, str] | None = None) -> Settings:
@@ -66,7 +66,7 @@ class Settings:
                 )
             ),
             gemini_long_context_model=env.get(
-                "GEMINI_LONG_CONTEXT_MODEL", "gemini-3.6-flash"
+                "GEMINI_LONG_CONTEXT_MODEL", "gemini-3.5-flash"
             ),
         )
 

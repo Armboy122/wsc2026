@@ -22,7 +22,7 @@ from app.contracts import Citation, ToolErrorCode
 
 ENV_API_KEY = "GEMINI_API_KEY"
 ENV_FALLBACK_API_KEY = "GOOGLE_API_KEY"
-DEFAULT_MODEL = "gemini-3.6-flash"
+DEFAULT_MODEL = "gemini-3.5-flash"
 DEFAULT_TIMEOUT_SECONDS = 60.0
 DEFAULT_READINESS_TIMEOUT_SECONDS = 5.0
 DEFAULT_SOURCE_ROOT = Path(__file__).resolve().parents[2] / "knowledge" / "source"
@@ -235,7 +235,9 @@ class FullDocumentKnowledgeBackend:
             "question; use the prior context solely to identify what it refers to. "
             "Do not provide links or a summary. Return JSON only exactly in this shape: "
             "{\"answer\":string,\"citations\":[{\"sourceId\":string,\"snippet\":string}]}. "
-            "Every citation snippet must be copied verbatim from its cited source. "
+            "Every citation snippet must be one short contiguous passage copied verbatim "
+            "from its cited source, at most 200 characters; preserve its whitespace exactly "
+            "and never combine or reformat separate passages. "
             f"Query: {query}\nDocuments:\n{blocks}"
         )
         data = _json_response(client, self._model, prompt)
@@ -315,9 +317,18 @@ def _validate_archive_members(archive: zipfile.ZipFile) -> tuple[str, ...]:
 
 
 def _paragraph_text(root: ElementTree.Element) -> list[str]:
+    """คืนข้อความตามลำดับ Word XML โดยคง line break และ tab ภายในย่อหน้า"""
     paragraphs: list[str] = []
     for paragraph in root.iter(f"{_WORD_NS}p"):
-        text = "".join(node.text or "" for node in paragraph.iter(f"{_WORD_NS}t"))
+        parts: list[str] = []
+        for node in paragraph.iter():
+            if node.tag == f"{_WORD_NS}t":
+                parts.append(node.text or "")
+            elif node.tag in {f"{_WORD_NS}br", f"{_WORD_NS}cr"}:
+                parts.append("\n")
+            elif node.tag == f"{_WORD_NS}tab":
+                parts.append("\t")
+        text = "".join(parts)
         if text:
             paragraphs.append(text)
     return paragraphs

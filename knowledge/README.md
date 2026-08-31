@@ -101,7 +101,7 @@ citation ทุกตัวต้องผ่านกฎต่อไปนี�
 | ตัวแปร | ความหมาย |
 |---|---|
 | `GEMINI_API_KEY` | คีย์ Google AI Studio; ห้ามบันทึกใน repository หรือ trace |
-| `GEMINI_LONG_CONTEXT_MODEL` | โมเดลที่ใช้สำหรับ Document Router และการตอบจาก full-file context; ค่าเริ่มต้นที่อนุมัติคือ `gemini-3.6-flash` |
+| `GEMINI_LONG_CONTEXT_MODEL` | โมเดลที่ใช้สำหรับ Document Router และการตอบจาก full-file context; ค่าเริ่มต้นที่ใช้งานได้และตรวจสอบแล้วคือ `gemini-3.5-flash` |
 | `KNOWLEDGE_SOURCE_ROOT` | root ของ corpus; ค่าเริ่มต้นคือ `<repo>/knowledge/source` |
 
 runtime อ่านเฉพาะ `KNOWLEDGE_SOURCE_ROOT` และไม่ต้องใช้ชื่อ store หรือขั้นตอนอัปโหลดเอกสาร
