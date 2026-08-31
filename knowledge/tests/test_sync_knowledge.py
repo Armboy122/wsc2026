@@ -11,8 +11,10 @@ The repository intentionally ships no PEA content in ``source/``.
 from __future__ import annotations
 
 import importlib.util
+import io
 import json
 import sys
+import types
 from pathlib import Path
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
@@ -308,3 +310,176 @@ def test_main_returns_exit_codes(tmp_path, capsys) -> None:
     assert sync_mod.main(["--root", str(tmp_path), "--file", "docs/a.md"]) == 2
     # nothing to do but provider required would be a mistake: up-to-date is exit 0
     assert sync_mod.main(["--root", str(tmp_path), "--file", "source/a.md", "--dry-run"]) == 0
+
+
+# --- provider upload seam: Unicode-safe display names ------------------------
+#
+# Live repro (google-genai 1.x and 2.19.0): syncing a Thai-named source such
+# as ``source/01_PEA_SabuyService_ขอใช้ไฟฟ้าใหม่.docx`` crashed with
+# httpx UnicodeEncodeError while ASCII-encoding request headers. Two leaks
+# stem from the same non-ASCII path: the SDK copies the local file's basename
+# into the ASCII-only ``X-Goog-Upload-File-Name`` header when ``file=`` is a
+# path, and the sync passed the raw corpus-relative path as ``display_name``.
+# The tests below capture the exact config the provider hands to the SDK
+# client and pin the repaired contract.
+
+THAI_REL = "source/01_PEA_SabuyService_ขอใช้ไฟฟ้าใหม่.docx"
+
+
+def install_fake_genai(monkeypatch) -> dict:
+    """Replace the lazy SDK import with a capture-only fake client.
+
+    Returns the dict that records the kwargs of the single
+    ``upload_to_file_search_store`` call (``file`` and ``config``; the fake
+    config/metadata constructors are plain dicts so the captured values are
+    directly assertable).
+    """
+    captured: dict = {}
+
+    class FakeStores:
+        def upload_to_file_search_store(self, **kwargs):
+            captured.update(kwargs)
+            return types.SimpleNamespace(
+                done=True,
+                error=None,
+                response=types.SimpleNamespace(
+                    document_name="fileSearchStores/test/documents/doc-live"
+                ),
+            )
+
+    class FakeClient:
+        def __init__(self, **kwargs):
+            captured["client_kwargs"] = kwargs
+            self.file_search_stores = FakeStores()
+
+    fake_genai = types.ModuleType("google.genai")
+    fake_genai.Client = FakeClient
+    fake_genai.types = types.SimpleNamespace(
+        UploadToFileSearchStoreConfig=lambda **kw: dict(kw),
+        CustomMetadata=lambda **kw: dict(kw),
+    )
+    monkeypatch.setattr(sync_mod, "_import_genai", lambda: fake_genai)
+    return captured
+
+
+def make_doc(root: Path, rel: str) -> Path:
+    path = root / rel
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_bytes(b"%PK fake docx bytes")
+    return path
+
+
+def test_upload_thai_path_sends_ascii_display_name(monkeypatch, tmp_path) -> None:
+    captured = install_fake_genai(monkeypatch)
+    provider = sync_mod.GeminiStoreProvider("fileSearchStores/test", "k")
+    doc = make_doc(tmp_path, THAI_REL)
+    document_name = provider.upload(doc, THAI_REL)
+    assert document_name == "fileSearchStores/test/documents/doc-live"
+    display = captured["config"]["display_name"]
+    display.encode("ascii")  # must never raise: headers must stay ASCII-safe
+    assert "01_PEA_SabuyService" in display  # recognizable ASCII part kept
+    assert display.endswith(".docx")  # ASCII suffix kept where possible
+    assert "ขอ" not in display
+    # deterministic: the same path always yields the same display name
+    provider.upload(doc, THAI_REL)
+    assert captured["config"]["display_name"] == display
+
+
+def test_upload_two_same_skeleton_paths_cannot_collide(monkeypatch, tmp_path) -> None:
+    # Both Thai file names reduce to the same ASCII skeleton; the path-hash
+    # suffix must keep the remote display names distinct.
+    captured = install_fake_genai(monkeypatch)
+    provider = sync_mod.GeminiStoreProvider("fileSearchStores/test", "k")
+    rel_a = "source/ไฟฟ้า.md"
+    rel_b = "source/สายดิน.md"
+    provider.upload(make_doc(tmp_path, rel_a), rel_a)
+    name_a = captured["config"]["display_name"]
+    provider.upload(make_doc(tmp_path, rel_b), rel_b)
+    name_b = captured["config"]["display_name"]
+    name_a.encode("ascii")
+    name_b.encode("ascii")
+    assert name_a != name_b
+
+
+def test_upload_carries_original_utf8_path_in_custom_metadata(monkeypatch, tmp_path) -> None:
+    # custom_metadata travels in the JSON request body (not an ASCII-only
+    # header), so the exact corpus-relative path is preserved remotely.
+    captured = install_fake_genai(monkeypatch)
+    provider = sync_mod.GeminiStoreProvider("fileSearchStores/test", "k")
+    provider.upload(make_doc(tmp_path, THAI_REL), THAI_REL)
+    metadata = captured["config"]["custom_metadata"]
+    assert {"key": "corpus_rel_path", "string_value": THAI_REL} in metadata
+
+
+def test_upload_ascii_path_display_name_is_stable(monkeypatch, tmp_path) -> None:
+    # Pure-ASCII paths keep the corpus-relative path verbatim as display
+    # name: already-synced documents are unaffected by the repair.
+    captured = install_fake_genai(monkeypatch)
+    provider = sync_mod.GeminiStoreProvider("fileSearchStores/test", "k")
+    provider.upload(make_doc(tmp_path, "source/a.md"), "source/a.md")
+    assert captured["config"]["display_name"] == "source/a.md"
+
+
+def test_upload_streams_binary_handle_never_nonascii_path(monkeypatch, tmp_path) -> None:
+    # The SDK only sets X-Goog-Upload-File-Name from the local basename when
+    # file= is a path; a binary handle plus an explicit MIME type removes
+    # that non-ASCII header leak entirely.
+    captured = install_fake_genai(monkeypatch)
+    provider = sync_mod.GeminiStoreProvider("fileSearchStores/test", "k")
+    provider.upload(make_doc(tmp_path, THAI_REL), THAI_REL)
+    assert isinstance(captured["file"], io.IOBase)
+    mime = captured["config"]["mime_type"]
+    mime.encode("ascii")
+    assert mime == "application/vnd.openxmlformats-officedocument.wordprocessingml.document"
+
+
+def test_upload_keeps_provider_default_chunking(monkeypatch, tmp_path) -> None:
+    captured = install_fake_genai(monkeypatch)
+    provider = sync_mod.GeminiStoreProvider("fileSearchStores/test", "k")
+    provider.upload(make_doc(tmp_path, THAI_REL), THAI_REL)
+    assert "chunking_config" not in captured["config"]
+
+
+def test_manifest_keeps_original_utf8_path_for_thai_source(tmp_path) -> None:
+    # The local manifest remains the authoritative UTF-8 path record: its key
+    # is the exact corpus-relative path, independent of the remote name.
+    make_source_corpus(tmp_path, {Path(THAI_REL).name: "content"})
+    provider = FakeProvider()
+    code = sync_mod.run_sync(args_for(tmp_path), provider=provider)
+    assert code == 0
+    assert provider.uploaded == [THAI_REL]
+    manifest = json.loads((tmp_path / "manifest.json").read_text(encoding="utf-8"))
+    assert THAI_REL in manifest["files"]
+    assert manifest["files"][THAI_REL]["documentName"]
+
+
+# --- ascii_display_name (pure helper) -----------------------------------------
+
+def test_ascii_display_name_pure_ascii_passes_through() -> None:
+    assert sync_mod.ascii_display_name("source/a.md") == "source/a.md"
+    assert sync_mod.ascii_display_name("source/sub/dir-01_File.pdf") == "source/sub/dir-01_File.pdf"
+
+
+def test_ascii_display_name_is_deterministic_and_ascii_only() -> None:
+    name = sync_mod.ascii_display_name(THAI_REL)
+    assert name == sync_mod.ascii_display_name(THAI_REL)
+    name.encode("ascii")
+    assert "01_PEA_SabuyService" in name
+    assert name.endswith(".docx")
+
+
+def test_ascii_display_name_distinct_paths_never_collide() -> None:
+    names = {
+        sync_mod.ascii_display_name(rel)
+        for rel in ("source/ไฟฟ้า.md", "source/สายดิน.md", "source/หม้อแปลง.md", "source/_.md")
+    }
+    assert len(names) == 4
+
+
+def test_ascii_display_name_caps_length_and_keeps_uniqueness() -> None:
+    long_rel = "source/" + "x" * 300 + ".md"
+    other_rel = "source/" + "x" * 300 + "y.md"
+    name = sync_mod.ascii_display_name(long_rel)
+    assert len(name) <= sync_mod.DISPLAY_NAME_MAX_LENGTH
+    name.encode("ascii")
+    assert sync_mod.ascii_display_name(other_rel) != name
