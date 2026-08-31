@@ -20,6 +20,7 @@ import logging
 import os
 from dataclasses import dataclass
 from typing import Any, Callable
+from urllib.parse import quote
 
 from app.contracts import Citation, ToolErrorCode
 
@@ -46,6 +47,10 @@ MAX_ANSWER_CONTEXT_CHARS = 4000
 MAX_SNIPPET_CHARS = 1000
 MAX_TITLE_CHARS = 500
 MAX_URI_CHARS = 2000
+
+# URI นี้เป็นเพียงตัวอ้างอิงทรัพยากรใน Gemini File Search ไม่ใช่ URL สาธารณะ
+PROVIDER_URI_SCHEME = "gemini-file-search://"
+CORPUS_REL_PATH_KEY = "corpus_rel_path"
 
 # ข้อความที่ปลอดภัยต่อผู้ใช้และไม่มีข้อมูลรับรอง
 USER_SAFE_NOT_CONFIGURED = (
@@ -103,6 +108,25 @@ def _first_int(value: Any, name: str) -> int | None:
     return None
 
 
+def _custom_metadata_value(context: Any, key: str) -> str:
+    """อ่านข้อความ metadata โดยไม่ผูกกับชนิดข้อมูลของ SDK"""
+    for item in getattr(context, "custom_metadata", None) or []:
+        if isinstance(item, dict):
+            item_key = item.get("key")
+            value = item.get("string_value")
+        else:
+            item_key = getattr(item, "key", None)
+            value = getattr(item, "string_value", None)
+        if item_key == key and isinstance(value, str) and value.strip():
+            return value.strip()
+    return ""
+
+
+def _provider_reference_uri(store: str, title: str) -> str:
+    """สร้างตัวอ้างอิงทรัพยากรที่คงที่และไม่แอบอ้างเป็น URL สาธารณะ"""
+    return PROVIDER_URI_SCHEME + quote(store, safe="") + "/" + quote(title, safe="")
+
+
 def _grounding_contexts(response: Any) -> list[Any]:
     """รวบรวมบริบทอ้างอิงหลักฐานของ File Search จากการตอบกลับของผู้ให้บริการ
 
@@ -142,15 +166,22 @@ def normalize_grounding(response: Any, *, max_results: int) -> GroundedEvidence:
     citations: list[Citation] = []
     seen: set[tuple[str, int | None]] = set()
     for context in _grounding_contexts(response):
-        uri = _first_text(context, "uri")
-        if not uri:
-            continue
         snippet = _first_text(context, "text")
         if not snippet:
             continue
+        title = _first_text(context, "title")
+        corpus_rel_path = _custom_metadata_value(context, CORPUS_REL_PATH_KEY)
+        uri = _first_text(context, "uri")
+        if not uri:
+            store = _first_text(context, "file_search_store")
+            if not store or not title:
+                continue
+            uri = _provider_reference_uri(store, title)
         page = _first_int(context, "page_number")
-        source_id = _first_text(context, "document_name") or (
-            f"{uri}#page-{page}" if page is not None else uri
+        source_id = (
+            _first_text(context, "document_name")
+            or corpus_rel_path
+            or (f"{uri}#page-{page}" if page is not None else uri)
         )
         key = (source_id, page)
         if key in seen:
@@ -159,7 +190,7 @@ def normalize_grounding(response: Any, *, max_results: int) -> GroundedEvidence:
         citations.append(
             Citation(
                 source_id=_clip(source_id, MAX_URI_CHARS),
-                title=_clip(_first_text(context, "title") or uri, MAX_TITLE_CHARS),
+                title=_clip(corpus_rel_path or title or uri, MAX_TITLE_CHARS),
                 uri=_clip(uri, MAX_URI_CHARS),
                 snippet=_clip(snippet, MAX_SNIPPET_CHARS),
                 page=page,
