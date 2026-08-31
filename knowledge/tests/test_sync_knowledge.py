@@ -12,11 +12,12 @@ exercised against tmp_path corpora, never against ``DEFAULT_CORPUS_ROOT``.
 from __future__ import annotations
 
 import importlib.util
-import io
 import json
 import sys
 import types
 from pathlib import Path
+
+import pytest
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
 SCRIPT_PATH = REPO_ROOT / "scripts" / "sync_knowledge.py"
@@ -318,36 +319,57 @@ def test_main_returns_exit_codes(tmp_path, capsys) -> None:
     assert sync_mod.main(["--root", str(tmp_path), "--file", "source/a.md", "--dry-run"]) == 0
 
 
-# --- provider upload seam: Unicode-safe display names ------------------------
+# --- provider upload seam: Unicode-safe display names + MIME-safe upload -----
 #
-# Live repro (google-genai 1.x and 2.19.0): syncing a Thai-named source such
-# as ``source/01_PEA_SabuyService_ขอใช้ไฟฟ้าใหม่.docx`` crashed with
-# httpx UnicodeEncodeError while ASCII-encoding request headers. Two leaks
-# stem from the same non-ASCII path: the SDK copies the local file's basename
-# into the ASCII-only ``X-Goog-Upload-File-Name`` header when ``file=`` is a
-# path, and the sync passed the raw corpus-relative path as ``display_name``.
-# The tests below capture the exact config the provider hands to the SDK
-# client and pin the repaired contract.
+# Live repro 1 (google-genai 1.x and 2.19.0): syncing a Thai-named source
+# such as ``source/01_PEA_SabuyService_ขอใช้ไฟฟ้าใหม่.docx`` crashed with
+# httpx UnicodeEncodeError while ASCII-encoding request headers: the SDK
+# copies the local file's basename into the ASCII-only
+# ``X-Goog-Upload-File-Name`` header when ``file=`` is a path, and the sync
+# passed the raw corpus-relative path as ``display_name``.
+# Live repro 2: the first repair streamed a binary handle with an explicit
+# ``config.mime_type``; the header leak was gone but Gemini answered
+# 400 INVALID_ARGUMENT: UploadToFileSearchStoreRequest.mime_type invalid
+# for ``application/vnd.openxmlformats-officedocument.wordprocessingml.document``,
+# because the SDK copies ``config.mime_type`` into the request body, which
+# the API rejects for that value.
+# Final contract pinned below: the provider uploads an ASCII-named temporary
+# copy of the source (same suffix, same bytes) and never sets
+# ``config.mime_type`` — the SDK infers the MIME type from the ASCII path
+# for the upload header only. The temp file is removed on success and on
+# every failure path. ASCII display names and UTF-8 custom_metadata survive.
 
 THAI_REL = "source/01_PEA_SabuyService_ขอใช้ไฟฟ้าใหม่.docx"
 
 
-def install_fake_genai(monkeypatch) -> dict:
+def install_fake_genai(monkeypatch, *, fail: BaseException | None = None, error: dict | None = None) -> dict:
     """Replace the lazy SDK import with a capture-only fake client.
 
     Returns the dict that records the kwargs of the single
     ``upload_to_file_search_store`` call (``file`` and ``config``; the fake
     config/metadata constructors are plain dicts so the captured values are
-    directly assertable).
+    directly assertable). When ``file=`` is a path, the fake also records
+    whether the file existed at call time and its exact bytes, so tests can
+    verify the temporary-copy contract. ``fail`` makes the SDK call raise
+    (simulating a transport/SDK error); ``error`` makes the returned
+    operation carry a provider error (simulating a 400 LRO response).
     """
     captured: dict = {}
 
     class FakeStores:
         def upload_to_file_search_store(self, **kwargs):
             captured.update(kwargs)
+            file_arg = kwargs.get("file")
+            if isinstance(file_arg, (str, Path)):
+                sent = Path(file_arg)
+                captured["file_existed_at_call"] = sent.is_file()
+                if sent.is_file():
+                    captured["file_bytes_at_call"] = sent.read_bytes()
+            if fail is not None:
+                raise fail
             return types.SimpleNamespace(
                 done=True,
-                error=None,
+                error=error,
                 response=types.SimpleNamespace(
                     document_name="fileSearchStores/test/documents/doc-live"
                 ),
@@ -426,17 +448,76 @@ def test_upload_ascii_path_display_name_is_stable(monkeypatch, tmp_path) -> None
     assert captured["config"]["display_name"] == "source/a.md"
 
 
-def test_upload_streams_binary_handle_never_nonascii_path(monkeypatch, tmp_path) -> None:
-    # The SDK only sets X-Goog-Upload-File-Name from the local basename when
-    # file= is a path; a binary handle plus an explicit MIME type removes
-    # that non-ASCII header leak entirely.
+def test_upload_config_never_sets_mime_type(monkeypatch, tmp_path) -> None:
+    # Live repro 2: config.mime_type is copied into the request body and
+    # Gemini 400-rejects the DOCX vendor type, so the provider must omit it
+    # entirely and let the SDK infer the MIME from the (ASCII) file path.
     captured = install_fake_genai(monkeypatch)
     provider = sync_mod.GeminiStoreProvider("fileSearchStores/test", "k")
     provider.upload(make_doc(tmp_path, THAI_REL), THAI_REL)
-    assert isinstance(captured["file"], io.IOBase)
-    mime = captured["config"]["mime_type"]
-    mime.encode("ascii")
-    assert mime == "application/vnd.openxmlformats-officedocument.wordprocessingml.document"
+    assert "mime_type" not in captured["config"]
+
+
+def test_upload_sends_ascii_temp_path_with_original_suffix_and_bytes(monkeypatch, tmp_path) -> None:
+    # The SDK echoes a path argument's basename into the ASCII-only
+    # X-Goog-Upload-File-Name header and infers the MIME from the suffix, so
+    # the provider must hand it a temporary ASCII path that keeps the
+    # original suffix and the exact original bytes.
+    captured = install_fake_genai(monkeypatch)
+    provider = sync_mod.GeminiStoreProvider("fileSearchStores/test", "k")
+    doc = make_doc(tmp_path, THAI_REL)
+    original_bytes = doc.read_bytes()
+    provider.upload(doc, THAI_REL)
+    sent = captured["file"]
+    assert isinstance(sent, (str, Path))
+    str(sent).encode("ascii")  # must never raise: header stays ASCII
+    assert Path(sent).suffix == ".docx"  # original suffix preserved for MIME inference
+    assert Path(sent) != doc  # a temporary copy, never the corpus file itself
+    assert captured["file_existed_at_call"] is True
+    assert captured["file_bytes_at_call"] == original_bytes
+
+
+def test_upload_removes_temp_file_after_success(monkeypatch, tmp_path) -> None:
+    captured = install_fake_genai(monkeypatch)
+    provider = sync_mod.GeminiStoreProvider("fileSearchStores/test", "k")
+    provider.upload(make_doc(tmp_path, THAI_REL), THAI_REL)
+    assert not Path(captured["file"]).exists()
+
+
+def test_upload_removes_temp_file_after_sdk_exception(monkeypatch, tmp_path) -> None:
+    # A transport/SDK failure must not leak the temporary copy.
+    captured = install_fake_genai(monkeypatch, fail=RuntimeError("transport exploded"))
+    provider = sync_mod.GeminiStoreProvider("fileSearchStores/test", "k")
+    with pytest.raises(RuntimeError, match="transport exploded"):
+        provider.upload(make_doc(tmp_path, THAI_REL), THAI_REL)
+    assert not Path(captured["file"]).exists()
+
+
+def test_upload_removes_temp_file_after_provider_error(monkeypatch, tmp_path) -> None:
+    # A provider error on the finished LRO (the live 400 case) must also
+    # clean up before the SyncError propagates.
+    captured = install_fake_genai(
+        monkeypatch, error={"status": "INVALID_ARGUMENT", "code": 400}
+    )
+    provider = sync_mod.GeminiStoreProvider("fileSearchStores/test", "k")
+    with pytest.raises(sync_mod.SyncError, match="INVALID_ARGUMENT"):
+        provider.upload(make_doc(tmp_path, THAI_REL), THAI_REL)
+    assert not Path(captured["file"]).exists()
+
+
+def test_upload_ascii_source_also_uses_temp_path(monkeypatch, tmp_path) -> None:
+    # Uniform contract: even ASCII sources upload via a temp path (never a
+    # raw handle), so MIME inference and header safety behave identically.
+    captured = install_fake_genai(monkeypatch)
+    provider = sync_mod.GeminiStoreProvider("fileSearchStores/test", "k")
+    doc = make_doc(tmp_path, "source/a.md")
+    provider.upload(doc, "source/a.md")
+    sent = captured["file"]
+    assert isinstance(sent, (str, Path))
+    str(sent).encode("ascii")
+    assert Path(sent).suffix == ".md"
+    assert captured["file_bytes_at_call"] == doc.read_bytes()
+    assert not Path(sent).exists()
 
 
 def test_upload_keeps_provider_default_chunking(monkeypatch, tmp_path) -> None:
