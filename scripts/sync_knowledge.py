@@ -32,16 +32,21 @@ Flags:
 
 Provider defaults: chunking uses the provider default (no chunking
 configuration is ever sent). Unicode safety: non-ASCII source names (e.g.
-Thai) never reach an HTTP header — the source is streamed as a binary
-handle with an explicit MIME type (the SDK would otherwise copy the local
-basename into the ASCII-only ``X-Goog-Upload-File-Name`` header), the
-remote display name is a deterministic ASCII-safe form of the corpus-
-relative path with a path-hash suffix, and the original UTF-8 path is
-carried in ``custom_metadata`` (JSON request body, never a header) when it
-fits the conservative value budget. The local manifest always keeps the
-exact UTF-8 corpus-relative path as its key, so the original path remains
-available even for paths too long for metadata. The ``google-genai`` SDK is
-imported lazily, so ``--dry-run`` works without the SDK installed.
+Thai) never reach an HTTP header or a rejected request field — the source is
+uploaded through a temporary ASCII-named copy that keeps the original suffix
+and bytes, so the SDK can infer the MIME type for the upload headers from an
+ASCII path (it echoes a path argument's basename into the ASCII-only
+``X-Goog-Upload-File-Name`` header) while ``UploadToFileSearchStoreConfig``
+never carries ``mime_type`` (the SDK copies that field into the request body,
+which Gemini rejects with 400 INVALID_ARGUMENT for DOCX vendor types). The
+temporary copy is removed on success and on every failure path. The remote
+display name is a deterministic ASCII-safe form of the corpus-relative path
+with a path-hash suffix, and the original UTF-8 path is carried in
+``custom_metadata`` (JSON request body, never a header) when it fits the
+conservative value budget. The local manifest always keeps the exact UTF-8
+corpus-relative path as its key, so the original path remains available even
+for paths too long for metadata. The ``google-genai`` SDK is imported lazily,
+so ``--dry-run`` works without the SDK installed.
 """
 
 from __future__ import annotations
@@ -49,10 +54,11 @@ from __future__ import annotations
 import argparse
 import hashlib
 import json
-import mimetypes
 import os
 import re
+import shutil
 import sys
+import tempfile
 import time
 from dataclasses import dataclass
 from datetime import datetime, timezone
@@ -131,11 +137,48 @@ def ascii_display_name(rel_path: str) -> str:
     return f"{stem[:budget]}-{digest}{ext}"
 
 
-def _mime_type_for(rel_path: str) -> str:
-    """MIME type from the (ASCII) file extension; never inferred from a path
-    the SDK would echo into a header."""
-    guessed, _ = mimetypes.guess_type(rel_path)
-    return guessed or "application/octet-stream"
+def _ascii_temp_dir() -> str:
+    """An ASCII-safe directory for temporary upload copies.
+
+    ``tempfile.gettempdir()`` honours ``TMPDIR``, which may itself be
+    non-ASCII; the SDK would then echo the temp path's directory into
+    headers again. Fall back to its realpath or ``/tmp``, and fail closed if
+    even those are unavailable, rather than leak a non-ASCII path.
+    """
+    raw = tempfile.gettempdir()
+    for candidate in (raw, os.path.realpath(raw), "/tmp"):
+        if candidate and os.path.isdir(candidate):
+            try:
+                candidate.encode("ascii")
+            except UnicodeEncodeError:
+                continue
+            return candidate
+    raise SyncError("no ASCII-safe temporary directory available for uploads")
+
+
+def _ascii_temp_copy(local_path: Path) -> Path:
+    """Copy a source to an ASCII-named temporary file, keeping the suffix.
+
+    The SDK infers the upload MIME type from the file path's extension and
+    echoes the basename into the ASCII-only ``X-Goog-Upload-File-Name``
+    header, so the copy's name is fully ASCII (random ``tempfile`` name plus
+    the original, ASCII-printable suffix) and its bytes are identical to the
+    source. The caller owns the file and must remove it (finally block in
+    :meth:`GeminiStoreProvider.upload`).
+    """
+    suffix = local_path.suffix
+    if suffix and not all(_is_ascii_printable(char) for char in suffix):
+        suffix = ""
+    temp_dir = _ascii_temp_dir()
+    handle_fd, temp_name = tempfile.mkstemp(prefix="pea-sync-", suffix=suffix, dir=temp_dir)
+    temp_path = Path(temp_name)
+    try:
+        with os.fdopen(handle_fd, "wb") as dst, local_path.open("rb") as src:
+            shutil.copyfileobj(src, dst, SHA256_CHUNK_SIZE)
+    except OSError as exc:
+        temp_path.unlink(missing_ok=True)
+        raise SyncError(f"cannot stage {local_path.name} for upload") from exc
+    return temp_path
 
 
 def _custom_metadata(genai, rel_path: str) -> list | None:
@@ -363,42 +406,53 @@ class GeminiStoreProvider:
     def upload(self, local_path: Path, rel_path: str) -> str:
         """Upload one source; returns the remote document name.
 
-        Unicode safety (live repro: Thai names crashed httpx while
-        ASCII-encoding headers): the source is streamed as a binary handle
-        with an explicit MIME type, because the SDK echoes a path argument's
-        basename into the ASCII-only ``X-Goog-Upload-File-Name`` header. The
-        display name is the deterministic ASCII-safe form of the corpus-
-        relative path (:func:`ascii_display_name`), and the original UTF-8
-        path travels in ``custom_metadata`` — the JSON request body, never a
-        header — when it fits the value budget; the local manifest always
-        keeps the exact path as its key regardless.
+        Unicode + MIME safety (live repros): Thai names crashed httpx while
+        ASCII-encoding headers, and an explicit ``config.mime_type`` is
+        copied by the SDK into the request body, where Gemini rejects the
+        DOCX vendor type with 400 INVALID_ARGUMENT
+        (``UploadToFileSearchStoreRequest.mime_type`` invalid). The source is
+        therefore staged as a temporary ASCII-named copy that keeps the
+        original suffix and bytes (:func:`_ascii_temp_copy`), and that path
+        — never a raw handle or the corpus path — is handed to the SDK with
+        no ``mime_type`` in the config, so the SDK infers the MIME type from
+        the ASCII extension for the upload headers only. The temporary copy
+        is removed on success and on every failure path, including provider
+        errors. The display name is the deterministic ASCII-safe form of the
+        corpus-relative path (:func:`ascii_display_name`), and the original
+        UTF-8 path travels in ``custom_metadata`` — the JSON request body,
+        never a header — when it fits the value budget; the local manifest
+        always keeps the exact path as its key regardless.
         No chunking configuration is sent — provider default chunking applies.
         """
         genai = _import_genai()
         client = genai.Client(api_key=self._api_key)
         config_kwargs: dict = {
             "display_name": ascii_display_name(rel_path),
-            "mime_type": _mime_type_for(rel_path),
         }
         metadata = _custom_metadata(genai, rel_path)
         if metadata is not None:
             config_kwargs["custom_metadata"] = metadata
-        with local_path.open("rb") as handle:
+        temp_path = _ascii_temp_copy(local_path)
+        try:
             operation = client.file_search_stores.upload_to_file_search_store(
                 file_search_store_name=self._store_name,
-                file=handle,
+                file=str(temp_path),
                 config=genai.types.UploadToFileSearchStoreConfig(**config_kwargs),
             )
-        operation = self._wait_for_operation(client, operation)
-        if operation.error:
-            raise SyncError(
-                f"provider error while uploading {rel_path}: {_describe_error(operation.error)}"
+            operation = self._wait_for_operation(client, operation)
+            if operation.error:
+                raise SyncError(
+                    f"provider error while uploading {rel_path}: {_describe_error(operation.error)}"
+                )
+            response = operation.response
+            document_name = (
+                getattr(response, "document_name", None) if response is not None else None
             )
-        response = operation.response
-        document_name = getattr(response, "document_name", None) if response is not None else None
-        if not document_name:
-            raise SyncError(f"provider returned no document name for {rel_path}")
-        return document_name
+            if not document_name:
+                raise SyncError(f"provider returned no document name for {rel_path}")
+            return document_name
+        finally:
+            temp_path.unlink(missing_ok=True)
 
     def delete_document(self, document_name: str) -> None:
         genai = _import_genai()
