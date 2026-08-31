@@ -5,6 +5,7 @@ from __future__ import annotations
 import asyncio
 import sys
 import types
+from urllib.parse import unquote
 
 from app.backends.gemini_file_search import (
     ENV_API_KEY,
@@ -23,12 +24,36 @@ from app.contracts import ToolErrorCode
 # --- lightweight stand-ins for the SDK response shape -----------------------
 
 class Ctx:
-    def __init__(self, uri=None, title=None, text=None, page_number=None, document_name=None):
+    def __init__(
+        self,
+        uri=None,
+        title=None,
+        text=None,
+        page_number=None,
+        document_name=None,
+        file_search_store=None,
+        custom_metadata=None,
+    ):
         self.uri = uri
         self.title = title
         self.text = text
         self.page_number = page_number
         self.document_name = document_name
+        self.file_search_store = file_search_store
+        self.custom_metadata = custom_metadata
+
+
+class CustomMetadata:
+    """Stand-in for google.genai.types.CustomMetadata (live Gemini 3.6 shape)."""
+
+    def __init__(self, key=None, string_value=None):
+        self.key = key
+        self.string_value = string_value
+
+
+def corpus_meta(rel_path):
+    """custom_metadata entry the live File Search service returns."""
+    return [CustomMetadata(key="corpus_rel_path", string_value=rel_path)]
 
 
 class Chunk:
@@ -139,6 +164,140 @@ def test_normalize_clips_long_fields_to_contract_limits() -> None:
     assert len(citation.title) == 500
     assert len(citation.snippet) == 1000
     assert len(evidence.answer_context) <= 4000
+
+
+# --- live Gemini 3.6 File Search shape (no uri / no document_name) ----------
+
+PROVIDER_SCHEME = "gemini-file-search://"
+
+
+def test_normalize_live_gemini36_shape_without_uri() -> None:
+    """Live grounding_chunks carry text/title/file_search_store/custom_metadata only."""
+    evidence = normalize_grounding(
+        make_response(
+            Ctx(
+                text="อัตราค่าไฟ tier 1 = 150 บาท",
+                title="tariff-rates-display-name",
+                file_search_store="fileSearchStores/abc123",
+                custom_metadata=corpus_meta("source/อัตราค่าไฟ.docx"),
+            )
+        ),
+        max_results=3,
+    )
+    assert evidence.result_count == 1
+    citation = evidence.citations[0]
+    # stable non-secret provider reference URI, never a fake public web URL
+    assert citation.uri.startswith(PROVIDER_SCHEME)
+    assert not citation.uri.startswith("https://")
+    # corpus_rel_path is the sourceId and the user-visible title
+    assert citation.source_id == "source/อัตราค่าไฟ.docx"
+    assert citation.title == "source/อัตราค่าไฟ.docx"
+    # snippet comes from the retrieved text only
+    assert citation.snippet == "อัตราค่าไฟ tier 1 = 150 บาท"
+    assert citation.page is None
+    assert "source/อัตราค่าไฟ.docx" in evidence.answer_context
+
+
+def test_normalize_provider_uri_percent_encodes_store_and_title() -> None:
+    """Store and title are URL-quoted into the reference URI (no raw separators)."""
+    evidence = normalize_grounding(
+        make_response(
+            Ctx(
+                text="t",
+                title="อัตรา ค่า/ไฟ",
+                file_search_store="fileSearchStores/abc 123",
+            )
+        ),
+        max_results=1,
+    )
+    uri = evidence.citations[0].uri
+    assert uri.startswith(PROVIDER_SCHEME)
+    assert " " not in uri
+    store_part, title_part = uri[len(PROVIDER_SCHEME) :].split("/", 1)
+    assert unquote(store_part) == "fileSearchStores/abc 123"
+    assert unquote(title_part) == "อัตรา ค่า/ไฟ"
+    # the quoted store segment itself carries no raw path separator
+    assert "/" not in store_part
+
+
+def test_normalize_prefers_legacy_uri_when_present() -> None:
+    """A real provider uri is used verbatim even when store/title are also present."""
+    evidence = normalize_grounding(
+        make_response(
+            Ctx(
+                uri="https://pea.example/legacy",
+                text="t",
+                title="display",
+                file_search_store="fileSearchStores/abc123",
+                custom_metadata=corpus_meta("source/เก่า.docx"),
+                document_name="doc/legacy",
+            )
+        ),
+        max_results=1,
+    )
+    citation = evidence.citations[0]
+    assert citation.uri == "https://pea.example/legacy"
+    assert PROVIDER_SCHEME not in citation.uri
+    # legacy document_name still wins as sourceId
+    assert citation.source_id == "doc/legacy"
+
+
+def test_normalize_live_shape_falls_back_to_title_without_custom_metadata() -> None:
+    """Without corpus_rel_path: title is the display name, sourceId the reference URI."""
+    evidence = normalize_grounding(
+        make_response(
+            Ctx(
+                text="t",
+                title="tariff-rates",
+                file_search_store="fileSearchStores/abc123",
+            )
+        ),
+        max_results=1,
+    )
+    citation = evidence.citations[0]
+    assert citation.title == "tariff-rates"
+    assert citation.source_id == citation.uri
+    assert citation.uri.startswith(PROVIDER_SCHEME)
+
+
+def test_normalize_fail_closed_without_uri_store_or_text() -> None:
+    """Chunks lacking uri AND (store + title), or lacking text, stay unusable."""
+    evidence = normalize_grounding(
+        make_response(
+            Ctx(text="t", title="title-only-no-store"),  # no uri, no store
+            Ctx(text="t", file_search_store="fileSearchStores/x"),  # no uri, no title
+            Ctx(  # store + title but no text
+                title="display",
+                file_search_store="fileSearchStores/x",
+                custom_metadata=corpus_meta("source/ดี.docx"),
+            ),
+            Ctx(text="t"),  # nothing usable at all
+            Ctx(
+                text="good",
+                title="display",
+                file_search_store="fileSearchStores/x",
+                custom_metadata=corpus_meta("source/ดี.docx"),
+            ),
+        ),
+        max_results=5,
+    )
+    assert evidence.result_count == 1
+    assert evidence.citations[0].source_id == "source/ดี.docx"
+
+
+def test_normalize_live_shape_dedupes_by_corpus_path() -> None:
+    """Two chunks from the same corpus file collapse into one citation."""
+    live = dict(
+        title="display",
+        file_search_store="fileSearchStores/abc123",
+        custom_metadata=corpus_meta("source/ค่าไฟ.docx"),
+    )
+    evidence = normalize_grounding(
+        make_response(Ctx(text="first", **live), Ctx(text="second", **live)),
+        max_results=5,
+    )
+    assert evidence.result_count == 1
+    assert evidence.citations[0].snippet == "first"
 
 
 # --- search(): configuration, lazy import, provider boundary ----------------

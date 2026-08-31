@@ -463,7 +463,7 @@ class GeminiStoreProvider:
             if time.monotonic() > deadline:
                 raise SyncError("หมดเวลารอให้ผู้ให้บริการอัปโหลดเสร็จ")
             time.sleep(LRO_POLL_SECONDS)
-            operation = client.operations.get(operation=operation.name)
+            operation = client.operations.get(operation)
         return operation
 
 
