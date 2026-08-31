@@ -15,6 +15,16 @@ def _comma_origins(raw: str) -> tuple[str, ...]:
 _SECRET_FIELD_NAMES: frozenset[str] = frozenset({"gemini_api_key", "maxplus_api_key"})
 
 
+@dataclass(frozen=True, slots=True)
+class LLMRuntimeSettings:
+    """การตั้งค่า provider-neutral สำหรับ LLM หนึ่งบทบาท"""
+
+    provider: str = "demo"
+    model: str | None = None
+    api_key: str | None = field(default=None, repr=False)
+    base_url: str | None = None
+
+
 @dataclass(frozen=True)
 class Settings:
     """การตั้งค่า runtime แบบคงที่ซึ่งโหลดจาก environment"""
@@ -26,7 +36,13 @@ class Settings:
             "http://localhost:3000,http://127.0.0.1:3000"
         )
     )
-    llm_adapter_name: str = "demo"
+    main_llm: LLMRuntimeSettings = field(default_factory=LLMRuntimeSettings)
+    knowledge_llm: LLMRuntimeSettings = field(
+        default_factory=lambda: LLMRuntimeSettings(
+            provider="gemini", model="gemini-3.5-flash"
+        )
+    )
+    judge_llm: LLMRuntimeSettings = field(default_factory=LLMRuntimeSettings)
     knowledge_backend_name: str = "full_document"
     knowledge_provider: str = "gemini"
     gemini_api_key: str | None = None
@@ -48,6 +64,59 @@ class Settings:
             value = env.get(key)
             return value if value is not None and value.strip() != "" else None
 
+        gemini_api_key = _get("GEMINI_API_KEY")
+        maxplus_api_key = _get("MAXPLUS_API_KEY")
+        maxplus_base_url = env.get(
+            "MAXPLUS_BASE_URL", "https://api.maxplus-ai.cc/v1"
+        ).rstrip("/")
+        maxplus_model = env.get("MAXPLUS_MODEL", "deepseek-v4-flash-0731")
+        gemini_long_context_model = env.get(
+            "GEMINI_LONG_CONTEXT_MODEL", "gemini-3.5-flash"
+        )
+
+        def _llm_settings(
+            prefix: str,
+            *,
+            default_provider: str = "demo",
+            legacy_provider_key: str | None = None,
+            gemini_model: str = "gemini-2.5-flash",
+        ) -> LLMRuntimeSettings:
+            provider = (
+                _get(f"{prefix}_LLM_PROVIDER")
+                or (_get(legacy_provider_key) if legacy_provider_key else None)
+                or default_provider
+            ).lower()
+            if provider == "gemini":
+                default_model = gemini_model
+                default_key = gemini_api_key
+                default_base_url = None
+            elif provider == "maxplus_openai":
+                default_model = maxplus_model
+                default_key = maxplus_api_key
+                default_base_url = maxplus_base_url
+            else:
+                default_model = None
+                default_key = None
+                default_base_url = None
+            return LLMRuntimeSettings(
+                provider=provider,
+                model=_get(f"{prefix}_LLM_MODEL") or default_model,
+                api_key=_get(f"{prefix}_LLM_API_KEY") or default_key,
+                base_url=(
+                    (_get(f"{prefix}_LLM_BASE_URL") or default_base_url or "").rstrip("/")
+                    or None
+                ),
+            )
+
+        main_llm = _llm_settings("MAIN", legacy_provider_key="LLM_ADAPTER_NAME")
+        knowledge_llm = _llm_settings(
+            "KNOWLEDGE",
+            default_provider="gemini",
+            legacy_provider_key="KNOWLEDGE_PROVIDER",
+            gemini_model=gemini_long_context_model,
+        )
+        judge_llm = _llm_settings("JUDGE")
+
         return cls(
             app_env=env.get("APP_ENV", "development").lower(),
             log_level=env.get("LOG_LEVEL", "info").lower(),
@@ -58,27 +127,30 @@ class Settings:
                     "http://127.0.0.1:3000,http://127.0.0.1:5173",
                 )
             ),
-            llm_adapter_name=env.get("LLM_ADAPTER_NAME", "demo").lower(),
+            main_llm=main_llm,
+            knowledge_llm=knowledge_llm,
+            judge_llm=judge_llm,
             knowledge_backend_name=env.get(
                 "KNOWLEDGE_BACKEND_NAME", "full_document"
             ).lower(),
-            knowledge_provider=env.get("KNOWLEDGE_PROVIDER", "gemini").lower(),
-            gemini_api_key=_get("GEMINI_API_KEY"),
-            maxplus_api_key=_get("MAXPLUS_API_KEY"),
-            maxplus_base_url=env.get(
-                "MAXPLUS_BASE_URL", "https://api.maxplus-ai.cc/v1"
-            ).rstrip("/"),
-            maxplus_model=env.get("MAXPLUS_MODEL", "deepseek-v4-flash-0731"),
+            knowledge_provider=knowledge_llm.provider,
+            gemini_api_key=gemini_api_key,
+            maxplus_api_key=maxplus_api_key,
+            maxplus_base_url=maxplus_base_url,
+            maxplus_model=maxplus_model,
             knowledge_source_root=Path(
                 env.get(
                     "KNOWLEDGE_SOURCE_ROOT",
                     str(Path(__file__).resolve().parents[2] / "knowledge" / "source"),
                 )
             ),
-            gemini_long_context_model=env.get(
-                "GEMINI_LONG_CONTEXT_MODEL", "gemini-3.5-flash"
-            ),
+            gemini_long_context_model=gemini_long_context_model,
         )
+
+    @property
+    def llm_adapter_name(self) -> str:
+        """ชื่อเดิมที่คงไว้เพื่อให้ deployment และ caller เก่ายังทำงานได้"""
+        return self.main_llm.provider
 
     def __repr__(self) -> str:
         # แทนที่ __repr__ ของ dataclass โดยตั้งใจ เพื่อไม่ให้ข้อมูลลับถูกเปิดเผย

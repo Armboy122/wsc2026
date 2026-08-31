@@ -56,6 +56,51 @@ def test_env_override() -> None:
     assert settings.gemini_long_context_model == "gemini-3.6-pro"
 
 
+def test_main_knowledge_and_judge_llm_configs_are_independent() -> None:
+    settings = Settings.from_env(
+        {
+            "MAIN_LLM_PROVIDER": "gemini",
+            "MAIN_LLM_MODEL": "gemini-2.5-flash",
+            "GEMINI_API_KEY": "gemini-secret",
+            "JUDGE_LLM_PROVIDER": "maxplus_openai",
+            "JUDGE_LLM_MODEL": "judge-model",
+            "JUDGE_LLM_API_KEY": "judge-secret",
+            "JUDGE_LLM_BASE_URL": "https://api.maxplus-ai.cc/judge/v1/",
+            "KNOWLEDGE_LLM_PROVIDER": "maxplus_openai",
+            "KNOWLEDGE_LLM_MODEL": "knowledge-model",
+            "KNOWLEDGE_LLM_API_KEY": "knowledge-secret",
+            "KNOWLEDGE_LLM_BASE_URL": "https://api.maxplus-ai.cc/knowledge/v1/",
+        }
+    )
+
+    assert settings.main_llm.provider == "gemini"
+    assert settings.main_llm.model == "gemini-2.5-flash"
+    assert settings.main_llm.api_key == "gemini-secret"
+    assert settings.knowledge_llm.provider == "maxplus_openai"
+    assert settings.knowledge_llm.model == "knowledge-model"
+    assert settings.knowledge_llm.api_key == "knowledge-secret"
+    assert settings.knowledge_llm.base_url == "https://api.maxplus-ai.cc/knowledge/v1"
+    assert settings.judge_llm.provider == "maxplus_openai"
+    assert settings.judge_llm.model == "judge-model"
+    assert settings.judge_llm.api_key == "judge-secret"
+    assert settings.judge_llm.base_url == "https://api.maxplus-ai.cc/judge/v1"
+
+
+def test_legacy_main_llm_environment_is_still_supported() -> None:
+    settings = Settings.from_env(
+        {
+            "LLM_ADAPTER_NAME": "maxplus_openai",
+            "MAXPLUS_API_KEY": "legacy-secret",
+            "MAXPLUS_MODEL": "legacy-model",
+            "MAXPLUS_BASE_URL": "https://api.maxplus-ai.cc/v1",
+        }
+    )
+
+    assert settings.main_llm.provider == "maxplus_openai"
+    assert settings.main_llm.api_key == "legacy-secret"
+    assert settings.main_llm.model == "legacy-model"
+
+
 def test_empty_api_key_is_normalized_to_none() -> None:
     settings = Settings.from_env({"GEMINI_API_KEY": "", "MAXPLUS_API_KEY": "  "})
     assert settings.gemini_api_key is None

@@ -31,9 +31,13 @@ class _ListNamesRegistry:
 def test_runtime_wires_full_document_backend(monkeypatch: pytest.MonkeyPatch) -> None:
     """Importing the application constructs no network client and needs no store name."""
     monkeypatch.setenv("KNOWLEDGE_BACKEND_NAME", "full_document")
+    monkeypatch.setenv("MAIN_LLM_PROVIDER", "demo")
     from app import main
 
+    from app.llm import JudgeLLMClient
+
     assert isinstance(main.knowledge_backend, FullDocumentKnowledgeBackend)
+    assert isinstance(main.judge_llm_client, JudgeLLMClient)
     assert main.settings.knowledge_backend_name == "full_document"
 
 

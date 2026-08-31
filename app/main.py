@@ -20,11 +20,11 @@ from app.backends.full_document_knowledge import (
     SUPPORTED_PROVIDERS,
     FullDocumentKnowledgeBackend,
 )
-from app.core.config import load_settings
+from app.core.config import LLMRuntimeSettings, load_settings
 from app.core.di import adapter_service, agent_service
 from app.core.errors import ConflictException, NotFoundException, platform_exception_handler
 from app.core.startup import create_platform_app, startup_event
-from app.llm import DemoLLMAdapter, LLMClient, MaxPlusDeepSeekAdapter
+from app.llm import JudgeLLMClient, LLMClient, LLMProviderConfig, create_llm_adapter
 from app.tools.knowledge_tool import KnowledgeTool
 from app.tools.oms_tool import OmsTool
 from app.tools.sabuy_tool import SabuyTool
@@ -58,9 +58,16 @@ async def _conflict_handler(
     )
 
 
+def _provider_config(config: LLMRuntimeSettings) -> LLMProviderConfig:
+    return LLMProviderConfig(
+        provider=config.provider,
+        api_key=config.api_key,
+        model=config.model,
+        base_url=config.base_url,
+    )
+
+
 settings = load_settings()
-if settings.llm_adapter_name not in {"demo", "maxplus_openai"}:
-    raise RuntimeError(f"ไม่รองรับ LLM adapter: {settings.llm_adapter_name}")
 if settings.knowledge_backend_name != "full_document":
     raise RuntimeError(
         f"ไม่รองรับ backend ความรู้: {settings.knowledge_backend_name}"
@@ -68,23 +75,16 @@ if settings.knowledge_backend_name != "full_document":
 if settings.knowledge_provider not in SUPPORTED_PROVIDERS:
     raise RuntimeError(f"ไม่รองรับ Knowledge provider: {settings.knowledge_provider}")
 
-_using_maxplus = settings.knowledge_provider == "maxplus_openai"
 knowledge_backend = FullDocumentKnowledgeBackend(
-    api_key=(settings.maxplus_api_key if _using_maxplus else settings.gemini_api_key),
+    api_key=settings.knowledge_llm.api_key,
     source_root=settings.knowledge_source_root,
-    model=(settings.maxplus_model if _using_maxplus else settings.gemini_long_context_model),
-    provider=settings.knowledge_provider,
-    base_url=(settings.maxplus_base_url if _using_maxplus else None),
+    model=settings.knowledge_llm.model,
+    provider=settings.knowledge_llm.provider,
+    base_url=settings.knowledge_llm.base_url,
 )
-llm_adapter = (
-    MaxPlusDeepSeekAdapter(
-        api_key=settings.maxplus_api_key,
-        base_url=settings.maxplus_base_url,
-        model=settings.maxplus_model,
-    )
-    if settings.llm_adapter_name == "maxplus_openai"
-    else DemoLLMAdapter()
-)
+llm_adapter = create_llm_adapter(_provider_config(settings.main_llm))
+judge_llm_adapter = create_llm_adapter(_provider_config(settings.judge_llm))
+judge_llm_client = JudgeLLMClient(judge_llm_adapter)
 tool_registry = ToolRegistry(
     [
         KnowledgeTool(knowledge_backend),

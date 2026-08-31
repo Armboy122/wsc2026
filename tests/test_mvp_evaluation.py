@@ -14,7 +14,9 @@ from fastapi.testclient import TestClient
 
 
 @pytest.fixture
-def client() -> TestClient:
+def client(monkeypatch: pytest.MonkeyPatch) -> TestClient:
+    # ชุดประเมินต้องกำหนดผลได้แน่นอนและห้ามเรียก provider live จาก .env ของผู้พัฒนา
+    monkeypatch.setenv("MAIN_LLM_PROVIDER", "demo")
     from app.main import app  # type: ignore[import-not-found]
 
     return TestClient(app)

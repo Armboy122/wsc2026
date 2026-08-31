@@ -3,6 +3,8 @@
 from app.llm.adapter import LLMAdapter, LLMUnavailableError
 from app.llm.client import JudgeLLMClient, LLMClient
 from app.llm.demo import DemoLLMAdapter
+from app.llm.factory import LLMProviderConfig, create_llm_adapter
+from app.llm.gemini import GeminiLLMAdapter
 from app.llm.maxplus import MaxPlusDeepSeekAdapter
 from app.llm.models import (
     DirectResponseKind,
@@ -17,6 +19,7 @@ from app.llm.scripted import ScriptedLLMAdapter
 __all__ = [
     "DemoLLMAdapter",
     "DirectResponseKind",
+    "GeminiLLMAdapter",
     "JudgeLLMClient",
     "KnowledgeConversationContext",
     "LLMAdapter",
@@ -24,8 +27,10 @@ __all__ = [
     "LLMMessage",
     "LLMRequest",
     "LLMResponse",
+    "LLMProviderConfig",
     "LLMUnavailableError",
     "MaxPlusDeepSeekAdapter",
+    "create_llm_adapter",
     "ScriptedLLMAdapter",
     "ToolDefinition",
 ]

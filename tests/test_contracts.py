@@ -11,7 +11,9 @@ from app.contracts import ToolName
 
 
 @pytest.fixture
-def client() -> TestClient:
+def client(monkeypatch: pytest.MonkeyPatch) -> TestClient:
+    # ตรึง Main Agent เป็น demo ก่อน import เพื่อไม่ให้ .env ของนักพัฒนาเรียก provider จริง
+    monkeypatch.setenv("MAIN_LLM_PROVIDER", "demo")
     # นำเข้า composition root แบบ lazy เพื่อไม่ให้ unit test ของแพลตฟอร์มที่แทนที่
     # DI container ส่วนกลางถูกปนเปื้อนระหว่างการรวบรวม test ของ pytest
     from app.main import app, main_agent

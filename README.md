@@ -2,25 +2,37 @@
 
 ## การติดตั้ง การรัน และการตรวจสอบคุณภาพ
 
-จากไดเรกทอรีรากของ repository ให้ติดตั้งส่วนเสริมสำหรับการพัฒนาและความรู้ กำหนดค่า Knowledge provider โดยไม่แสดงค่าลับ และวาง DOCX ที่ผ่านอนุมัติไว้ใต้ `knowledge/source/` จากนั้นเริ่ม API และเปิด UI:
+จากไดเรกทอรีรากของ repository ให้ติดตั้งส่วนเสริมสำหรับการพัฒนาและความรู้ คัดลอกไฟล์ตั้งค่า วาง DOCX ที่ผ่านอนุมัติไว้ใต้ `knowledge/source/` จากนั้นเริ่ม API และเปิด UI:
 
 ```bash
 python3 -m pip install -e ".[dev,knowledge]"
-read -rsp "Gemini API key: " GEMINI_API_KEY; echo; export GEMINI_API_KEY
-export KNOWLEDGE_SOURCE_ROOT="$PWD/knowledge/source"
-export GEMINI_LONG_CONTEXT_MODEL="gemini-3.5-flash"
+cp .env.example .env
+# แก้ค่า provider/model/key ใน .env โดยห้าม commit ค่าลับ
 python3 -m uvicorn app.main:app --reload
 open http://127.0.0.1:8000
 ```
 
-หากต้องการทดสอบ MaxPlus ผ่าน OpenAI-compatible Chat Completions ให้ตั้ง base URL ให้ตรงกับ pool ของ key เช่น Native (`/v1`) หรือ GPT Lite (`/gpt-lite/v1`):
+Main Agent, Knowledge และ Judge เลือก provider/model แยกกันได้จาก `.env` ไฟล์เดียว โดย Main Agent รองรับ `demo`, `gemini` และ `maxplus_openai` ผ่าน adapter factory กลาง ส่วน Judge ถูกสร้างผ่าน factory เดียวกันและพร้อมส่งให้ integration ของกรรมการภายหลัง:
 
-```bash
-export KNOWLEDGE_PROVIDER="maxplus_openai"
-read -rsp "MaxPlus API key: " MAXPLUS_API_KEY; echo; export MAXPLUS_API_KEY
-export MAXPLUS_BASE_URL="https://api.maxplus-ai.cc/v1"
-export MAXPLUS_MODEL="gpt-5.4-mini"
-python3 -m uvicorn app.main:app --reload
+```dotenv
+MAIN_LLM_PROVIDER=gemini
+MAIN_LLM_MODEL=gemini-2.5-flash
+
+KNOWLEDGE_LLM_PROVIDER=gemini
+KNOWLEDGE_LLM_MODEL=gemini-3.5-flash
+GEMINI_API_KEY=your-google-ai-key
+
+JUDGE_LLM_PROVIDER=demo
+```
+
+ถ้าเลือก `maxplus_openai` และไม่กำหนด `MAIN_LLM_MODEL`, `MAIN_LLM_API_KEY` หรือ `MAIN_LLM_BASE_URL` ระบบจะใช้ `MAXPLUS_MODEL`, `MAXPLUS_API_KEY` และ `MAXPLUS_BASE_URL` ตามลำดับ ทำให้เปลี่ยนโมเดล MaxPlus ที่ใช้ร่วมกันได้จุดเดียว:
+
+```dotenv
+MAIN_LLM_PROVIDER=maxplus_openai
+KNOWLEDGE_LLM_PROVIDER=maxplus_openai
+MAXPLUS_API_KEY=your-ccsk-key
+MAXPLUS_BASE_URL=https://api.maxplus-ai.cc/v1
+MAXPLUS_MODEL=deepseek-v4-flash-0731
 ```
 
 ห้ามใช้ `ccmk-…` management token กับ inference; runtime ต้องใช้ `ccsk-…` key ที่ผูกกับ pool ของ model เท่านั้น
