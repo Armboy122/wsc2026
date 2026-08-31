@@ -45,8 +45,12 @@ with a path-hash suffix, and the original UTF-8 path is carried in
 ``custom_metadata`` (JSON request body, never a header) when it fits the
 conservative value budget. The local manifest always keeps the exact UTF-8
 corpus-relative path as its key, so the original path remains available even
-for paths too long for metadata. The ``google-genai`` SDK is imported lazily,
-so ``--dry-run`` works without the SDK installed.
+for paths too long for metadata. Long-running uploads are polled by handing
+the operation object itself to ``client.operations.get`` — the SDK's real
+signature is ``get(operation: T, *, config=None)`` and it reads
+``operation.name`` from that object — until the operation reports done. The
+``google-genai`` SDK is imported lazily, so ``--dry-run`` works without the
+SDK installed.
 """
 
 from __future__ import annotations
@@ -460,6 +464,17 @@ class GeminiStoreProvider:
         client.file_search_stores.documents.delete(name=document_name)
 
     def _wait_for_operation(self, client, operation) -> object:
+        """Poll a long-running operation until it reports done.
+
+        google-genai's ``Operations.get`` signature is
+        ``get(self, operation: T, *, config=None)`` — it reads
+        ``operation.name`` from the passed object — so the operation object
+        itself must be handed back on every poll (as in the official
+        example). Passing ``operation.name`` (a string) crashes inside the
+        SDK with AttributeError: 'str' object has no attribute 'name'.
+        Timeout, sleep cadence, and error semantics are unchanged: the
+        caller inspects ``operation.error`` on the returned object.
+        """
         if operation.done:
             return operation
         deadline = time.monotonic() + LRO_TIMEOUT_SECONDS
@@ -467,7 +482,7 @@ class GeminiStoreProvider:
             if time.monotonic() > deadline:
                 raise SyncError("timed out waiting for the provider upload to finish")
             time.sleep(LRO_POLL_SECONDS)
-            operation = client.operations.get(operation=operation.name)
+            operation = client.operations.get(operation)
         return operation
 
 

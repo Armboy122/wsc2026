@@ -540,6 +540,176 @@ def test_manifest_keeps_original_utf8_path_for_thai_source(tmp_path) -> None:
     assert manifest["files"][THAI_REL]["documentName"]
 
 
+# --- LRO polling seam: operations.get compatibility ---------------------------
+#
+# Live repro 3 (google-genai 1.75): the upload itself succeeded (Unicode
+# header and MIME initiation fixed) but polling crashed inside the SDK with
+# AttributeError: 'str' object has no attribute 'name'. The real signature is
+# Operations.get(self, operation: T, *, config=None): it reads
+# ``operation.name`` from the passed object, and the official example polls
+# with ``client.operations.get(operation)``. Passing ``operation.name`` (a
+# string) is therefore wrong. The fake below mirrors the SDK's attribute
+# access so the contract is pinned: every poll must receive the operation
+# object itself (identity/chaining), never its name string, and the existing
+# timeout/sleep/error semantics must survive.
+
+class FakeOperation:
+    """Stand-in for a google-genai long-running operation object."""
+
+    def __init__(self, *, done: bool, error: dict | None = None, response=None):
+        self.name = "fileSearchStores/test/operations/op-live"
+        self.done = done
+        self.error = error
+        self.response = response
+
+
+class FakeClock:
+    """Deterministic time source so LRO polling never sleeps in real time."""
+
+    def __init__(self) -> None:
+        self.now = 0.0
+        self.sleeps: list[float] = []
+
+    def monotonic(self) -> float:
+        return self.now
+
+    def sleep(self, seconds: float) -> None:
+        self.sleeps.append(seconds)
+        self.now += seconds
+
+
+def install_fake_genai_lro(monkeypatch, poll_operations) -> dict:
+    """Fake SDK whose upload returns an unfinished operation.
+
+    ``poll_operations`` is an iterable of the operations returned by
+    successive ``client.operations.get`` calls. The fake records every
+    argument passed to ``get`` and mirrors the real SDK's ``operation.name``
+    access, so a string argument crashes exactly like google-genai 1.75.
+    """
+    captured: dict = {"get_args": [], "get_kwargs": [], "upload_kwargs": {}}
+    clock = FakeClock()
+    pending = FakeOperation(done=False)
+    polls = iter(poll_operations)
+
+    class FakeOperations:
+        def get(self, operation, **kwargs):
+            captured["get_args"].append(operation)
+            captured["get_kwargs"].append(kwargs)
+            # The real SDK reads operation.name first; a string crashes
+            # here with AttributeError, reproducing the live failure.
+            if not operation.name:
+                raise ValueError("Operation name is empty.")
+            return next(polls)
+
+    class FakeStores:
+        def upload_to_file_search_store(self, **kwargs):
+            captured["upload_kwargs"] = kwargs
+            return pending
+
+    class FakeClient:
+        def __init__(self, **kwargs):
+            self.file_search_stores = FakeStores()
+            self.operations = FakeOperations()
+
+    fake_genai = types.ModuleType("google.genai")
+    fake_genai.Client = FakeClient
+    fake_genai.types = types.SimpleNamespace(
+        UploadToFileSearchStoreConfig=lambda **kw: dict(kw),
+        CustomMetadata=lambda **kw: dict(kw),
+    )
+    monkeypatch.setattr(sync_mod, "_import_genai", lambda: fake_genai)
+    monkeypatch.setattr(sync_mod.time, "monotonic", clock.monotonic)
+    monkeypatch.setattr(sync_mod.time, "sleep", clock.sleep)
+    captured["clock"] = clock
+    captured["pending"] = pending
+    return captured
+
+
+def test_poll_passes_operation_object_not_name_string(monkeypatch, tmp_path) -> None:
+    # The poll must receive the operation object itself (identity), never the
+    # name string that crashed google-genai 1.75 inside Operations.get.
+    done_op = FakeOperation(
+        done=True,
+        response=types.SimpleNamespace(
+            document_name="fileSearchStores/test/documents/doc-live"
+        ),
+    )
+    captured = install_fake_genai_lro(monkeypatch, [done_op])
+    provider = sync_mod.GeminiStoreProvider("fileSearchStores/test", "k")
+    document_name = provider.upload(make_doc(tmp_path, THAI_REL), THAI_REL)
+    assert document_name == "fileSearchStores/test/documents/doc-live"
+    assert len(captured["get_args"]) == 1
+    polled = captured["get_args"][0]
+    assert not isinstance(polled, str)  # never the name string
+    assert polled is captured["pending"]  # the exact operation object
+    assert captured["get_kwargs"] == [{}]  # no extra config needed
+    assert not Path(captured["upload_kwargs"]["file"]).exists()
+
+
+def test_poll_keeps_latest_object_until_done(monkeypatch, tmp_path) -> None:
+    # Polling continues until done, always handing the latest object over.
+    first = FakeOperation(done=False)
+    second = FakeOperation(done=False)
+    final = FakeOperation(
+        done=True,
+        response=types.SimpleNamespace(
+            document_name="fileSearchStores/test/documents/doc-live"
+        ),
+    )
+    captured = install_fake_genai_lro(monkeypatch, [first, second, final])
+    provider = sync_mod.GeminiStoreProvider("fileSearchStores/test", "k")
+    assert (
+        provider.upload(make_doc(tmp_path, THAI_REL), THAI_REL)
+        == "fileSearchStores/test/documents/doc-live"
+    )
+    assert captured["get_args"] == [captured["pending"], first, second]
+    assert captured["clock"].sleeps == [sync_mod.LRO_POLL_SECONDS] * 3
+
+
+def test_poll_timeout_semantics_preserved(monkeypatch, tmp_path) -> None:
+    # An operation that never finishes must still fail closed with the same
+    # user-safe timeout message after the same deadline/sleep cadence.
+    never_done = (FakeOperation(done=False) for _ in range(10_000))
+    captured = install_fake_genai_lro(monkeypatch, never_done)
+    provider = sync_mod.GeminiStoreProvider("fileSearchStores/test", "k")
+    with pytest.raises(
+        sync_mod.SyncError,
+        match="timed out waiting for the provider upload to finish",
+    ):
+        provider.upload(make_doc(tmp_path, THAI_REL), THAI_REL)
+    clock = captured["clock"]
+    assert clock.now > sync_mod.LRO_TIMEOUT_SECONDS
+    assert set(clock.sleeps) == {sync_mod.LRO_POLL_SECONDS}
+    assert (
+        len(clock.sleeps)
+        == sync_mod.LRO_TIMEOUT_SECONDS / sync_mod.LRO_POLL_SECONDS + 1
+    )
+    assert all(not isinstance(op, str) for op in captured["get_args"])
+    assert not Path(captured["upload_kwargs"]["file"]).exists()
+
+
+def test_poll_surfaces_provider_error_without_detail_leak(monkeypatch, tmp_path) -> None:
+    # A provider error that arrives via polling must raise the same
+    # user-safe SyncError (status + code only, no raw provider detail).
+    errored = FakeOperation(
+        done=True,
+        error={
+            "status": "INVALID_ARGUMENT",
+            "code": 400,
+            "message": "internal provider detail",
+        },
+    )
+    captured = install_fake_genai_lro(monkeypatch, [errored])
+    provider = sync_mod.GeminiStoreProvider("fileSearchStores/test", "k")
+    with pytest.raises(sync_mod.SyncError) as excinfo:
+        provider.upload(make_doc(tmp_path, THAI_REL), THAI_REL)
+    message = str(excinfo.value)
+    assert "INVALID_ARGUMENT" in message
+    assert "400" in message
+    assert "internal provider detail" not in message  # user-safe message only
+    assert not Path(captured["upload_kwargs"]["file"]).exists()
+
+
 # --- ascii_display_name (pure helper) -----------------------------------------
 
 def test_ascii_display_name_pure_ascii_passes_through() -> None:
