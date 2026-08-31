@@ -423,6 +423,29 @@ async def test_json_planner_can_request_a_static_clarification() -> None:
 
 
 @pytest.mark.asyncio
+async def test_provider_failure_during_voc_intake_keeps_the_clarification_flow() -> None:
+    from app.llm import DirectResponseKind, LLMResponse, ScriptedLLMAdapter
+
+    adapter = ScriptedLLMAdapter(
+        [LLMResponse(direct_response=DirectResponseKind.VOC_DETAILS)]
+    )
+    agent = MainAgent(LLMClient(adapter), _registry())
+    first = await agent.handle_chat(ChatRequest(message="ร้องเรียนการบริการหน่อย"))
+
+    second = await agent.handle_chat(
+        ChatRequest(
+            conversationId=first.conversation_id,
+            message="ไฟดับบ่อยมากที่บ้านฉัน",
+        )
+    )
+
+    assert "บริการผู้ช่วยไม่พร้อมใช้งาน" not in second.message
+    assert "subject:" in second.message
+    assert "detail:" in second.message
+    assert second.tool_results == ()
+
+
+@pytest.mark.asyncio
 async def test_invalid_direct_response_kind_fails_closed() -> None:
     from app.llm import LLMResponse, ScriptedLLMAdapter
 

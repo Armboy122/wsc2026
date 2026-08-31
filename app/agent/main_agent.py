@@ -48,11 +48,18 @@ _SUBMIT_ACTIONS = frozenset({
     ToolAction.VOC_SUBMIT_CASE,
     ToolAction.OMS_SUBMIT_OUTAGE_REPORT,
 })
+_VOC_DIRECT_RESPONSES = frozenset({
+    DirectResponseKind.VOC_DETAILS,
+    DirectResponseKind.VOC_CONTACT_NAME,
+    DirectResponseKind.VOC_CONTACT_PHONE,
+    DirectResponseKind.VOC_LOCATION,
+    DirectResponseKind.VOC_TRACKING_INPUTS,
+})
 _TOOL_CATALOGUE = (
     ToolDefinition(ToolName.KNOWLEDGE, "ตอบความรู้ PEA จากข้อความฉบับเต็มของไฟล์ที่เลือก", ("search",)),
-    ToolDefinition(ToolName.SABUY, "อ่านข้อมูลบัญชีหรือเตรียมการชำระเงิน", ("get_account_summary", "prepare_payment")),
+    # ToolDefinition(ToolName.SABUY, "อ่านข้อมูลบัญชีหรือเตรียมการชำระเงิน", ("get_account_summary", "prepare_payment")),
     ToolDefinition(ToolName.VOC, "แสดง 6 หมวด VOC ของ PEA: ปัญหาคุณภาพไฟฟ้า บริการ ชื่นชม เบาะแส ปัญหาการดำเนินงาน และข้อคิดเห็นผู้มีส่วนได้ส่วนเสีย เตรียมเคส หรือติดตามเรื่องด้วย vocId และ trackingKey", ("list_categories", "prepare_case", "get_case")),
-    ToolDefinition(ToolName.OMS, "อ่านสถานะไฟฟ้าขัดข้องหรือเตรียมรายงานไฟฟ้าขัดข้อง", ("get_outage_status", "prepare_outage_report")),
+    # ToolDefinition(ToolName.OMS, "อ่านสถานะไฟฟ้าขัดข้องหรือเตรียมรายงานไฟฟ้าขัดข้อง", ("get_outage_status", "prepare_outage_report")),
 )
 _SAFE_PREVIEW_FIELDS = frozenset({"accountRef", "amountThb", "paymentMethod", "category", "contactChannel", "areaCode", "contactName", "contactPhone", "location"})
 _MULTI_PREPARE_MESSAGE = "ไม่สามารถเตรียมรายการที่เสนอมากกว่าหนึ่งรายการในแชตเดียวได้อย่างปลอดภัย กรุณาส่งคำขอทีละรายการครับ"
@@ -110,6 +117,7 @@ class MainAgent:
         self._call_inputs: dict[UUID, dict[str, Any]] = {}
         self._confirmation_tasks: dict[UUID, asyncio.Task[ActionDecisionResponse]] = {}
         self._knowledge_contexts: dict[UUID, KnowledgeConversationContext] = {}
+        self._direct_response_contexts: dict[UUID, DirectResponseKind] = {}
         self._reset_generation = 0
 
     async def handle_chat(self, request: ChatRequest) -> ChatResponse:
@@ -121,6 +129,7 @@ class MainAgent:
         final_text = ""
         direct_completion_text: str | None = None
         direct_response_kind: DirectResponseKind | None = None
+        active_direct_response = self._direct_response_contexts.get(conversation_id)
 
         for _ in range(_MAX_TOOL_STEPS + 1):
             self._traces.append(trace_id, TraceEventKind.LLM_REQUESTED, {"messageCount": len(history), "toolCount": 4})
@@ -135,7 +144,11 @@ class MainAgent:
                 )
             except Exception as error:
                 self._traces.append(trace_id, TraceEventKind.ERROR, {"stage": "llm", "type": type(error).__name__})
-                final_text = "ขณะนี้ไม่สามารถดำเนินการตามคำขอได้ เนื่องจากบริการผู้ช่วยไม่พร้อมใช้งานครับ"
+                final_text = (
+                    _DIRECT_RESPONSE_MESSAGES[active_direct_response]
+                    if active_direct_response in _VOC_DIRECT_RESPONSES
+                    else "ขณะนี้ไม่สามารถดำเนินการตามคำขอได้ เนื่องจากบริการผู้ช่วยไม่พร้อมใช้งานครับ"
+                )
                 break
 
             calls, planner_text, parsed_direct_response = _calls_from_response(response)
@@ -176,6 +189,10 @@ class MainAgent:
             final_text = _safe_direct_message(request.message, direct_completion_text, direct_response=direct_response_kind)
             if final_text == _FINAL_ONLY_MESSAGE:
                 self._traces.append(trace_id, TraceEventKind.ERROR, {"stage": "output_policy", "policy": "final_only"})
+        if direct_response_kind in _VOC_DIRECT_RESPONSES:
+            self._direct_response_contexts[conversation_id] = direct_response_kind
+        elif all_results or direct_completion_text is not None:
+            self._direct_response_contexts.pop(conversation_id, None)
         message = _authoritative_message(final_text, all_results, pending)
         self._conversations.append(conversation_id, LLMMessage("user", request.message))
         knowledge_context = next(
@@ -267,6 +284,7 @@ class MainAgent:
         self._traces.clear()
         self._call_inputs.clear()
         self._knowledge_contexts.clear()
+        self._direct_response_contexts.clear()
         return ResetResponse()
 
     async def _execute_chat_call(self, call: ToolCall, conversation_id: UUID, trace_id: UUID) -> ToolResult:
