@@ -31,8 +31,17 @@ Flags:
     --verbose   per-file progress output
 
 Provider defaults: chunking uses the provider default (no chunking
-configuration is ever sent). The ``google-genai`` SDK is imported lazily, so
-``--dry-run`` works without the SDK installed.
+configuration is ever sent). Unicode safety: non-ASCII source names (e.g.
+Thai) never reach an HTTP header — the source is streamed as a binary
+handle with an explicit MIME type (the SDK would otherwise copy the local
+basename into the ASCII-only ``X-Goog-Upload-File-Name`` header), the
+remote display name is a deterministic ASCII-safe form of the corpus-
+relative path with a path-hash suffix, and the original UTF-8 path is
+carried in ``custom_metadata`` (JSON request body, never a header) when it
+fits the conservative value budget. The local manifest always keeps the
+exact UTF-8 corpus-relative path as its key, so the original path remains
+available even for paths too long for metadata. The ``google-genai`` SDK is
+imported lazily, so ``--dry-run`` works without the SDK installed.
 """
 
 from __future__ import annotations
@@ -40,7 +49,9 @@ from __future__ import annotations
 import argparse
 import hashlib
 import json
+import mimetypes
 import os
+import re
 import sys
 import time
 from dataclasses import dataclass
@@ -69,6 +80,75 @@ EXCLUDED_FILENAMES = {MANIFEST_NAME, "readme.md"}
 LRO_POLL_SECONDS = 0.5
 LRO_TIMEOUT_SECONDS = 120.0
 SHA256_CHUNK_SIZE = 1024 * 1024
+
+# Remote display-name budget. The provider allows 512 characters; 200 keeps
+# names comfortably ASCII-safe and comparable in listings.
+DISPLAY_NAME_MAX_LENGTH = 200
+# Hex digits of the SHA256 of the original UTF-8 path appended to every
+# non-ASCII display name so distinct paths can never collide.
+DISPLAY_NAME_HASH_LENGTH = 12
+# custom_metadata key carrying the exact corpus-relative path (JSON body).
+CUSTOM_METADATA_PATH_KEY = "corpus_rel_path"
+# Conservative UTF-8 byte budget for a custom-metadata string value; the
+# provider does not document a limit, so longer paths rely on the manifest.
+CUSTOM_METADATA_MAX_VALUE_BYTES = 256
+
+
+def _is_ascii_printable(char: str) -> bool:
+    return 0x20 <= ord(char) <= 0x7E
+
+
+def ascii_display_name(rel_path: str) -> str:
+    """Deterministic ASCII-safe remote display name for a corpus-relative path.
+
+    Pure-ASCII printable paths within the length budget pass through
+    unchanged, so names of already-synced documents stay stable across runs.
+    Any other path (e.g. Thai file names, which crash httpx when they leak
+    into ASCII-only headers) is reduced to its printable-ASCII skeleton —
+    runs of non-ASCII characters collapse to a single ``_`` — and the first
+    ``DISPLAY_NAME_HASH_LENGTH`` hex digits of the SHA256 of the original
+    UTF-8 path are appended before the extension. The path hash guarantees
+    two distinct paths never collide even when their ASCII skeletons are
+    identical, while the recognizable ASCII stem and extension are kept
+    where possible. The result is always ASCII and at most
+    ``DISPLAY_NAME_MAX_LENGTH`` characters long.
+    """
+    if (
+        rel_path
+        and len(rel_path) <= DISPLAY_NAME_MAX_LENGTH
+        and all(_is_ascii_printable(char) for char in rel_path)
+    ):
+        return rel_path
+    digest = hashlib.sha256(rel_path.encode("utf-8")).hexdigest()[:DISPLAY_NAME_HASH_LENGTH]
+    skeleton = re.sub(
+        r"_+", "_", "".join(char if _is_ascii_printable(char) else "_" for char in rel_path)
+    )
+    stem, ext = os.path.splitext(skeleton)
+    stem = stem.rstrip(" _") or "file"
+    if stem.endswith("/"):
+        stem += "file"
+    budget = max(DISPLAY_NAME_MAX_LENGTH - len(ext) - len(digest) - 1, len("file"))
+    return f"{stem[:budget]}-{digest}{ext}"
+
+
+def _mime_type_for(rel_path: str) -> str:
+    """MIME type from the (ASCII) file extension; never inferred from a path
+    the SDK would echo into a header."""
+    guessed, _ = mimetypes.guess_type(rel_path)
+    return guessed or "application/octet-stream"
+
+
+def _custom_metadata(genai, rel_path: str) -> list | None:
+    """Original UTF-8 path as remote metadata, when it fits the budget.
+
+    ``custom_metadata`` is serialized into the JSON request body — never an
+    ASCII-only header — so the exact corpus-relative path survives. Paths
+    beyond the conservative value budget are not faked or truncated remotely;
+    the local manifest remains the authoritative record for every path.
+    """
+    if len(rel_path.encode("utf-8")) > CUSTOM_METADATA_MAX_VALUE_BYTES:
+        return None
+    return [genai.types.CustomMetadata(key=CUSTOM_METADATA_PATH_KEY, string_value=rel_path)]
 
 
 class SyncError(Exception):
@@ -283,15 +363,32 @@ class GeminiStoreProvider:
     def upload(self, local_path: Path, rel_path: str) -> str:
         """Upload one source; returns the remote document name.
 
+        Unicode safety (live repro: Thai names crashed httpx while
+        ASCII-encoding headers): the source is streamed as a binary handle
+        with an explicit MIME type, because the SDK echoes a path argument's
+        basename into the ASCII-only ``X-Goog-Upload-File-Name`` header. The
+        display name is the deterministic ASCII-safe form of the corpus-
+        relative path (:func:`ascii_display_name`), and the original UTF-8
+        path travels in ``custom_metadata`` — the JSON request body, never a
+        header — when it fits the value budget; the local manifest always
+        keeps the exact path as its key regardless.
         No chunking configuration is sent — provider default chunking applies.
         """
         genai = _import_genai()
         client = genai.Client(api_key=self._api_key)
-        operation = client.file_search_stores.upload_to_file_search_store(
-            file_search_store_name=self._store_name,
-            file=local_path,
-            config=genai.types.UploadToFileSearchStoreConfig(display_name=rel_path),
-        )
+        config_kwargs: dict = {
+            "display_name": ascii_display_name(rel_path),
+            "mime_type": _mime_type_for(rel_path),
+        }
+        metadata = _custom_metadata(genai, rel_path)
+        if metadata is not None:
+            config_kwargs["custom_metadata"] = metadata
+        with local_path.open("rb") as handle:
+            operation = client.file_search_stores.upload_to_file_search_store(
+                file_search_store_name=self._store_name,
+                file=handle,
+                config=genai.types.UploadToFileSearchStoreConfig(**config_kwargs),
+            )
         operation = self._wait_for_operation(client, operation)
         if operation.error:
             raise SyncError(
