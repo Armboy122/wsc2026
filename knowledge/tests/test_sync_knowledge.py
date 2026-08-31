@@ -5,7 +5,8 @@ The fail-closed source policy under test: only files under
 ``<repo>/knowledge`` so the default run covers exactly ``knowledge/source/**``
 with the manifest at ``knowledge/manifest.json``. README/metadata files,
 sample docs, hidden files, and the manifest are never uploaded, at any depth.
-The repository intentionally ships no PEA content in ``source/``.
+Tests must not depend on the shipped corpus contents: empty-corpus behavior is
+exercised against tmp_path corpora, never against ``DEFAULT_CORPUS_ROOT``.
 """
 
 from __future__ import annotations
@@ -68,8 +69,10 @@ def test_default_root_and_manifest_point_at_knowledge_tree() -> None:
     assert sync_mod.DEFAULT_CORPUS_ROOT == REPO_ROOT / "knowledge"
     assert sync_mod.DEFAULT_CORPUS_ROOT / sync_mod.MANIFEST_NAME == REPO_ROOT / "knowledge" / "manifest.json"
     assert (sync_mod.DEFAULT_CORPUS_ROOT / sync_mod.SOURCE_DIR_NAME).is_dir()
-    # The shipped corpus carries no uploadable sources (placeholder only).
-    assert sync_mod.discover_sources(sync_mod.DEFAULT_CORPUS_ROOT) == []
+    # Corpus-state independent: the shipped source/ may hold approved exports
+    # or only placeholders; discovery must never reach outside source/**.
+    for source in sync_mod.discover_sources(sync_mod.DEFAULT_CORPUS_ROOT):
+        assert source.rel_path.startswith(sync_mod.SOURCE_DIR_NAME + "/")
 
 
 # --- discovery ---------------------------------------------------------------
@@ -219,13 +222,16 @@ def test_up_to_date_does_nothing_and_needs_no_provider(tmp_path, capsys) -> None
     assert manifest_path.read_text() == before
 
 
-def test_default_repo_run_uploads_nothing(capsys) -> None:
-    # The shipped repository carries no approved exports: a default run
-    # (no --root) must upload nothing and write no manifest.
-    manifest_path = sync_mod.DEFAULT_CORPUS_ROOT / sync_mod.MANIFEST_NAME
+def test_empty_source_corpus_uploads_nothing_and_writes_no_manifest(tmp_path, capsys) -> None:
+    # A corpus whose source/ holds only the excluded placeholder README has no
+    # syncable files: the run must upload nothing and write no manifest. This
+    # uses tmp_path instead of DEFAULT_CORPUS_ROOT so the result is independent
+    # of whatever approved exports the repository currently ships in source/.
+    make_corpus(tmp_path, {"source/README.md": "placeholder"})
+    manifest_path = tmp_path / sync_mod.MANIFEST_NAME
     assert not manifest_path.exists()
     provider = FakeProvider()
-    code = sync_mod.run_sync(sync_mod.parse_args([]), provider=provider)
+    code = sync_mod.run_sync(args_for(tmp_path), provider=provider)
     out = capsys.readouterr().out
     assert code == 0
     assert "up to date" in out
