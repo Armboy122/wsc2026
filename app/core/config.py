@@ -55,6 +55,8 @@ class Settings:
         / "source"
     )
     gemini_long_context_model: str = "gemini-3.5-flash-lite"
+    live_model: str = "gemini-3.1-flash-live-preview"
+    live_voice: str = "Puck"
 
     @classmethod
     def from_env(cls, environ: dict[str, str] | None = None) -> Settings:
@@ -73,6 +75,8 @@ class Settings:
         gemini_long_context_model = env.get(
             "GEMINI_LONG_CONTEXT_MODEL", "gemini-3.5-flash-lite"
         )
+        live_model = env.get("GEMINI_LIVE_MODEL", "gemini-3.1-flash-live-preview")
+        live_voice = env.get("GEMINI_LIVE_VOICE", "Puck")
 
         def _llm_settings(
             prefix: str,
@@ -145,6 +149,8 @@ class Settings:
                 )
             ),
             gemini_long_context_model=gemini_long_context_model,
+            live_model=live_model,
+            live_voice=live_voice,
         )
 
     @property

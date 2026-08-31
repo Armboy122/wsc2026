@@ -231,6 +231,7 @@ button { font: inherit; color: inherit; }
   transition: background 0.15s ease, border-color 0.15s ease;
 }
 .ghost-btn:hover { background: rgba(255, 255, 255, 0.16); border-color: rgba(255, 255, 255, 0.6); }
+.ghost-btn[aria-pressed="true"] { background: var(--violet-600); border-color: #fff; }
 
 .ghost-btn.light {
   color: var(--ink-800);
@@ -734,6 +735,20 @@ button { font: inherit; color: inherit; }
 }
 #message-input::placeholder { color: var(--text-400); }
 
+.voice-btn {
+  flex: none; width: var(--tap); height: var(--tap); border-radius: 14px;
+  border: 1px solid var(--line-strong); background: var(--violet-000);
+  color: var(--violet-700); cursor: pointer;
+}
+.voice-btn[aria-pressed="true"] { background: var(--violet-600); color: #fff; }
+.voice-btn.voice-speaking { animation: sim-pulse 1.2s ease-in-out infinite; }
+.voice-status {
+  margin: 0.35rem 0 0;
+  color: var(--violet-700);
+  font-size: 0.78rem;
+  font-weight: 600;
+}
+
 .send-btn {
   flex: none;
   display: grid;
@@ -950,6 +965,10 @@ button { font: inherit; color: inherit; }
   border-top: 1px solid var(--line);
   padding-top: 0.6rem;
 }
+
+/* ---------- โหมดเสียง ---------- */
+.voice-transcript .bubble { border-left: 3px solid var(--amber-dot); }
+.voice-transcript[data-final="false"] .bubble { color: var(--text-600); font-style: italic; }
 
 /* ---------- การตอบสนองตามขนาดหน้าจอ ---------- */
 @media (min-width: 640px) {

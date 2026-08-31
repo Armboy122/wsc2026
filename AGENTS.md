@@ -22,9 +22,10 @@ Security, customer data, critical API contracts, and write-operation safety are 
 
 1. Read the relevant code and nearby tests before changing it.
 2. Identify the critical user path and the smallest set of files required.
-3. Read `ARCHITECTURE.md` when changing module boundaries, agent/tool orchestration, knowledge flow, or ownership boundaries.
-4. Read `CONTRACTS.md` and `app/contracts.py` when changing routes, schemas, tool actions, pending actions, traces, or public behavior.
-5. Read the relevant prompt and provider adapter when changing model behavior; verify which prompt is loaded at runtime rather than assuming every Markdown prompt is active.
+3. Read `PRD.md` when changing product behavior, user journeys, feature scope, priorities, acceptance criteria, or presentation claims.
+4. Read `ARCHITECTURE.md` when changing module boundaries, agent/tool orchestration, knowledge flow, or ownership boundaries.
+5. Read `CONTRACTS.md` and `app/contracts.py` when changing routes, schemas, tool actions, pending actions, traces, or public behavior.
+6. Read the relevant prompt and provider adapter when changing model behavior; verify which prompt is loaded at runtime rather than assuming every Markdown prompt is active.
 
 Do not rewrite working code without a requirement or a demonstrated problem.
 

@@ -106,6 +106,64 @@
 
 ห้ามเปิดเผย credential, URL ของ endpoint, หมายเลขบัญชี หรือข้อมูลลูกค้า
 
+## ช่องเสียง `/ws/live` (ส่วนเพิ่มเติม — ไม่เปลี่ยนสัญญา HTTP)
+
+ช่องเสียงเป็นสัญญาเพิ่มเติมสำหรับ Voice Mode (Gemini Live) สัญญา HTTP v1
+ข้างต้นยังคงเป็น frozen ตามเดิม: ฟิลด์ camelCase, state machine, idempotency,
+trace และ redaction ทั้งหมดไม่เปลี่ยนแปลง ช่องเสียงเป็นเพียงช่องทางขนส่งเพิ่มเติม
+ที่ส่งต่อข้อความและคำตัดสินไปยัง Main Agent เดิมผ่าน `VoiceBridge`
+
+### จุดเชื่อมต่อ
+
+- `WS /ws/live` (same-origin; browser → FastAPI → Gemini Live) หนึ่งเซสชัน
+  WebSocket เป็นเจ้าของ Gemini session, `VoiceBridge`, audio queue และ
+  `conversationId` หนึ่งชุด
+- หากไม่ตั้ง `GEMINI_API_KEY` เซิร์ฟเวอร์ตอบ `{"type":"error"}` แล้วปิดด้วย code 1011
+- ไมโครโฟนของเบราว์เซอร์: **PCM16 little-endian 16kHz mono** ส่งเป็น binary frame
+- เสียงตอบกลับ: **PCM16 24kHz mono** ส่งเป็น binary frame; เล่นแบบต่อเนื่อง
+  (gap-free scheduling) และ flush ทันทีเมื่อได้รับ `audio.interrupted`
+
+### Event JSON จากเซิร์ฟเวอร์
+
+| `type` | ความหมาย |
+|---|---|
+| `session.ready` | Gemini session เชื่อมต่อพร้อมแล้ว |
+| `transcript.user` | ถอดเสียงผู้ใช้ (fields: `role=user`, `text`, `final`) |
+| `transcript.assistant` | ถอดเสียงผู้ช่วย (fields: `role=assistant`, `text`, `final`) |
+| `agent.response` | ผลลัพธ์จาก bridge: `{ "operation": "chat" \| "confirm" \| "reject" \| "unknown", "response": {...} }` |
+| `audio.interrupted` | ผู้ใช้พูดแทรก — ให้ล้างคิวเสียงตอบที่เหลือ |
+| `turn.complete` | รอบการตอบจบแล้ว |
+| `error` | ข้อผิดพลาดปลอดภัยต่อผู้ใช้: `{ "type": "error", "message": "..." }` |
+
+`agent.response.response` เป็นผลลัพธ์ camelCase JSON เดียวกับสัญญา HTTP:
+`operation=chat` คืนรูป `ChatResponse` (`conversationId`, `traceId`, `message`,
+`citations`, `pendingAction`, `toolResults`) ส่วน `operation=confirm/reject` คืนรูป
+`ActionDecisionResponse` (`pendingAction`, `toolResult`, `traceId`) เมื่อเกิด
+ข้อผิดพลาด fail-closed จะคืน `{ "error": { "code", "message" } }`
+โดย `code` เป็นค่าใดค่าหนึ่งจาก `no_pending_action`, `invalid_input`,
+`action_conflict`, `unknown_function`, `unavailable`
+
+### ฟังก์ชันที่โมเดลเรียกได้ (ผ่าน bridge เท่านั้น)
+
+โมเดล Gemini Live เห็นการประกาศฟังก์ชันสามตัวนี้เท่านั้น และ **ไม่มีฟังก์ชันใด
+รับ `pendingActionId`** — การยืนยัน/ปฏิเสธผูกกับ "รายการปัจจุบันของเซสชัน"
+ที่ bridge เลือกให้เอง:
+
+| ฟังก์ชัน | พารามิเตอร์ | พฤติกรรม |
+|---|---|---|
+| `pea_agent_chat` | `message` (required) | ส่งข้อความไปยัง `MainAgent.handle_chat` |
+| `pea_confirm_pending_action` | `confirmationNote` (optional) | ยืนยันรายการปัจจุบัน → `submit_*` หนึ่งครั้ง → ล้างสถานะสิ้นสุด |
+| `pea_reject_pending_action` | `reason` (required) | ปฏิเสธรายการปัจจุบัน → สถานะสิ้นสุด → ล้างสถานะ |
+
+ข้อบังคับด้านความปลอดภัยของช่องเสียง:
+
+- โมเดลต้องส่งต่อทุกคำขอ PEA ไปยัง `pea_agent_chat` และต้องไม่สร้างข้อเท็จจริง,
+  แหล่งอ้างอิง, สถานะเรื่อง หรือผลการดำเนินการของ PEA ขึ้นเอง
+- เมื่อมี pending action โมเดลต้องสรุปที่ Main Agent คืนมาและถามยืนยัน/ปฏิเสธ
+  อย่างชัดเจน และเรียกฟังก์ชันตัดสินใจเฉพาะเมื่อผู้ใช้ตอบชัดเจนเท่านั้น
+- เมื่อคำตอบกำกวม โมเดลต้องถามย้ำและห้ามเรียกฟังก์ชันตัดสินใจ
+- โมเดลห้ามขอ รับ หรือส่ง `pendingActionId`; action ถูกผูกกับเซสชันโดยระบบ
+
 ## โมเดลโดเมนที่ตรึงไว้
 
 ### `Citation`
@@ -256,5 +314,6 @@ oms_tool.submit_outage_report            SubmitPreparedActionInput/OmsOutageRepo
 - ไม่มีการชำระเงิน การดำเนินการกับลูกค้า เหตุไฟฟ้าขัดข้อง CRM หรือ OMS ของ PEA จริง
 - ไม่มี tool อื่นนอกเหนือจาก tool ระดับบนสุดสี่รายการที่ระบุไว้
 - ไม่มีการยืนยันอัตโนมัติ การส่งในเบื้องหลัง หรือการยืนยันผ่านข้อความแชต
+- ช่องเสียงเปิดใช้เฉพาะ Knowledge และ VOC; ไม่รับ `pendingActionId` จากโมเดล และไม่มีการยืนยันอัตโนมัติด้วยเสียง (ต้องฟังคำตอบชัดเจนจากผู้ใช้ก่อนเรียกฟังก์ชันตัดสินใจ)
 - ไม่มี Gemini File Search, vector database, embedding pipeline, document chunker, chunk retrieval หรือ RAG สำรอง; Knowledge ใช้เฉพาะการเลือกไฟล์ระดับ document แล้วส่งข้อความฉบับเต็มของไฟล์ที่เลือกเข้า Long Context
 - ไม่มีการจัดเก็บถาวรสำหรับ production แบบหลายผู้ใช้ authentication, payments หรือการเสริมความแข็งแกร่งสำหรับ deployment

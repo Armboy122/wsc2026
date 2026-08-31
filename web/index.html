@@ -86,10 +86,14 @@
       <form id="composer-form" class="composer-form" novalidate>
         <label class="visually-hidden" for="message-input">ข้อความถึงผู้ช่วย</label>
         <textarea id="message-input" rows="1" maxlength="4000" placeholder="พิมพ์ข้อความ เช่น ตรวจสอบยอดค่าไฟคงค้าง…" autocomplete="off"></textarea>
+        <button type="button" id="voice-toggle" class="voice-btn" aria-pressed="false" aria-label="เริ่มโหมดเสียง" title="เริ่มโหมดเสียง">
+          <span aria-hidden="true">🎙</span><span class="visually-hidden">โหมดเสียง</span>
+        </button>
         <button type="submit" id="send-btn" class="send-btn" aria-label="ส่งข้อความ">
           <svg viewBox="0 0 24 24" width="20" height="20" fill="currentColor" aria-hidden="true"><path d="M2.4 20.6 22 12 2.4 3.4l.02 6.78L16 12 2.42 13.82z"/></svg>
         </button>
       </form>
+      <p class="voice-status" id="voice-status" role="status" hidden></p>
       <p class="composer-meta">การสนทนานี้เป็นการสาธิตบนข้อมูลจำลองทั้งหมด · ไม่มีการแสดงลำดับความคิด (chain-of-thought) ของโมเดล</p>
     </section>
   </div>
@@ -123,6 +127,6 @@
 
   <p class="sr-status" role="status" aria-live="polite" id="sr-status"></p>
 
-  <script src="app.js"></script>
+  <script type="module" src="app.js"></script>
 </body>
 </html>

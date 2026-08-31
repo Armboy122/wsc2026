@@ -15,6 +15,7 @@ from fastapi.staticfiles import StaticFiles
 
 from app.agent.main_agent import InvalidActionStateError, MainAgent, NotFoundError
 from app.agent.registry import ToolRegistry
+from app.api.live import router as live_router
 from app.api.routes import router
 from app.backends.full_document_knowledge import (
     SUPPORTED_PROVIDERS,
@@ -101,6 +102,7 @@ adapter_service.set_knowledge(_KnowledgeReadiness(knowledge_backend))
 
 app = create_platform_app(settings)
 app.include_router(router)
+app.include_router(live_router)
 app.add_exception_handler(NotFoundError, _not_found_handler)
 app.add_exception_handler(InvalidActionStateError, _conflict_handler)
 startup_event(app, tool_registry)

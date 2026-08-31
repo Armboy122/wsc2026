@@ -31,6 +31,17 @@ Main Agent  <---->  LLMAdapter (judge-provided LLM implementation)
         |
         v
 TraceStore + PendingActionStore (in-process, resettable demo state)
+
+Browser voice UI (AudioWorklet capture -> PCM16 16kHz, PCM16 24kHz playback)
+        |
+        v
+WebSocket /ws/live  -->  GeminiLiveSession (Gemini Live API, one per socket)
+                              |
+                              v
+                         VoiceBridge (session-bound: conversationId + current pendingActionId)
+                              |
+                              v
+                         Main Agent (sole business agent; handle_chat / confirm / reject only)
 ```
 
 ## โมดูลและจุดเชื่อมต่อขณะทำงาน
@@ -54,6 +65,19 @@ TraceStore + PendingActionStore (in-process, resettable demo state)
 - สร้างคำตอบแชตสุดท้าย
 
 โมดูลนี้ต้องไม่เปิดเผย sub-agent, agent แยกตาม tool หรือ tool ที่ไม่ได้ประกาศไว้ tool อาจมีโค้ด helper ภายในได้ แต่จะไม่มีการลงทะเบียน tool ระดับบนสุดเพิ่มเติมกับ LLM
+
+### โมดูล Voice (Gemini Live)
+
+**ส่วนเชื่อมต่อ:** `app/live/bridge.py` (`VoiceBridge`), `app/live/gemini_live.py` (`GeminiLiveSession`) และ `app/api/live.py` (`/ws/live`)
+
+โหมดเสียงเป็นช่องทางขนส่งเรียลไทม์เพิ่มเติมบน Main Agent เดิม โดยมีหลักการดังนี้:
+
+- **หนึ่ง WebSocket เป็นเจ้าของชุดสถานะหนึ่งชุด** ได้แก่ Gemini session, `VoiceBridge`, audio queue และ `conversationId` ของเซสชัน (สร้างใหม่ทุก socket)
+- **Voice Bridge เรียก Main Agent ได้เพียงสามเมทอด** คือ `handle_chat`, `confirm_pending_action`, `reject_pending_action` ผ่านโปรโตคอล `MainAgentGateway` และไม่แตะ ToolRegistry หรือ backend ธุรกิจใด ๆ
+- ไมโครโฟนของเบราว์เซอร์ถูก downsample เป็น **PCM16 16kHz** ส่งเป็น binary ผ่าน WebSocket; เสียงตอบกลับเป็น **PCM16 24kHz** เล่นแบบ gap-free scheduling และ flush ทันทีเมื่อมี `audio.interrupted` (ผู้พูดแทรก)
+- **ฟังก์ชันที่โมเดลเรียกได้มีสามตัวเท่านั้น**: `pea_agent_chat`, `pea_confirm_pending_action`, `pea_reject_pending_action` — ไม่มีฟังก์ชันใดรับ/ส่ง `pendingActionId`; การยืนยัน/ปฏิเสธผูกกับรายการปัจจุบันของเซสชัน และ fail closed เมื่อไม่มีรายการ (`no_pending_action`)
+- **โมเดลเป็นเพียงส่วนติดต่อเสียง**: system instruction บังคับให้ส่งต่อทุกคำขอ PEA ไปยัง Main Agent, ห้ามสร้างข้อเท็จจริง/สถานะเรื่องขึ้นเอง, ห้ามตัดสินใจเมื่อคำตอบกำกวม (ถามย้ำก่อน), และห้ามขอ/รับ/ส่ง pending action id
+- สถานะการเขียนยังเป็นไปตามกลไก `prepare → human confirm → submit` เดิม — เสียงเป็นเพียงวิธีบอก "ยืนยัน/ปฏิเสธ" เท่านั้น
 
 ### จุดเชื่อมต่อ `LLMAdapter`
 
@@ -127,6 +151,16 @@ prepare_* -> pending_confirmation -> confirm endpoint -> submit_* -> submitted |
 - การเปลี่ยนสถานะไม่ถูกต้อง (เช่น ยืนยันรายการที่ถูกปฏิเสธแล้ว): HTTP 409
 - Gemini Long Context, Document Router, ตัวแปลงเอกสาร, judge LLM หรือ simulated backend ใช้งานไม่ได้: ปรับให้อยู่ในรูป typed failure มาตรฐาน และใช้ HTTP 502 เฉพาะเมื่อ route ไม่สามารถสร้างคำตอบ chat/action ที่ถูกต้องได้
 - tool ที่ไม่รู้จัก, action ที่ไม่รู้จัก หรือ action ที่ไม่ได้รับอนุญาตใน flow ปัจจุบัน: ทำงานแบบ fail closed และเพิ่ม trace error event
+- โหมดเสียง: ไม่มี `GEMINI_API_KEY` → `{"type":"error"}` + close 1011; ฟังก์ชันที่ไม่รู้จัก → `{"error":{"code":"unknown_function"}}`; ไม่มี pending action → `{"error":{"code":"no_pending_action"}}`; ข้อผิดพลาดอื่น → `{"error":{"code":"unavailable"}}` พร้อมข้อความปลอดภัยต่อผู้ใช้ และไม่มีการบันทึก raw audio/secret
+
+## รายการตรวจสอบการผสานระบบ (โหมดเสียง)
+
+- [ ] `WS /ws/live` สร้าง Gemini session, VoiceBridge, audio queue และ conversation ใหม่ทุก socket
+- [ ] ไมโครโฟนเบราว์เซอร์ส่ง PCM16 16kHz binary; เสียงตอบกลับ PCM16 24kHz เล่นต่อเนื่องและ flush เมื่อ `audio.interrupted`
+- [ ] ฟังก์ชันที่เปิดให้โมเดลมีสามตัวเท่านั้น; ไม่มีฟังก์ชันรับ `pendingActionId`
+- [ ] การยืนยัน/ปฏิเสธด้วยเสียงผูกกับรายการปัจจุบันของเซสชัน และ fail closed เมื่อไม่มีรายการ
+- [ ] โมเดลถามย้ำเมื่อคำตอบกำกวม และไม่สร้างข้อเท็จจริง/สถานะเรื่องขึ้นเอง
+- [ ] ไม่มีการบันทึก raw audio หรือ secret ใน log
 
 ## ความเป็นเจ้าของไฟล์สำหรับผู้ปฏิบัติงานแบบขนาน
 
@@ -136,6 +170,7 @@ prepare_* -> pending_confirmation -> confirm endpoint -> submit_* -> submitted |
 | ผู้ปฏิบัติงาน A — เอเจนต์ | `app/agent/`, `app/llm/` | import เฉพาะ `app.contracts`; เรียกเฉพาะ interface `ToolRegistry` |
 | ผู้ปฏิบัติงาน B — ฐานความรู้ | `app/tools/knowledge_tool.py`, `app/backends/full_document_knowledge.py`, `knowledge/` | ใช้ document-level routing และ full-file context เท่านั้น; ห้ามเพิ่ม vector DB, chunk retrieval หรือเปลี่ยน public contract |
 | ผู้ปฏิบัติงาน C — งานปฏิบัติการจำลอง | `app/tools/sabuy_tool.py`, `app/tools/voc_tool.py`, `app/tools/oms_tool.py`, `app/backends/simulated_*.py` | ใช้ action และ model ที่ตรึงไว้ใน `app.contracts` |
+| ผู้ปฏิบัติงาน Voice — โหมดเสียง | `app/live/`, `app/api/live.py`, `web/gemini-live-client.js`, `web/media-handler.js`, `web/pcm-processor.js` | import เฉพาะ `app.contracts` + `app.live.models`; เรียก Main Agent ผ่าน `MainAgentGateway` เท่านั้น; ห้ามแตะ ToolRegistry/backend ธุรกิจ |
 | ผู้ปฏิบัติงาน D — การตรวจสอบ/เอกสาร | `tests/`, `README.md`, `demo/` | ไม่แก้ไข production module หรือ contract |
 
 ไฟล์ที่ใช้ร่วมกันเป็นแบบ read-only สำหรับผู้ปฏิบัติงาน เว้นแต่หัวหน้าทีมจะมอบหมายการเปลี่ยนแปลงอย่างชัดเจน ผู้ปฏิบัติงานเพิ่มไฟล์ใหม่ได้เฉพาะในไดเรกทอรีที่ตนรับผิดชอบ การเปลี่ยนแปลงใด ๆ ต่อ `app/contracts.py` หรือเอกสาร contract Markdown ที่ไดเรกทอรีรากทั้งสองไฟล์ถือเป็นการเปลี่ยนแปลงด้านการผสานระบบที่ต้องผ่านการตรวจโดยหัวหน้าทีม

@@ -15,6 +15,8 @@
  *     ที่ระบุไว้อย่างชัดเจนเท่านั้น และจะไม่ส่งผ่านข้อความแชต
  * ============================================================ */
 
+import { GeminiLiveClient } from './gemini-live-client.js';
+
 (() => {
   'use strict';
 
@@ -78,6 +80,8 @@
     traceRefresh: document.getElementById('trace-refresh'),
     traceClose: document.getElementById('trace-close'),
     srStatus: document.getElementById('sr-status'),
+    voiceToggle: document.getElementById('voice-toggle'),
+    voiceStatus: document.getElementById('voice-status'),
   };
 
   /* ---------- ฟังก์ชันอรรถประโยชน์ ---------- */
@@ -745,6 +749,121 @@
   document.addEventListener('keydown', (e) => {
     if (e.key === 'Escape' && state.traceOpen) closeTrace();
   });
+
+  /* ---------- โหมดเสียง Gemini Live ---------- */
+  let liveClient = null;
+  const voiceDrafts = {};
+
+  function renderVoiceTranscript(role, text, isFinal) {
+    if (!text) return;
+    const key = role === 'user' ? 'user' : 'assistant';
+    let el = voiceDrafts[key];
+    if (!el) {
+      el = document.createElement('article');
+      el.className = `msg msg-${key === 'user' ? 'user' : 'agent'} voice-transcript`;
+      const bubble = document.createElement('div');
+      bubble.className = 'bubble';
+      el.appendChild(bubble);
+      els.thread.appendChild(el);
+      voiceDrafts[key] = el;
+    }
+    el.dataset.final = String(isFinal);
+    el.querySelector('.bubble').textContent += text;
+    scrollThread();
+    if (isFinal) delete voiceDrafts[key];
+  }
+
+  function finishVoiceTranscripts() {
+    for (const key of Object.keys(voiceDrafts)) {
+      voiceDrafts[key].dataset.final = 'true';
+      delete voiceDrafts[key];
+    }
+  }
+
+  function applyVoiceAgentResponse(operation, response) {
+    if (!response || typeof response !== 'object') return;
+    if (response.error) {
+      addSystemNotice(`<strong>โหมดเสียงไม่สามารถดำเนินการได้</strong><br>${escapeHtml(response.error.message || 'กรุณาลองใหม่อีกครั้ง')}`, 'notice-error');
+      return;
+    }
+    if (response.conversationId) state.conversationId = response.conversationId;
+    if (response.traceId) {
+      state.lastTraceId = response.traceId;
+      updateTraceIdLabel();
+    }
+    if (operation === 'chat' && typeof response.message === 'string') {
+      addAgentMessage(response);
+    } else if ((operation === 'confirm' || operation === 'reject') && response.pendingAction) {
+      const pendingId = response.pendingAction.pendingActionId;
+      const existing = pendingId && document.querySelector(`[data-pa-id="${pendingId}"]`);
+      const card = renderPendingCard(response.pendingAction);
+      if (existing && card) existing.replaceWith(card);
+      else if (card) {
+        const message = document.createElement('article');
+        message.className = 'msg msg-agent';
+        message.appendChild(card);
+        els.thread.appendChild(message);
+        scrollThread();
+      }
+    }
+    if (state.traceOpen) refreshTrace(true);
+  }
+
+  function setVoiceState(voiceState) {
+    if (!els.voiceToggle) return;
+    const labels = {
+      connecting: 'กำลังเชื่อมต่อ',
+      listening: 'กำลังฟัง',
+      thinking: 'กำลังคิด',
+      speaking: 'ผู้ช่วยกำลังพูด',
+      interrupted: 'หยุดเสียงเพราะผู้ใช้พูดแทรก',
+      disconnected: 'ตัดการเชื่อมต่อแล้ว',
+      error: 'โหมดเสียงเกิดข้อผิดพลาด',
+      off: 'โหมดเสียง',
+    };
+    const on = !['off', 'disconnected', 'error'].includes(voiceState);
+    els.voiceToggle.setAttribute('aria-pressed', String(on));
+    els.voiceToggle.classList.toggle('voice-speaking', voiceState === 'speaking');
+    const label = labels[voiceState] || 'โหมดเสียง';
+    els.voiceToggle.setAttribute('aria-label', on ? `ปิดโหมดเสียง — ${label}` : 'เริ่มโหมดเสียง');
+    els.voiceToggle.title = label;
+    if (els.voiceStatus) {
+      els.voiceStatus.textContent = label;
+      els.voiceStatus.hidden = voiceState === 'off';
+    }
+    if (voiceState === 'disconnected') liveClient = null;
+  }
+
+  async function toggleVoice() {
+    if (liveClient) {
+      await liveClient.disconnect();
+      liveClient = null;
+      announce('ปิดโหมดเสียงแล้ว');
+      return;
+    }
+    els.voiceToggle.disabled = true;
+    setVoiceState('connecting');
+    try {
+      liveClient = new GeminiLiveClient({
+        onTranscript: renderVoiceTranscript,
+        onAgentResponse: applyVoiceAgentResponse,
+        onTurnComplete: finishVoiceTranscripts,
+        onInterrupted: finishVoiceTranscripts,
+        onState: setVoiceState,
+        onError: (message) => addSystemNotice(`<strong>โหมดเสียงเกิดข้อผิดพลาด</strong><br>${escapeHtml(message)}`, 'notice-error'),
+      });
+      await liveClient.connect();
+      announce('เปิดโหมดเสียงแล้ว กำลังรับฟัง');
+    } catch (error) {
+      liveClient = null;
+      setVoiceState('error');
+      addSystemNotice('<strong>เปิดโหมดเสียงไม่สำเร็จ</strong><br>กรุณาอนุญาตไมโครโฟนและลองใหม่อีกครั้ง', 'notice-error');
+      announce('เปิดโหมดเสียงไม่สำเร็จ');
+    } finally {
+      els.voiceToggle.disabled = false;
+    }
+  }
+  els.voiceToggle?.addEventListener('click', toggleVoice);
 
   /* ---------- การเริ่มต้น ---------- */
 
