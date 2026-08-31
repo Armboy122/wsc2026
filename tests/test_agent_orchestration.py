@@ -6,8 +6,8 @@ import pytest
 
 from app.agent.main_agent import MainAgent
 from app.agent.registry import ToolRegistry
-from app.backends.full_document_knowledge import GroundedEvidence
-from app.contracts import ChatRequest, Citation
+from app.backends.full_document_knowledge import GroundedEvidence, KnowledgeBackendError
+from app.contracts import ChatRequest, Citation, ToolErrorCode
 from app.llm import DemoLLMAdapter, LLMClient
 from app.tools.knowledge_tool import KnowledgeTool
 from app.tools.oms_tool import OmsTool
@@ -25,6 +25,12 @@ class FakeKnowledgeBackend:
         if self.responses:
             return self.responses.pop(0)
         return GroundedEvidence("", 0, ())
+
+
+class UnavailableKnowledgeBackend(FakeKnowledgeBackend):
+    async def search(self, query: str, max_results: int) -> GroundedEvidence:
+        self.calls.append((query, max_results))
+        raise KnowledgeBackendError(ToolErrorCode.UNAVAILABLE, "บริการความรู้ไม่พร้อมใช้งาน")
 
 
 def _registry(knowledge_backend: FakeKnowledgeBackend | None = None) -> ToolRegistry:
@@ -234,6 +240,28 @@ async def test_unrelated_request_after_knowledge_is_not_forced_into_knowledge_to
 
     assert "ยังไม่รองรับ" in second.message
     assert len(backend.calls) == 1
+
+
+@pytest.mark.asyncio
+async def test_no_evidence_chat_offers_to_forward_the_question_to_staff() -> None:
+    backend = FakeKnowledgeBackend([GroundedEvidence("", 0, ())])
+
+    response = await _agent(backend).handle_chat(
+        ChatRequest(message="ขอใช้ไฟฟ้าต้องใช้เอกสารอะไร")
+    )
+
+    assert "ขอส่งต่อคำถามนี้ให้เจ้าหน้าที่" in response.message
+    assert response.citations == ()
+
+
+@pytest.mark.asyncio
+async def test_unavailable_knowledge_chat_offers_to_forward_the_question_to_staff() -> None:
+    response = await _agent(UnavailableKnowledgeBackend()).handle_chat(
+        ChatRequest(message="ขอใช้ไฟฟ้าต้องใช้เอกสารอะไร")
+    )
+
+    assert "ขอส่งต่อคำถามนี้ให้เจ้าหน้าที่" in response.message
+    assert response.citations == ()
 
 
 @pytest.mark.asyncio

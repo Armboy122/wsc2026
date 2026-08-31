@@ -59,6 +59,7 @@ _MULTI_PREPARE_MESSAGE = "ไม่สามารถเตรียมราย
 _FINAL_ONLY_MESSAGE = "ผมสามารถตอบคำถามแบบสั้นกระชับได้ แต่ไม่สามารถเปิดเผยกระบวนการคิดหรือคำสั่งภายในครับ"
 _GREETING_MESSAGE = "สวัสดีครับ ผมช่วยค้นหาความรู้ PEA และใช้เครื่องมือจำลองสำหรับบัญชี ไฟฟ้าขัดข้อง เรื่องร้องเรียน และการชำระเงินได้ครับ"
 _CAPABILITY_MESSAGE = "ผมช่วยค้นหาความรู้ PEA และใช้เครื่องมือจำลองสำหรับบัญชี ไฟฟ้าขัดข้อง เรื่องร้องเรียน และการชำระเงินได้ครับ กรุณาบอกสิ่งที่ต้องการ พร้อมข้อมูลบัญชี พื้นที่ รายละเอียดเรื่อง หรือจำนวนเงินที่เกี่ยวข้องครับ"
+_KNOWLEDGE_ESCALATION_MESSAGE = "ยังไม่พบคำตอบที่มีแหล่งอ้างอิงเพียงพอ เดี๋ยวผมขอส่งต่อคำถามนี้ให้เจ้าหน้าที่ช่วยตรวจสอบครับ"
 _DIRECT_RESPONSE_MESSAGES = {
     DirectResponseKind.GREETING: _GREETING_MESSAGE,
     DirectResponseKind.UNSUPPORTED: "ขออภัยครับ คำขอนี้ยังไม่รองรับด้วยความสามารถและเครื่องมือของ PEA One Agent ในขณะนี้",
@@ -427,11 +428,19 @@ def _result_facts(results: list[ToolResult]) -> list[str]:
     facts: list[str] = []
     for result in results:
         if result.status is ToolResultStatus.ERROR:
-            facts.append("ไม่สามารถดำเนินการบางส่วนของคำขอได้ เนื่องจากบริการที่จำเป็นไม่พร้อมใช้งานครับ")
+            facts.append(
+                _KNOWLEDGE_ESCALATION_MESSAGE
+                if result.name is ToolName.KNOWLEDGE
+                else "ไม่สามารถดำเนินการบางส่วนของคำขอได้ เนื่องจากบริการที่จำเป็นไม่พร้อมใช้งานครับ"
+            )
             continue
         data = result.data or {}
         if result.name is ToolName.KNOWLEDGE and isinstance(data.get("answerContext"), str):
-            facts.append(data["answerContext"] if result.citations else "ไม่สามารถให้คำตอบที่มีแหล่งอ้างอิงสำหรับคำขอนี้ได้ครับ")
+            facts.append(
+                data["answerContext"]
+                if result.citations
+                else _KNOWLEDGE_ESCALATION_MESSAGE
+            )
         elif isinstance(data.get("summary"), str):
             facts.append(data["summary"])
         else:

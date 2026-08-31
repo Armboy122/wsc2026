@@ -10,8 +10,9 @@
 ## นโยบายแหล่งข้อมูลที่เชื่อถือได้
 
 - แหล่งข้อมูล runtime มีได้เฉพาะเอกสารที่ผ่านการอนุมัติภายใต้ `knowledge/source/`
-- corpus ปัจจุบันประกอบด้วย DOCX ที่ผู้ใช้อนุมัติ 27 ไฟล์
-- `knowledge/source/README.md`, metadata, manifest และไฟล์ซ่อนทุกชนิดไม่ใช่เอกสารความรู้
+- corpus ปัจจุบันประกอบด้วย DOCX ที่ผู้ใช้อนุมัติ 27 ไฟล์ และรองรับ Approved Q&A แบบ DOCX ใต้ `knowledge/source/qa/`
+- Q&A ควรแยกหนึ่งหัวข้อต่อหนึ่งไฟล์ โดยใช้คำถามหลักเป็นย่อหน้าแรก เพื่อให้ Router จับคู่คำถามที่มีความหมายใกล้เคียงได้จาก catalog
+- `knowledge/source/README.md`, `knowledge/source/qa/README.md`, metadata, manifest และไฟล์ซ่อนทุกชนิดไม่ใช่เอกสารความรู้
 - LLM ต้องตอบจากข้อความในไฟล์ที่เลือกเท่านั้น ห้ามใช้ความจำของโมเดลเติมข้อเท็จจริง PEA
 - หากไม่มีไฟล์หรือหลักฐานที่ตรงคำถาม ต้องคืน no-evidence และไม่มี citation
 - ชื่อไฟล์และพาธสัมพัทธ์เป็น identifier ที่ตรวจสอบย้อนหลังได้ ห้ามเปิดเผย absolute path
@@ -23,6 +24,9 @@ knowledge/
   README.md            สเปก Knowledge และนโยบาย corpus
   source/              เอกสาร authoritative ที่ Document Router เลือกได้
     *.docx              แหล่งข้อมูลฉบับเต็ม
+    qa/                 Approved Q&A; หนึ่งหัวข้อต่อหนึ่ง DOCX
+      *.docx            คำถาม คำตอบ และแหล่งอ้างอิงที่อนุมัติแล้ว
+      README.md         รูปแบบและนโยบาย Q&A; ห้ามนำเข้า context
     README.md           นโยบายเท่านั้น; ห้ามนำเข้า context
   manifest.json        metadata ที่ไม่ใช้ใน runtime
   tests/               เทสต์ Document Router, full-file loading และ fail-closed
