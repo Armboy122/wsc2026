@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass, field
+from enum import Enum
 from typing import Any
 from uuid import UUID
 
@@ -33,10 +34,23 @@ class LLMRequest:
     correlation_id: UUID
 
 
+class DirectResponseKind(str, Enum):
+    """ชนิดข้อความตรงที่ Main Agent สร้างจากแม่แบบที่เชื่อถือได้"""
+
+    GREETING = "greeting"
+    UNSUPPORTED = "unsupported"
+    PAYMENT_INPUTS = "payment_inputs"
+    ACCOUNT_REF = "account_ref"
+    OUTAGE_REPORT_INPUTS = "outage_report_inputs"
+    OUTAGE_STATUS_AREA = "outage_status_area"
+    VOC_DETAILS = "voc_details"
+
+
 @dataclass(frozen=True, slots=True)
 class LLMResponse:
     """คำตอบจาก provider ที่แปลงเป็นการเรียกเครื่องมือภายในและผ่านการตรวจสอบแล้ว"""
 
     text: str = ""
     tool_calls: tuple[ToolCall, ...] = ()
+    direct_response: DirectResponseKind | None = None
     provider_metadata: dict[str, Any] = field(default_factory=dict)

@@ -15,7 +15,7 @@ from typing import Any
 from uuid import NAMESPACE_URL, UUID, uuid5
 
 from app.contracts import ContactChannel, PaymentMethod, ToolAction, ToolCall, ToolName, VocCategory
-from app.llm.models import LLMMessage, LLMRequest, LLMResponse
+from app.llm.models import DirectResponseKind, LLMMessage, LLMRequest, LLMResponse
 
 _ACCOUNT_REF_PATTERN = re.compile(r"\bPEA-\d{4}\b", re.IGNORECASE)
 _AREA_CODE_PATTERN = re.compile(r"\b[A-Z]{3}-\d{2}\b", re.IGNORECASE)
@@ -33,15 +33,14 @@ class DemoLLMAdapter:
 
     async def complete(self, request: LLMRequest) -> LLMResponse:
         """ส่งคืนการวางแผนแบบกำหนดผลลัพธ์ได้หรือคำตอบที่อ้างอิงผลลัพธ์เครื่องมือ"""
-        visible = tuple(message for message in request.messages if message.role in {"user", "tool"})
-        user_index = _latest_user_index(visible)
+        user_index = _latest_user_index(request.messages)
         if user_index is None:
-            return LLMResponse(text="ผมช่วยอะไรเกี่ยวกับเดโม PEA ได้บ้างครับ")
-        current_messages = visible[user_index:]
+            return _direct_response(DirectResponseKind.GREETING)
+        current_messages = request.messages[user_index:]
         tool_messages = tuple(message for message in current_messages if message.role == "tool")
         if tool_messages:
             return self._after_tools(current_messages, tool_messages, request.correlation_id)
-        return self._plan(current_messages[0].content, request.correlation_id)
+        return self._plan(_planning_message(request.messages, user_index), request.correlation_id)
 
     def _plan(self, message: str, correlation_id: UUID) -> LLMResponse:
         text = message.casefold()
@@ -56,22 +55,48 @@ class DemoLLMAdapter:
         planned: list[tuple[int, ToolName, ToolAction, dict[str, Any]]] = []
 
         if _is_greeting(text):
-            return LLMResponse(text="สวัสดีครับ ผมช่วยอะไรเกี่ยวกับเดโม PEA ได้บ้างครับ")
+            return _direct_response(DirectResponseKind.GREETING)
         if _is_unsafe_or_unknown_request(text):
-            return LLMResponse(text="ผมใช้ได้เฉพาะเครื่องมือเดโม PEA ที่เผยแพร่ไว้ และไม่สามารถดำเนินการตามคำขอนี้ได้ครับ")
+            return _direct_response(DirectResponseKind.UNSUPPORTED)
 
         wants_categories = any(term in text for term in ("category", "categories", "case types", "หมวด"))
         payment_requested = payment_method is not None or bool(re.search(
-            r"\bprepare\b[^;\n]{0,30}\bpayment\b|\bpay\b[^;\n]{0,40}\baccount\b|(?:ต้องการ)?(?:ชำระ|จ่าย)(?:ค่าไฟ|เงิน)?",
+            r"\bprepare\b[^;\n]{0,30}\bpayment\b|\bpay\b[^;\n]{0,40}\baccount\b|\b(?:want to (?:make )?|make (?:a )?)payment\b|(?:ต้องการ)?(?:ชำระ|จ่าย)(?:ค่าไฟ|เงิน)?",
             text,
         ))
-        report_requested = any(term in text for term in ("report", "file an outage", "fallen wire", "downed line", "sparks", "แจ้งไฟ", "แจ้งเหตุ", "รายงาน", "ไฟฟ้าดับ", "ไฟดับ")) and bool(location or symptoms)
-        case_requested = (not wants_categories and bool(subject and detail) and any(term in text for term in ("complaint", "complain", "case", "service report", "ร้องเรียน")))
-        status_requested = bool(area_code) and (any(term in text for term in ("status", "check outage", "planned outage", "power normal", "outage near", "สถานะ", "ตรวจสอบ", "ไฟฟ้าดับ", "ไฟดับ", "ปกติ")) or (("outage" in text or "ไฟฟ้าดับ" in text or "ไฟดับ" in text) and not report_requested))
-        account_requested = bool(account_ref) and (
+        report_requested = (
+            bool(location or symptoms)
+            and any(term in text for term in ("report", "file an outage", "fallen wire", "downed line", "sparks", "แจ้งไฟ", "แจ้งเหตุ", "รายงาน", "ไฟฟ้าดับ", "ไฟดับ"))
+        ) or any(term in text for term in ("file an outage", "report an outage", "ต้องการแจ้งไฟ", "ขอแจ้งไฟ", "ต้องการแจ้งเหตุ"))
+        case_requested = not wants_categories and (
+            bool(re.search(r"\bcomplain\b", text))
+            or "service report" in text
+            or "เรื่องร้องเรียน" in text
+            or "ต้องการร้องเรียน" in text
+            or "ขอร้องเรียน" in text
+            or bool(re.search(r"(?:^|\n)ร้องเรียน(?:$|\n|;)", text))
+            or bool(re.search(r"\bprepare\b[^;\n]{0,40}\b(?:complaint|case)\b", text))
+            or bool(subject and detail and any(term in text for term in ("complaint", "case", "ร้องเรียน")))
+        )
+        status_marked = any(term in text for term in (
+            "status", "check outage", "planned outage", "power normal", "outage near",
+            "สถานะ", "ตรวจสอบ", "ไฟฟ้าดับ", "ไฟดับ", "ปกติ",
+        )) or "outage" in text
+        status_requested = bool(area_code) and status_marked and (
+            not report_requested or any(term in text for term in ("status", "สถานะ", "ตรวจสอบ"))
+        )
+        status_needs_area = not area_code and any(term in text for term in (
+            "outage status", "check outage", "power status", "สถานะไฟ", "ตรวจสอบไฟ",
+        ))
+        account_marked = (
             any(term in text for term in ("balance", "due", "overdue", "summary", "ยอด"))
             or bool(re.search(r"\b(?:show|check)\s+account\b", text))
-            or (not payment_requested and f"account {account_ref.casefold()}" in text)
+            or bool(not payment_requested and account_ref and f"account {account_ref.casefold()}" in text)
+        )
+        account_requested = bool(account_ref) and account_marked
+        account_needs_ref = not account_ref and (
+            any(term in text for term in ("account balance", "account summary", "ยอดคงเหลือ", "ยอดบัญชี"))
+            or bool(re.search(r"\b(?:show|check)\s+account\b", text))
         )
         knowledge_requested = any(term in text for term in (
             "knowledge", "policy", "tariff", "rate", "search", "guidance", "payment channels", "ค้นหา", "ข้อมูล",
@@ -87,37 +112,38 @@ class DemoLLMAdapter:
                     "idempotencyKey": _idempotency_key(correlation_id, action, f"{account_ref}:{amount}:{payment_method.value}"),
                 })
             else:
-                return LLMResponse(text="หากต้องการเตรียมการชำระเงิน กรุณาระบุบัญชีเดโม จำนวนเงินที่มากกว่าศูนย์ และ `paymentMethod: demo_card` หรือ `demo_bank` ครับ")
+                return _direct_response(DirectResponseKind.PAYMENT_INPUTS)
 
         if account_requested:
-            _append_plan(planned, message, ("account", "balance", "due", "overdue", "summary"), ToolName.SABUY, ToolAction.SABUY_ACCOUNT_SUMMARY, {"accountRef": account_ref})
+            _append_plan(planned, message, ("account", "balance", "due", "overdue", "summary", "ยอด"), ToolName.SABUY, ToolAction.SABUY_ACCOUNT_SUMMARY, {"accountRef": account_ref})
+        elif account_needs_ref:
+            return _direct_response(DirectResponseKind.ACCOUNT_REF)
 
         if report_requested:
             if area_code and location and symptoms:
                 action = ToolAction.OMS_PREPARE_OUTAGE_REPORT
-                _append_plan(planned, message, ("report", "fallen wire", "downed line", "sparks"), ToolName.OMS, action, {
+                _append_plan(planned, message, ("report", "fallen wire", "downed line", "sparks", "แจ้งไฟ", "แจ้งเหตุ"), ToolName.OMS, action, {
                     "areaCode": area_code,
                     "locationNote": location,
                     "symptoms": symptoms,
                     "idempotencyKey": _idempotency_key(correlation_id, action, f"{area_code}:{location}:{symptoms}"),
                 })
             elif not planned:
-                return LLMResponse(text="หากต้องการเตรียมแจ้งเหตุไฟฟ้าขัดข้อง กรุณาระบุพื้นที่ที่รู้จัก พร้อมรายละเอียด `location:` และ `symptoms:` ครับ")
+                return _direct_response(DirectResponseKind.OUTAGE_REPORT_INPUTS)
 
         if status_requested:
-            if area_code:
-                _append_plan(planned, message, ("status", "check outage", "planned outage", "power normal", "outage"), ToolName.OMS, ToolAction.OMS_OUTAGE_STATUS, {"areaCode": area_code})
-            elif not planned:
-                return LLMResponse(text="กรุณาระบุรหัสพื้นที่เดโมที่รู้จักเพื่อตรวจสอบสถานะไฟฟ้าขัดข้องครับ")
+            _append_plan(planned, message, ("status", "check outage", "planned outage", "power normal", "outage", "สถานะ", "ตรวจสอบ"), ToolName.OMS, ToolAction.OMS_OUTAGE_STATUS, {"areaCode": area_code})
+        elif status_needs_area and not planned:
+            return _direct_response(DirectResponseKind.OUTAGE_STATUS_AREA)
 
         # คำขอหมวดหมู่ที่ระบุชัดเจนเป็นการอ่านเสมอ ไม่ใช่การเขียนเรื่องร้องเรียนที่ข้อมูลไม่ครบ
         if wants_categories:
-            _append_plan(planned, message, ("category", "categories", "case types"), ToolName.VOC, ToolAction.VOC_LIST_CATEGORIES, {})
+            _append_plan(planned, message, ("category", "categories", "case types", "หมวด"), ToolName.VOC, ToolAction.VOC_LIST_CATEGORIES, {})
         elif case_requested:
             if subject and detail:
                 category = _case_category(text)
                 action = ToolAction.VOC_PREPARE_CASE
-                _append_plan(planned, message, ("complaint", "complain", "case", "service report"), ToolName.VOC, action, {
+                _append_plan(planned, message, ("complaint", "complain", "case", "service report", "ร้องเรียน"), ToolName.VOC, action, {
                     "category": category.value,
                     "subject": subject,
                     "detail": detail,
@@ -125,15 +151,16 @@ class DemoLLMAdapter:
                     "idempotencyKey": _idempotency_key(correlation_id, action, f"{category.value}:{subject}:{detail}"),
                 })
             elif not planned:
-                return LLMResponse(text="หากต้องการเตรียมเรื่องร้องเรียน กรุณาระบุ `subject:` และ `detail:` ครับ")
+                return _direct_response(DirectResponseKind.VOC_DETAILS)
 
         if knowledge_requested:
-            _append_plan(planned, message, ("knowledge", "policy", "tariff", "rate", "guidance", "safety", "payment channels"), ToolName.KNOWLEDGE, ToolAction.KNOWLEDGE_SEARCH, {"query": _safe_query(message), "maxResults": 3})
+            _append_plan(planned, message, ("knowledge", "policy", "tariff", "rate", "guidance", "safety", "payment channels", "ค้นหา", "นโยบาย", "อัตราค่าไฟ"), ToolName.KNOWLEDGE, ToolAction.KNOWLEDGE_SEARCH, {"query": _safe_query(message), "maxResults": 3})
 
         if planned:
             return _planned_response(correlation_id, [item[1:] for item in sorted(planned, key=lambda item: item[0])])
-        # คำขอข้อมูลจะปิดอย่างปลอดภัยผ่านแหล่งความรู้ แทนการใช้ความจำของโมเดล
-        return _planned_response(correlation_id, [(ToolName.KNOWLEDGE, ToolAction.KNOWLEDGE_SEARCH, {"query": _safe_query(message), "maxResults": 3})])
+        if _is_pea_knowledge_request(text):
+            return _planned_response(correlation_id, [(ToolName.KNOWLEDGE, ToolAction.KNOWLEDGE_SEARCH, {"query": _safe_query(message), "maxResults": 3})])
+        return _direct_response(DirectResponseKind.UNSUPPORTED)
 
     def _after_tools(self, messages: tuple[LLMMessage, ...], tool_messages: tuple[LLMMessage, ...], correlation_id: UUID) -> LLMResponse:
         results = tuple(_tool_payload(message.content) for message in tool_messages)
@@ -158,11 +185,35 @@ def _latest_user_index(messages: tuple[LLMMessage, ...]) -> int | None:
     return next((index for index in range(len(messages) - 1, -1, -1) if messages[index].role == "user"), None)
 
 
+def _planning_message(messages: tuple[LLMMessage, ...], user_index: int) -> str:
+    """รวมทุกคำตอบในรอบขอข้อมูลปัจจุบันกับเจตนาตั้งต้น"""
+    user_messages = [messages[user_index].content]
+    cursor = user_index - 1
+    while cursor >= 1:
+        assistant = messages[cursor]
+        if assistant.role != "assistant" or "กรุณาระบุ" not in assistant.content:
+            break
+        previous_user_index = next(
+            (index for index in range(cursor - 1, -1, -1) if messages[index].role == "user"),
+            None,
+        )
+        if previous_user_index is None:
+            break
+        user_messages.append(messages[previous_user_index].content)
+        cursor = previous_user_index - 1
+    return "\n".join(reversed(user_messages))
+
+
 def _planned_response(correlation_id: UUID, planned: list[tuple[ToolName, ToolAction, dict[str, Any]]]) -> LLMResponse:
     return LLMResponse(tool_calls=tuple(
         ToolCall(call_id=_call_id(correlation_id, name, action, input_data, ordinal), name=name, action=action, input=input_data)
         for ordinal, (name, action, input_data) in enumerate(planned)
     ))
+
+
+def _direct_response(kind: DirectResponseKind) -> LLMResponse:
+    """ขอให้ Main Agent สร้างข้อความตรงจากแม่แบบที่กำหนดไว้"""
+    return LLMResponse(direct_response=kind)
 
 
 def _call_id(correlation_id: UUID, name: ToolName, action: ToolAction, input_data: dict[str, Any], ordinal: int) -> UUID:
@@ -214,6 +265,17 @@ def _is_greeting(text: str) -> bool:
 def _is_unsafe_or_unknown_request(text: str) -> bool:
     return any(term in text for term in (
         "system prompt", "ignore all policy", "api_key", "payment token", "pan-", "delete_database", "hidden tool",
+    ))
+
+
+def _is_pea_knowledge_request(text: str) -> bool:
+    """แยกคำถามความรู้ในขอบเขต PEA ออกจากคำขอทั่วไปที่ไม่มีเครื่องมือรองรับ"""
+    return any(term in text for term in (
+        "bill", "account", "electric", "power", "outage", "payment", "meter", "service",
+        "complaint", "case", "generator", "wire", "downed line", "safety", "contact",
+        "restoration", "mailing", "maintenance", "overdue", "paid status", "official message",
+        "document", "ไฟ", "บัญชี", "ชำระ", "มิเตอร์", "บริการ", "ร้องเรียน", "สายไฟ",
+        "ความปลอดภัย", "ติดต่อ", "เอกสาร",
     ))
 
 

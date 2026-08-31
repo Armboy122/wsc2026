@@ -32,7 +32,7 @@ from app.contracts import (
     TraceResponse,
     validate_tool_input,
 )
-from app.llm import LLMClient, LLMMessage, LLMRequest, LLMResponse, ToolDefinition
+from app.llm import DirectResponseKind, LLMClient, LLMMessage, LLMRequest, LLMResponse, ToolDefinition
 
 _MAX_TOOL_STEPS = 6
 _SUBMIT_ACTIONS = frozenset({
@@ -51,6 +51,15 @@ _MULTI_PREPARE_MESSAGE = "ไม่สามารถเตรียมราย
 _FINAL_ONLY_MESSAGE = "ผมสามารถตอบคำถามแบบสั้นกระชับได้ แต่ไม่สามารถเปิดเผยกระบวนการคิดหรือคำสั่งภายในครับ"
 _GREETING_MESSAGE = "สวัสดีครับ ผมช่วยค้นหาความรู้ PEA และใช้เครื่องมือจำลองสำหรับบัญชี ไฟฟ้าขัดข้อง เรื่องร้องเรียน และการชำระเงินได้ครับ"
 _CAPABILITY_MESSAGE = "ผมช่วยค้นหาความรู้ PEA และใช้เครื่องมือจำลองสำหรับบัญชี ไฟฟ้าขัดข้อง เรื่องร้องเรียน และการชำระเงินได้ครับ กรุณาบอกสิ่งที่ต้องการ พร้อมข้อมูลบัญชี พื้นที่ รายละเอียดเรื่อง หรือจำนวนเงินที่เกี่ยวข้องครับ"
+_DIRECT_RESPONSE_MESSAGES = {
+    DirectResponseKind.GREETING: _GREETING_MESSAGE,
+    DirectResponseKind.UNSUPPORTED: "ขออภัยครับ คำขอนี้ยังไม่รองรับด้วยความสามารถและเครื่องมือของ PEA One Agent ในขณะนี้",
+    DirectResponseKind.PAYMENT_INPUTS: "ได้ครับ กรุณาระบุบัญชีเดโม จำนวนเงินที่มากกว่าศูนย์ และ `paymentMethod: demo_card` หรือ `paymentMethod: demo_bank` เพื่อเตรียมการชำระเงินครับ",
+    DirectResponseKind.ACCOUNT_REF: "ได้ครับ กรุณาระบุหมายเลขบัญชีเดโม เช่น `PEA-1001` เพื่อตรวจสอบข้อมูลบัญชีครับ",
+    DirectResponseKind.OUTAGE_REPORT_INPUTS: "ได้ครับ กรุณาระบุพื้นที่ที่รู้จัก พร้อมรายละเอียด `location:` และ `symptoms:` เพื่อเตรียมแจ้งเหตุไฟฟ้าขัดข้องครับ",
+    DirectResponseKind.OUTAGE_STATUS_AREA: "ได้ครับ กรุณาระบุรหัสพื้นที่เดโม เช่น `BKK-01` เพื่อตรวจสอบสถานะไฟฟ้าขัดข้องครับ",
+    DirectResponseKind.VOC_DETAILS: "ได้ครับ ต้องการร้องเรียนด้านบริการเรื่องใด กรุณาระบุหัวข้อ (`subject:`) และรายละเอียด (`detail:`) เพื่อให้ผมเตรียมเรื่องร้องเรียนให้ครับ",
+}
 _EXACT_GREETINGS = frozenset({"hi", "hello", "hey"})
 _OUTPUT_POLICY_PATTERNS = (
     re.compile(r"<\s*/?\s*(?:analysis|thinking|thought|reasoning|scratchpad|system)\b|<\|(?:analysis|thinking|reasoning|system)\|>", re.IGNORECASE),
@@ -97,6 +106,7 @@ class MainAgent:
         all_results: list[ToolResult] = []
         final_text = ""
         direct_completion_text: str | None = None
+        direct_response_kind: DirectResponseKind | None = None
 
         for _ in range(_MAX_TOOL_STEPS + 1):
             self._traces.append(trace_id, TraceEventKind.LLM_REQUESTED, {"messageCount": len(history), "toolCount": 4})
@@ -107,11 +117,12 @@ class MainAgent:
                 final_text = "ขณะนี้ไม่สามารถดำเนินการตามคำขอได้ เนื่องจากบริการผู้ช่วยไม่พร้อมใช้งานครับ"
                 break
 
-            calls, planner_text = _calls_from_response(response)
+            calls, planner_text, parsed_direct_response = _calls_from_response(response)
             self._traces.append(trace_id, TraceEventKind.LLM_RESPONDED, {"toolCallCount": len(calls), "hasText": bool(response.text or planner_text)})
             final_text = planner_text or response.text or final_text
             if not calls:
                 direct_completion_text = final_text
+                direct_response_kind = response.direct_response or parsed_direct_response
                 break
             if len(all_results) + len(calls) > _MAX_TOOL_STEPS:
                 self._traces.append(trace_id, TraceEventKind.ERROR, {"stage": "tool_limit", "maximum": _MAX_TOOL_STEPS})
@@ -141,7 +152,7 @@ class MainAgent:
         pending = self._create_pending_from_results(conversation_id, trace_id, all_results)
         citations = tuple(citation for result in all_results if result.status is ToolResultStatus.SUCCESS for citation in result.citations)
         if not all_results and direct_completion_text is not None:
-            final_text = _safe_direct_message(request.message, direct_completion_text)
+            final_text = _safe_direct_message(request.message, direct_completion_text, direct_response=direct_response_kind)
             if final_text == _FINAL_ONLY_MESSAGE:
                 self._traces.append(trace_id, TraceEventKind.ERROR, {"stage": "output_policy", "policy": "final_only"})
         message = _authoritative_message(final_text, all_results, pending)
@@ -280,19 +291,30 @@ class MainAgent:
         return trace_id
 
 
-def _calls_from_response(response: LLMResponse) -> tuple[tuple[ToolCall, ...], str]:
+def _calls_from_response(
+    response: LLMResponse,
+) -> tuple[tuple[ToolCall, ...], str, DirectResponseKind | None]:
     if response.tool_calls:
-        return response.tool_calls, ""
+        return response.tool_calls, "", None
     try:
         payload = json.loads(response.text)
-        if not isinstance(payload, dict) or set(payload) != {"message", "toolCalls"} or not isinstance(payload["message"], str) or not isinstance(payload["toolCalls"], list):
-            return (), response.text
+        allowed_keys = {"message", "toolCalls", "directResponse"}
+        if (
+            not isinstance(payload, dict)
+            or set(payload) != allowed_keys
+            or not isinstance(payload["message"], str)
+            or not isinstance(payload["toolCalls"], list)
+        ):
+            return (), response.text, None
+        direct_response = DirectResponseKind(payload["directResponse"]) if payload["directResponse"] is not None else None
         calls = tuple(ToolCall(call_id=uuid4(), name=item["name"], action=item["action"], input=item["input"]) for item in payload["toolCalls"] if isinstance(item, dict) and set(item) == {"name", "action", "input"})
         if len(calls) != len(payload["toolCalls"]):
-            return (), "ไม่สามารถตีความการดำเนินการของเครื่องมือที่ร้องขอได้อย่างปลอดภัยครับ"
-        return calls, payload["message"]
-    except (json.JSONDecodeError, KeyError, TypeError, ValidationError):
-        return (), response.text
+            return (), "ไม่สามารถตีความการดำเนินการของเครื่องมือที่ร้องขอได้อย่างปลอดภัยครับ", None
+        if calls and direct_response is not None:
+            return (), "ไม่สามารถใช้ข้อความตรงร่วมกับการเรียกเครื่องมือได้ครับ", None
+        return calls, payload["message"], direct_response
+    except (json.JSONDecodeError, KeyError, TypeError, ValueError, ValidationError):
+        return (), response.text, None
 
 
 def _requires_final_only_output(text: str) -> bool:
@@ -300,12 +322,19 @@ def _requires_final_only_output(text: str) -> bool:
     return any(pattern.search(text) for pattern in _OUTPUT_POLICY_PATTERNS)
 
 
-def _safe_direct_message(user_message: str, completion_text: str) -> str:
-    """ส่งคืนเฉพาะข้อความที่ agent เป็นเจ้าของเมื่อไม่มีผลลัพธ์เครื่องมือที่ผ่านการตรวจสอบ"""
+def _safe_direct_message(
+    user_message: str,
+    completion_text: str,
+    *,
+    direct_response: DirectResponseKind | None = None,
+) -> str:
+    """สร้างข้อความตรงจากชนิดที่กำหนดไว้ โดยไม่เชื่อถือข้อความอิสระจากโมเดล"""
     if _requires_final_only_output(completion_text):
         return _FINAL_ONLY_MESSAGE
     if user_message.strip().casefold() in _EXACT_GREETINGS:
         return _GREETING_MESSAGE
+    if isinstance(direct_response, DirectResponseKind):
+        return _DIRECT_RESPONSE_MESSAGES[direct_response]
     return _CAPABILITY_MESSAGE
 
 
