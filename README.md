@@ -2,13 +2,13 @@
 
 ## การติดตั้ง การรัน และการตรวจสอบคุณภาพ
 
-จากไดเรกทอรีรากของ repository ให้ติดตั้งส่วนเสริมสำหรับการพัฒนาและความรู้ คัดลอกไฟล์ตั้งค่า วาง DOCX ที่ผ่านอนุมัติไว้ใต้ `knowledge/source/` จากนั้นเริ่ม API และเปิด UI:
+โปรเจกต์นี้จัดการ environment และ dependency ด้วย [UV](https://docs.astral.sh/uv/) โดยตรึงเวอร์ชันไว้ใน `uv.lock` จากไดเรกทอรีรากของ repository ให้ติดตั้ง dependency สำหรับการพัฒนาและความรู้ คัดลอกไฟล์ตั้งค่า วาง DOCX ที่ผ่านอนุมัติไว้ใต้ `knowledge/source/` จากนั้นเริ่ม API และเปิด UI:
 
 ```bash
-python3 -m pip install -e ".[dev,knowledge]"
+uv sync --extra dev --extra knowledge
 cp .env.example .env
 # แก้ค่า provider/model/key ใน .env โดยห้าม commit ค่าลับ
-python3 -m uvicorn app.main:app --reload
+uv run uvicorn app.main:app --reload --host 127.0.0.1 --port 8000
 open http://127.0.0.1:8000
 ```
 
@@ -40,7 +40,7 @@ MAXPLUS_MODEL=deepseek-v4-flash-0731
 ในอีก terminal หนึ่ง ให้รันชุดทดสอบตามสัญญาที่ตรึงไว้ และตัวประเมิน public envelope:
 
 ```bash
-python3 -m pytest -q
+uv run pytest -q
 ./scripts/evaluate http://127.0.0.1:8000
 ```
 
@@ -78,7 +78,7 @@ GEMINI_LIVE_VOICE=Puck
 ใช้คำสั่งเดียวกับแชตข้อความ แล้วเปิดหน้าเว็บและกดปุ่มไมโครโฟน:
 
 ```bash
-python3 -m uvicorn app.main:app --reload
+uv run uvicorn app.main:app --reload --host 127.0.0.1 --port 8000
 open http://127.0.0.1:8000
 ```
 
@@ -104,12 +104,12 @@ open http://127.0.0.1:8000
 ### ข้อจำกัดการตรวจสอบ (honest)
 
 - **ยังไม่มีการทดสอบไมโครโฟน/ลำโพงจริงแบบอัตโนมัติใน CI** — ต้องซ้อมสดด้วยมือก่อนนำเสนอ
-- การตรวจสอบสดด้วย key จริงยืนยันแล้วว่า `/ws/live` เชื่อม Gemini Live และได้รับ `session.ready`; การทดสอบ SDK โดยตรงรับ transcription และ PCM audio กลับมาได้ แต่ยังไม่แทนการซ้อมผ่านไมโครโฟน/ลำโพงของเบราว์เซอร์
+- การตรวจสอบสดด้วย key จริงยืนยันแล้วว่า `/ws/live` เชื่อม Gemini Live และได้รับ `session.ready`; ทดสอบ Chrome ด้วยไมโครโฟนจริงแล้วว่าส่งเสียง ถอดข้อความ และรับเสียงตอบกลับได้ รวมทั้งมี headless-browser smoke ด้วยเสียงสังเคราะห์ แต่ยังไม่ใช่ automated CI test
 - โมเดล Preview อาจเปลี่ยนพฤติกรรมโดยไม่แจ้งเตือนล่วงหน้า และช่องเสียงเปิดใช้เฉพาะ Knowledge/VOC
 
 ## หลักฐานการตรวจสอบล่าสุด
 
-ชุด `pytest` ทั้งหมดผ่าน **238 tests** พร้อม deprecation warnings 5 รายการจาก dependency ภายนอก การทดสอบสดผ่าน `POST /api/v1/chat` ยืนยันว่า Document Router เลือกเฉพาะไฟล์ `PEA_01_ขอใช้ไฟฟ้าใหม่_บุคคลธรรมดา.docx`, ส่งข้อความฉบับเต็มของไฟล์ดังกล่าวให้ Gemini Long Context และคืนคำตอบรายการเอกสารที่ครบถ้วนพร้อม citation ของไฟล์จริง ส่วน MaxPlus ผ่าน automated adapter/configuration tests แล้ว แต่ยังต้องใช้ `ccsk-…` key ของผู้ดูแลเพื่อ benchmark สด
+ชุด `pytest` ทั้งหมดผ่าน **241 tests** พร้อม deprecation warnings 5 รายการจาก dependency ภายนอก การทดสอบสดผ่าน `POST /api/v1/chat` ยืนยันว่า Document Router เลือกเฉพาะไฟล์ `PEA_01_ขอใช้ไฟฟ้าใหม่_บุคคลธรรมดา.docx`, ส่งข้อความฉบับเต็มของไฟล์ดังกล่าวให้ Gemini Long Context และคืนคำตอบรายการเอกสารที่ครบถ้วนพร้อม citation ของไฟล์จริง ส่วน MaxPlus ผ่าน automated adapter/configuration tests แล้ว แต่ยังต้องใช้ `ccsk-…` key ของผู้ดูแลเพื่อ benchmark สด
 
 ระบบปฏิบัติการ (OMS, Sabuy และ VOC) ยังคงแสดงอย่างชัดเจนว่าเป็น **SIMULATED** ไม่มีการบันทึกข้อมูลลับใด ๆ ไว้ที่นี่
 

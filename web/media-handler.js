@@ -5,8 +5,8 @@ export class MediaHandler {
     if (!navigator.mediaDevices?.getUserMedia) throw new Error('เบราว์เซอร์นี้ไม่รองรับการใช้ไมโครโฟน');
     try { this.stream = await navigator.mediaDevices.getUserMedia({ audio: { channelCount: 1, echoCancellation: true, noiseSuppression: true, autoGainControl: true } }); }
     catch (_) { this.stream = await navigator.mediaDevices.getUserMedia({ audio: true }); }
-    this.context = new AudioContext(); await this.context.audioWorklet.addModule('/pcm-processor.js');
-    this.source = this.context.createMediaStreamSource(this.stream); this.worklet = new AudioWorkletNode(this.context, 'pea-pcm-processor');
+    this.context = new AudioContext(); await this.context.audioWorklet.addModule('/pcm-processor.js?v=voice-audio-1');
+    this.source = this.context.createMediaStreamSource(this.stream); this.worklet = new AudioWorkletNode(this.context, 'pea-pcm-processor', { processorOptions: { targetSampleRate: 16000 } });
     this.worklet.port.onmessage = ({ data }) => this.onAudio(data); this.silentGain = this.context.createGain(); this.silentGain.gain.value = 0;
     this.source.connect(this.worklet); this.worklet.connect(this.silentGain).connect(this.context.destination); await this.context.resume();
   }
