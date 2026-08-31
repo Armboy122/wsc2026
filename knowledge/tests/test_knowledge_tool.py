@@ -6,10 +6,7 @@ import asyncio
 from uuid import uuid4
 
 from app import contracts
-from app.backends.gemini_file_search import (
-    GroundedEvidence,
-    KnowledgeBackendError,
-)
+from app.backends.full_document_knowledge import GroundedEvidence, KnowledgeBackendError
 from app.tools.knowledge_tool import KnowledgeTool
 
 EMPTY_EVIDENCE = GroundedEvidence("", 0, ())
@@ -19,7 +16,7 @@ EVIDENCE = GroundedEvidence(
     result_count=1,
     citations=(
         contracts.Citation(
-            source_id="fileSearchStores/pea/documents/doc1",
+            source_id="source/PEA_Billing.docx",
             title="PEA Billing",
             uri="https://pea.example/billing",
             snippet="Bills are due on the 20th.",
@@ -30,7 +27,7 @@ EVIDENCE = GroundedEvidence(
 
 
 class FakeBackend:
-    """Structural stand-in for GeminiFileSearchKnowledgeBackend."""
+    """Network-free structural stand-in for the knowledge search protocol."""
 
     def __init__(self, evidence: GroundedEvidence | None = None, error: Exception | None = None):
         self.evidence = evidence if evidence is not None else EMPTY_EVIDENCE
@@ -87,7 +84,7 @@ def test_success_serializes_camel_case() -> None:
         "answerContext": EVIDENCE.answer_context,
         "resultCount": 1,
     }
-    assert dumped["citations"][0]["sourceId"] == "fileSearchStores/pea/documents/doc1"
+    assert dumped["citations"][0]["sourceId"] == "source/PEA_Billing.docx"
     assert dumped["citations"][0]["page"] == 2
 
 

@@ -1,10 +1,10 @@
 """``knowledge_tool`` — เครื่องมือเดียวในเดโม PEA One Agent ที่ไม่ใช่เครื่องมือจำลอง
 
 ทำงานตามการกระทำที่กำหนดไว้ในสัญญา ``knowledge_tool.search`` (CONTRACTS.md)
-โดยใช้ Gemini File Search Hosted RAG ผลลัพธ์จะมีค่า ``simulation=false`` และเมื่อ
-ผู้ให้บริการส่งหลักฐานกลับมา จะมีค่า ``Citation`` ตามสัญญา เครื่องมือนี้ส่งต่อคำค้น
-ไปยังบริการโฮสต์โดยตรง และไม่ใช้การค้นคืนภายในเครื่องแทน (ไม่มี embeddings ไม่มีดัชนี
-ภายในเครื่อง และไม่มีการใช้ความจำของโมเดลเป็นทางเลือกสำรอง)
+โดยส่งคำค้นให้ backend เอกสารที่เลือกไฟล์ DOCX ที่เกี่ยวข้อง แล้วใช้ข้อความฉบับเต็มของ
+แต่ละไฟล์สร้างหลักฐาน ผลลัพธ์จะมีค่า ``simulation=false`` และมีค่า ``Citation``
+ตามสัญญาเมื่อมีหลักฐาน เครื่องมือนี้ไม่มีการค้นคืนภายในเครื่องหรือใช้ความจำของโมเดล
+เป็นทางเลือกสำรอง
 
 โมดูลนี้ทำตามโครงสร้างของโปรโตคอล Tool ใน ARCHITECTURE.md:
 
@@ -17,14 +17,14 @@ from __future__ import annotations
 
 import logging
 from dataclasses import dataclass
-from typing import Any
+from typing import Any, Protocol
 from uuid import UUID
 
 from pydantic import ValidationError
 
 from app import contracts
-from app.backends.gemini_file_search import (
-    GeminiFileSearchKnowledgeBackend,
+from app.backends.full_document_knowledge import (
+    FullDocumentKnowledgeBackend,
     GroundedEvidence,
     KnowledgeBackendError,
 )
@@ -53,6 +53,12 @@ class ToolContext:
     trace_id: UUID | None = None
 
 
+class KnowledgeSearchBackend(Protocol):
+    """ขอบเขตขั้นต่ำที่ ``KnowledgeTool`` ต้องใช้จาก backend ความรู้"""
+
+    async def search(self, query: str, max_results: int) -> GroundedEvidence: ...
+
+
 class KnowledgeTool:
     """การใช้งาน ``Tool`` แบบกำหนดตายตัวสำหรับ :class:`~app.contracts.ToolName.KNOWLEDGE`
 
@@ -63,8 +69,10 @@ class KnowledgeTool:
 
     name: contracts.ToolName = contracts.ToolName.KNOWLEDGE
 
-    def __init__(self, backend: GeminiFileSearchKnowledgeBackend | None = None) -> None:
-        self._backend = backend if backend is not None else GeminiFileSearchKnowledgeBackend()
+    def __init__(self, backend: KnowledgeSearchBackend | None = None) -> None:
+        self._backend: KnowledgeSearchBackend = (
+            backend if backend is not None else FullDocumentKnowledgeBackend()
+        )
 
     async def execute(
         self, call: contracts.ToolCall, context: ToolContext | Any

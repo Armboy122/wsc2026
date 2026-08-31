@@ -1,12 +1,11 @@
 # คลังความรู้ PEA
 
-> สถานะ: สเปกเป้าหมายสำหรับการย้ายระบบ Knowledge จาก Gemini File Search ไปเป็น
-> **Document Routing + Full-file Long Context** โดย public contract ของ `knowledge_tool.search`
-> ยังคงเดิม
+> สถานะ: runtime ใช้ **Document Routing + Full-file Long Context** โดย public contract
+> ของ `knowledge_tool.search` ยังคงเดิม
 
 `knowledge_tool` ต้องเลือกเฉพาะเอกสารที่เกี่ยวข้องกับคำถาม แล้วส่ง **ข้อความฉบับเต็ม**
 ของเอกสารที่เลือกให้ Gemini Long Context เพื่อสร้างคำตอบที่ครบและตรงคำถาม ระบบนี้ไม่ใช่
-chunk-based RAG และห้ามโหลดทั้ง corpus ทุกครั้งโดยไม่มีความจำเป็น
+การแบ่งข้อความเป็นส่วนย่อย และห้ามโหลดทั้ง corpus ทุกครั้งโดยไม่มีความจำเป็น
 
 ## นโยบายแหล่งข้อมูลที่เชื่อถือได้
 
@@ -25,7 +24,7 @@ knowledge/
   source/              เอกสาร authoritative ที่ Document Router เลือกได้
     *.docx              แหล่งข้อมูลฉบับเต็ม
     README.md           นโยบายเท่านั้น; ห้ามนำเข้า context
-  manifest.json        state เดิมของ File Search; ไม่ใช้ใน runtime เป้าหมาย
+  manifest.json        metadata ที่ไม่ใช้ใน runtime
   tests/               เทสต์ Document Router, full-file loading และ fail-closed
 ```
 
@@ -101,9 +100,9 @@ citation ทุกตัวต้องผ่านกฎต่อไปนี�
 | `GEMINI_LONG_CONTEXT_MODEL` | โมเดลที่ใช้สำหรับ Document Router และการตอบจาก full-file context; ค่าเริ่มต้นที่อนุมัติคือ `gemini-3.6-flash` |
 | `KNOWLEDGE_SOURCE_ROOT` | root ของ corpus; ค่าเริ่มต้นคือ `<repo>/knowledge/source` |
 
-`GEMINI_FILE_SEARCH_STORE` และการอัปโหลดผ่าน `scripts/sync_knowledge.py` ไม่อยู่ใน runtime
-เป้าหมายอีกต่อไป หลัง migration เสร็จสามารถเก็บสคริปต์ไว้เป็น legacy tooling หรือลบในงาน cleanup
-แยกต่างหากได้ แต่ต้องไม่มี code path ของ `knowledge_tool` เรียก File Search
+runtime อ่านเฉพาะ `KNOWLEDGE_SOURCE_ROOT` และไม่ต้องใช้ชื่อ store หรือขั้นตอนอัปโหลดเอกสาร
+ใด ๆ `knowledge_tool` ต้องส่งเฉพาะเอกสารที่ Document Router เลือก พร้อมข้อความฉบับเต็มของ
+แต่ละ DOCX ให้ Long Context
 
 ## เกณฑ์ยอมรับ
 
@@ -114,4 +113,4 @@ citation ทุกตัวต้องผ่านกฎต่อไปนี�
 - เทสต์ยืนยันว่าคำถามหลายหัวข้อโหลดหลายไฟล์ฉบับเต็ม
 - เทสต์ยืนยันว่า router ไม่สามารถเลือกพาธนอก allowlist
 - เทสต์ยืนยันว่า no-match, context overflow, parse error และ citation mismatch ทำงานแบบ fail closed
-- ไม่มี dependency หรือคำขอ runtime ไปยัง Gemini File Search, vector DB, embedding หรือ chunk retrieval
+- ไม่มี dependency หรือคำขอ runtime ไปยัง vector DB, embedding หรือ chunk retrieval

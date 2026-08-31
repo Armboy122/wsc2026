@@ -13,10 +13,12 @@ def test_default_settings() -> None:
     assert settings.log_level == "info"
     assert "http://localhost:3000" in settings.cors_origins
     assert settings.llm_adapter_name == "demo"
-    assert settings.knowledge_backend_name == "gemini_file_search"
+    assert settings.knowledge_backend_name == "full_document"
     assert settings.gemini_api_key is None
-    assert settings.file_search_store is None
-    assert settings.file_search_model is None
+    assert settings.knowledge_source_root == (
+        Path(__file__).resolve().parents[3] / "knowledge" / "source"
+    )
+    assert settings.gemini_long_context_model == "gemini-3.6-flash"
 
 
 def test_env_override() -> None:
@@ -28,8 +30,8 @@ def test_env_override() -> None:
             "LLM_ADAPTER_NAME": "judge",
             "KNOWLEDGE_BACKEND_NAME": "other",
             "GEMINI_API_KEY": "sk-test",
-            "GEMINI_FILE_SEARCH_STORE": "store-123",
-            "GEMINI_FILE_SEARCH_MODEL": "models/gemini-2.0-flash",
+            "KNOWLEDGE_SOURCE_ROOT": "/srv/pea-knowledge",
+            "GEMINI_LONG_CONTEXT_MODEL": "gemini-3.6-pro",
         }
     )
     assert settings.app_env == "production"
@@ -38,28 +40,21 @@ def test_env_override() -> None:
     assert settings.llm_adapter_name == "judge"
     assert settings.knowledge_backend_name == "other"
     assert settings.gemini_api_key == "sk-test"
-    assert settings.file_search_store == "store-123"
-    assert settings.file_search_model == "models/gemini-2.0-flash"
+    assert settings.knowledge_source_root == Path("/srv/pea-knowledge")
+    assert settings.gemini_long_context_model == "gemini-3.6-pro"
 
 
-def test_empty_secret_values_are_normalized_to_none() -> None:
-    settings = Settings.from_env(
-        {
-            "GEMINI_API_KEY": "",
-            "GEMINI_FILE_SEARCH_STORE": "   ",
-            "GEMINI_FILE_SEARCH_MODEL": "",
-        }
-    )
+def test_empty_api_key_is_normalized_to_none() -> None:
+    settings = Settings.from_env({"GEMINI_API_KEY": ""})
     assert settings.gemini_api_key is None
-    assert settings.file_search_store is None
-    assert settings.file_search_model is None
 
 
 def test_load_dotenv(tmp_path: Path) -> None:
     env_file = tmp_path / ".env"
     env_file.write_text(
         "APP_ENV=test\nLOG_LEVEL=debug\nCORS_ORIGINS=http://test.local\n"
-        "GEMINI_API_KEY=dotenv-key\nGEMINI_FILE_SEARCH_STORE=dotenv-store\n"
+        "GEMINI_API_KEY=dotenv-key\nKNOWLEDGE_SOURCE_ROOT=/dotenv/knowledge\n"
+        "GEMINI_LONG_CONTEXT_MODEL=gemini-3.6-pro\n"
     )
     settings = load_settings(env_file)
     assert settings.app_env == "test"
@@ -67,8 +62,8 @@ def test_load_dotenv(tmp_path: Path) -> None:
     assert settings.cors_origins == ("http://test.local",)
     assert settings.llm_adapter_name == "demo"
     assert settings.gemini_api_key == "dotenv-key"
-    assert settings.file_search_store == "dotenv-store"
-    assert settings.file_search_model is None
+    assert settings.knowledge_source_root == Path("/dotenv/knowledge")
+    assert settings.gemini_long_context_model == "gemini-3.6-pro"
 
 
 def test_real_environment_precedes_dotenv(
@@ -95,14 +90,14 @@ def test_settings_repr_does_not_expose_secrets() -> None:
     settings = Settings.from_env(
         {
             "GEMINI_API_KEY": "super-secret",
-            "GEMINI_FILE_SEARCH_STORE": "my-store",
-            "GEMINI_FILE_SEARCH_MODEL": "models/gemini-pro",
+            "KNOWLEDGE_SOURCE_ROOT": "/private/knowledge",
+            "GEMINI_LONG_CONTEXT_MODEL": "gemini-3.6-pro",
         }
     )
     text = repr(settings)
     assert "super-secret" not in text
-    assert "my-store" not in text
-    assert "models/gemini-pro" not in text
+    assert "/private/knowledge" in text
+    assert "gemini-3.6-pro" in text
     assert "[REDACTED]" in text
 
 

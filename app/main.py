@@ -16,7 +16,7 @@ from fastapi.staticfiles import StaticFiles
 from app.agent.main_agent import InvalidActionStateError, MainAgent, NotFoundError
 from app.agent.registry import ToolRegistry
 from app.api.routes import router
-from app.backends.gemini_file_search import GeminiFileSearchKnowledgeBackend
+from app.backends.full_document_knowledge import FullDocumentKnowledgeBackend
 from app.core.config import load_settings
 from app.core.di import adapter_service, agent_service
 from app.core.errors import ConflictException, NotFoundException, platform_exception_handler
@@ -31,7 +31,7 @@ from app.tools.voc_tool import VocTool
 class _KnowledgeReadiness:
     """เปิดเผยตัวตรวจสอบความพร้อมที่ไม่มีข้อมูลรับรองให้เส้นทาง health"""
 
-    def __init__(self, backend: GeminiFileSearchKnowledgeBackend) -> None:
+    def __init__(self, backend: FullDocumentKnowledgeBackend) -> None:
         self._backend = backend
 
     async def ready(self) -> bool:
@@ -58,15 +58,15 @@ async def _conflict_handler(
 settings = load_settings()
 if settings.llm_adapter_name != "demo":
     raise RuntimeError(f"ไม่รองรับ LLM adapter: {settings.llm_adapter_name}")
-if settings.knowledge_backend_name != "gemini_file_search":
+if settings.knowledge_backend_name != "full_document":
     raise RuntimeError(
         f"ไม่รองรับ backend ความรู้: {settings.knowledge_backend_name}"
     )
 
-knowledge_backend = GeminiFileSearchKnowledgeBackend(
+knowledge_backend = FullDocumentKnowledgeBackend(
     api_key=settings.gemini_api_key,
-    store_name=settings.file_search_store,
-    model=settings.file_search_model,
+    source_root=settings.knowledge_source_root,
+    model=settings.gemini_long_context_model,
 )
 llm_adapter = DemoLLMAdapter()
 tool_registry = ToolRegistry(

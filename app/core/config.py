@@ -12,9 +12,7 @@ def _comma_origins(raw: str) -> tuple[str, ...]:
 
 
 # ชื่อฟิลด์ที่ห้ามแสดงผ่าน repr/str/logging โดยเด็ดขาด
-_SECRET_FIELD_NAMES: frozenset[str] = frozenset(
-    {"gemini_api_key", "file_search_store", "file_search_model"}
-)
+_SECRET_FIELD_NAMES: frozenset[str] = frozenset({"gemini_api_key"})
 
 
 @dataclass(frozen=True)
@@ -29,10 +27,14 @@ class Settings:
         )
     )
     llm_adapter_name: str = "demo"
-    knowledge_backend_name: str = "gemini_file_search"
+    knowledge_backend_name: str = "full_document"
     gemini_api_key: str | None = None
-    file_search_store: str | None = None
-    file_search_model: str | None = None
+    knowledge_source_root: Path = field(
+        default_factory=lambda: Path(__file__).resolve().parents[2]
+        / "knowledge"
+        / "source"
+    )
+    gemini_long_context_model: str = "gemini-3.6-flash"
 
     @classmethod
     def from_env(cls, environ: dict[str, str] | None = None) -> Settings:
@@ -54,11 +56,18 @@ class Settings:
             ),
             llm_adapter_name=env.get("LLM_ADAPTER_NAME", "demo").lower(),
             knowledge_backend_name=env.get(
-                "KNOWLEDGE_BACKEND_NAME", "gemini_file_search"
+                "KNOWLEDGE_BACKEND_NAME", "full_document"
             ).lower(),
             gemini_api_key=_get("GEMINI_API_KEY"),
-            file_search_store=_get("GEMINI_FILE_SEARCH_STORE"),
-            file_search_model=_get("GEMINI_FILE_SEARCH_MODEL"),
+            knowledge_source_root=Path(
+                env.get(
+                    "KNOWLEDGE_SOURCE_ROOT",
+                    str(Path(__file__).resolve().parents[2] / "knowledge" / "source"),
+                )
+            ),
+            gemini_long_context_model=env.get(
+                "GEMINI_LONG_CONTEXT_MODEL", "gemini-3.6-flash"
+            ),
         )
 
     def __repr__(self) -> str:

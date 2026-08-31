@@ -6,6 +6,7 @@ from typing import Any
 
 import pytest
 
+from app.backends.full_document_knowledge import FullDocumentKnowledgeBackend
 from app.contracts import ToolName
 from app.core.startup import REQUIRED_TOOLS, validate_tool_registry
 
@@ -25,6 +26,15 @@ class _CallableNamesRegistry:
 
 class _ListNamesRegistry:
     names = list(REQUIRED_TOOLS)
+
+
+def test_runtime_wires_full_document_backend(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Importing the application constructs no network client and needs no store name."""
+    monkeypatch.setenv("KNOWLEDGE_BACKEND_NAME", "full_document")
+    from app import main
+
+    assert isinstance(main.knowledge_backend, FullDocumentKnowledgeBackend)
+    assert main.settings.knowledge_backend_name == "full_document"
 
 
 def test_validate_tool_registry_accepts_frozenset_property() -> None:
