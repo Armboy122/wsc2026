@@ -23,7 +23,7 @@ from app.contracts import Citation, ToolErrorCode
 ENV_API_KEY = "GEMINI_API_KEY"
 ENV_FALLBACK_API_KEY = "GOOGLE_API_KEY"
 DEFAULT_MODEL = "gemini-3.6-flash"
-DEFAULT_TIMEOUT_SECONDS = 30.0
+DEFAULT_TIMEOUT_SECONDS = 60.0
 DEFAULT_READINESS_TIMEOUT_SECONDS = 5.0
 DEFAULT_SOURCE_ROOT = Path(__file__).resolve().parents[2] / "knowledge" / "source"
 DEFAULT_HARD_CONTEXT_CHARS = 1_000_000
@@ -112,9 +112,39 @@ class FullDocumentKnowledgeBackend:
         self._make_client()
 
     async def search(self, query: str, max_results: int) -> GroundedEvidence:
+        """ให้ router และ answer call ได้รับ timeout budget แยกกัน"""
         try:
+            if not self.is_configured():
+                raise KnowledgeBackendError(ToolErrorCode.UNAVAILABLE, USER_SAFE_NOT_CONFIGURED)
+            if not isinstance(query, str) or not query.strip() or max_results < 1:
+                return GroundedEvidence("", 0, ())
+
+            catalog = await asyncio.to_thread(self._catalog)
+            if not catalog:
+                return GroundedEvidence("", 0, ())
+            client = self._make_client()
+            selected_ids = await asyncio.wait_for(
+                asyncio.to_thread(self._route, client, query, catalog, max_results),
+                self._timeout_seconds,
+            )
+            if not selected_ids:
+                return GroundedEvidence("", 0, ())
+
+            selected = [catalog[source_id] for source_id in selected_ids]
+            texts: dict[str, str] = {}
+            for document in selected:
+                try:
+                    texts[document.source_id] = await asyncio.to_thread(
+                        self._full_text, document
+                    )
+                except (OSError, ValueError, zipfile.BadZipFile, ElementTree.ParseError):
+                    return GroundedEvidence("", 0, ())
+            if sum(len(text) for text in texts.values()) > self._hard_context_chars:
+                return GroundedEvidence("", 0, ())
+
             return await asyncio.wait_for(
-                asyncio.to_thread(self._search_sync, query, max_results), self._timeout_seconds
+                asyncio.to_thread(self._answer, client, query, selected, texts),
+                self._timeout_seconds,
             )
         except KnowledgeBackendError:
             raise
@@ -122,29 +152,6 @@ class FullDocumentKnowledgeBackend:
             raise KnowledgeBackendError(ToolErrorCode.UNAVAILABLE, USER_SAFE_UNAVAILABLE) from exc
         except Exception as exc:
             raise KnowledgeBackendError(ToolErrorCode.UNAVAILABLE, USER_SAFE_UNAVAILABLE) from exc
-
-    def _search_sync(self, query: str, max_results: int) -> GroundedEvidence:
-        if not self.is_configured():
-            raise KnowledgeBackendError(ToolErrorCode.UNAVAILABLE, USER_SAFE_NOT_CONFIGURED)
-        if not isinstance(query, str) or not query.strip() or max_results < 1:
-            return GroundedEvidence("", 0, ())
-        catalog = self._catalog()
-        if not catalog:
-            return GroundedEvidence("", 0, ())
-        client = self._make_client()
-        selected_ids = self._route(client, query, catalog, max_results)
-        if not selected_ids:
-            return GroundedEvidence("", 0, ())
-        selected = [catalog[source_id] for source_id in selected_ids]
-        texts: dict[str, str] = {}
-        for document in selected:
-            try:
-                texts[document.source_id] = self._full_text(document)
-            except (OSError, ValueError, zipfile.BadZipFile, ElementTree.ParseError):
-                return GroundedEvidence("", 0, ())
-        if sum(len(text) for text in texts.values()) > self._hard_context_chars:
-            return GroundedEvidence("", 0, ())
-        return self._answer(client, query, selected, texts)
 
     def _make_client(self) -> Any:
         if self._client_factory is not None:

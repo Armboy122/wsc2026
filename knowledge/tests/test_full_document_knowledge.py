@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+import time
 import zipfile
 from pathlib import Path
 from types import SimpleNamespace
@@ -43,13 +44,15 @@ def write_docx(
 
 
 class FakeClient:
-    def __init__(self, responses: list[str]) -> None:
+    def __init__(self, responses: list[str], delays: list[float] | None = None) -> None:
         self.responses = iter(responses)
+        self.delays = iter(delays or [])
         self.calls: list[dict] = []
         self.models = SimpleNamespace(generate_content=self.generate_content)
 
     def generate_content(self, **kwargs):
         self.calls.append(kwargs)
+        time.sleep(next(self.delays, 0))
         return SimpleNamespace(text=next(self.responses))
 
 
@@ -153,3 +156,26 @@ def test_context_budget_overflow_fails_closed_without_completion_call(tmp_path: 
 
     assert asyncio.run(service.search("q", 1)).result_count == 0
     assert len(client.calls) == 1
+
+
+
+def test_router_and_answer_each_receive_a_full_timeout_budget(tmp_path: Path) -> None:
+    write_docx(tmp_path / "service.docx", "หลักฐาน", title="ขอใช้ไฟฟ้า")
+    client = FakeClient(
+        [
+            '{"sourceIds":["service.docx"]}',
+            '{"answer":"คำตอบ","citations":[{"sourceId":"service.docx","snippet":"หลักฐาน"}]}',
+        ],
+        delays=[0.1, 0.1],
+    )
+    service = FullDocumentKnowledgeBackend(
+        api_key="test-key",
+        source_root=tmp_path,
+        client_factory=lambda _: client,
+        timeout_seconds=0.15,
+    )
+
+    evidence = asyncio.run(service.search("ต้องใช้เอกสารอะไร", 1))
+
+    assert evidence.answer_context == "คำตอบ"
+    assert evidence.result_count == 1
