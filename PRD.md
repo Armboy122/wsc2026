@@ -7,7 +7,7 @@
 
 ## 1. Executive Summary
 
-PEA One Agent คือผู้ช่วยสนทนาหนึ่งจุดสำหรับงานบริการลูกค้า PEA ที่รวมการค้นหาความรู้ การดูข้อมูลบริการจำลอง การรับเรื่องร้องเรียน และการเตรียมรายการที่ต้องได้รับการยืนยันจากมนุษย์ก่อนดำเนินการ
+PEA One Agent คือผู้ช่วยสนทนาหนึ่งจุดสำหรับการค้นหาความรู้ PEA และการตรวจหรือเตรียมแจ้งเหตุไฟฟ้าขัดข้องผ่าน OMS โดยรายการเขียนต้องได้รับการยืนยันจากมนุษย์ก่อนดำเนินการ
 
 MVP นี้ต้องพิสูจน์สามเรื่อง:
 
@@ -15,7 +15,7 @@ MVP นี้ต้องพิสูจน์สามเรื่อง:
 2. Main Agent เลือกและประสาน tool ที่ถูกต้องโดยไม่สร้างข้อมูลปฏิบัติการขึ้นเอง
 3. รายการที่แก้ไขข้อมูลต้องผ่าน `prepare → human confirm → submit` พร้อม idempotency และ trace
 
-ผลิตภัณฑ์นี้เป็นเดโม ไม่ใช่ระบบบริการลูกค้า PEA สำหรับ production โดย OMS, Sabuy และ VOC ใช้ backend จำลอง และต้องแสดงสถานะ **SIMULATED** อย่างชัดเจน
+ผลิตภัณฑ์นี้เป็นเดโม ไม่ใช่ระบบบริการลูกค้า PEA สำหรับ production โดย OMS เชื่อม external REST แต่ ToolResult ต้องมี `simulation=true`; Sabuy และ VOC คงเฉพาะ implementation/contracts/isolated tests แบบ dormant และไม่เปิดใช้งาน
 
 ### One-line pitch
 
@@ -97,16 +97,16 @@ MVP นี้ไม่ครอบคลุม:
 
 ## 7. MVP Scope
 
-Contract เป้าหมายกำหนด Main Agent หนึ่งตัวและสี่ tool:
+Contract เป้าหมายกำหนด Main Agent หนึ่งตัวและ tool ที่ลงทะเบียนแบบ typed สองรายการ:
 
 | Capability | Tool | MVP behavior | Data status |
 |---|---|---|---|
 | ความรู้ PEA | `knowledge_tool` | เลือกเอกสารและตอบจากข้อความเต็มพร้อม citation | เอกสารจริงที่ต้องผ่านการอนุมัติ |
-| บัญชี/การชำระเงิน | `sabuy_tool` | ดูบัญชีตัวอย่างและเตรียมการชำระเงิน | Simulated |
-| เสียงลูกค้า/ร้องเรียน | `voc_tool` | แสดงหมวด เตรียมเคส ส่งหลังยืนยัน และติดตามด้วยคีย์ | Simulated |
-| ไฟฟ้าขัดข้อง | `oms_tool` | ดูสถานะและเตรียมรายงานพร้อม safety message | Simulated |
+| ไฟฟ้าขัดข้อง | `oms_tool` | ตรวจ CA และเตรียม/ส่งรายงานผ่าน external REST ตาม `oms.openapi.yaml` | ToolResult simulation=true |
 
-> หมายเหตุสถานะ implementation: contract และเอกสารสถาปัตยกรรมระบุครบสี่ tool แต่ runtime catalogue ใน `app/agent/main_agent.py` ปัจจุบันเปิดใช้ `knowledge_tool` และ `voc_tool` ขณะที่ Sabuy/OMS ถูกคอมเมนต์ออก การนำเสนอหรือ release claim ต้องยึดพฤติกรรมที่ทดสอบได้จริง ณ เวลานั้น ไม่ยึดเอกสารเพียงอย่างเดียว
+Sabuy และ VOC ไม่ลงทะเบียนใน runtime catalogue; โค้ด สัญญา และ isolated tests ที่มีอยู่คงไว้แบบ dormant เพื่อ compatibility เท่านั้น
+
+> OMS connector เป็น seam แบบ explicit ใน Agent ใช้ typed contracts และ `httpx` เท่านั้น ไม่โหลดหรือสร้างเครื่องมือจาก OpenAPI โดยอัตโนมัติ; ลิงก์ HTTP(S) จาก Knowledge ต้องปรากฏตรงตัวในข้อความ DOCX ฉบับเต็มที่เลือกและผ่านการตรวจสอบแล้ว
 
 ### 7.1 Voice Mode (Gemini Live) — ส่วนเพิ่มเติมของ MVP
 
@@ -117,12 +117,12 @@ Contract เป้าหมายกำหนด Main Agent หนึ่งต�
 |---|---|
 | ช่องทางขนส่ง | Gemini Live API (เสียง + การถอดเสียง) ผ่าน WebSocket `/ws/live` เดียวต่อเซสชันเบราว์เซอร์ |
 | ตัวแทนธุรกิจ | Main Agent ตัวเดิมเท่านั้น (`app/agent/main_agent.py`) — Voice Bridge เป็นตัวกลางบาง ๆ ไม่ใช่ตัวแทนแยก |
-| ขอบเขตความสามารถ | Knowledge และ VOC เท่านั้น (ตรงกับ runtime catalogue ที่เปิดใช้) |
+| ขอบเขตความสามารถ | Knowledge และ OMS เท่านั้น (ตรงกับ runtime catalogue ที่เปิดใช้) |
 | เมทอดที่เรียก | `handle_chat` / `confirm_pending_action` / `reject_pending_action` เท่านั้น |
 | การยืนยัน/ปฏิเสธด้วยเสียง | ผูกกับเซสชัน — โมเดลไม่รับ/ส่ง `pendingActionId` ระบบเลือก "รายการปัจจุบัน" ของเซสชันเอง และ fail closed เมื่อไม่มีรายการ |
 | ความกำกวม | โมเดลต้องถามย้ำและห้ามเรียกฟังก์ชันตัดสินใจเมื่อคำตอบไม่ชัดเจน |
 | สถานะโมเดล | `gemini-3.1-flash-live-preview` (Preview) — ยังไม่ใช่ GA และอาจเปลี่ยนพฤติกรรม/เสียง |
-| ข้อมูล VOC | SIMULATED เช่นเดียวกับช่องทางข้อความ |
+| ข้อมูล OMS | ToolResult ยังคง `simulation=true` เช่นเดียวกับช่องทางข้อความ |
 
 ## 8. Critical User Journeys
 
@@ -162,9 +162,9 @@ Contract เป้าหมายกำหนด Main Agent หนึ่งต�
 
 ผู้ใช้ปฏิเสธผ่าน reject endpoint รายการต้องเข้าสถานะ terminal และ submit ภายหลังไม่ได้
 
-### J5 — Submit and track a VOC case
+### J5 — ตรวจและแจ้งเหตุไฟฟ้าขัดข้องผ่าน OMS
 
-ระบบใช้ workflow state แยกจากประวัติสนทนา เก็บหมวด หัวข้อ รายละเอียด ชื่อ เบอร์โทร และสถานที่ตามลำดับให้ครบก่อน prepare โดยอ่านรายการหมวดจาก `voc_tool`; หากผู้ใช้ถาม Knowledge ระหว่างทาง ระบบตอบพร้อม citation แล้วกลับมาทำช่องข้อมูลเดิมต่อได้ หลัง submit จึงคืน `vocId` และ `trackingKey` ซึ่งต้องใช้คู่กันเมื่อติดตาม
+เมื่อมี CA ระบบต้องเรียก `get_outage_by_ca` ก่อนเสมอและห้าม prepare ซ้ำเมื่อมี active event; หากไม่พบ CA ให้เสนอ flow แบบ anonymous ผู้ใช้ต้องให้รายละเอียด ตำแหน่ง และเบอร์ติดต่อก่อน `prepare_anonymous_outage` การส่งจริงเกิดได้เฉพาะหลัง explicit confirm และ internal submit เท่านั้น
 
 ### J6 — Inspect and reset the demo
 
@@ -204,7 +204,7 @@ Contract เป้าหมายกำหนด Main Agent หนึ่งต�
 
 - Tool/action/input/output ต้องผ่าน typed validation
 - runtime ต้องปฏิเสธ tool ที่ไม่รู้จัก action ที่ไม่ตรง tool และ submit action จากแชต
-- ข้อเท็จจริงด้านบัญชี เคส การชำระเงิน และไฟดับต้องมาจาก typed tool result เท่านั้น
+- ข้อเท็จจริงด้านเหตุไฟฟ้าขัดข้องต้องมาจาก typed OMS tool result เท่านั้น
 
 ### FR-4 Pending actions
 
@@ -322,15 +322,15 @@ MVP ยังไม่พร้อม production จนกว่า:
 
 Known gaps ณ baseline นี้:
 
-- Runtime tool catalogue เปิด Knowledge และ VOC แต่ยังไม่เปิด Sabuy/OMS แม้ contract เป้าหมายระบุครบสี่ tool
-- Operational integrations ทั้งหมดยังเป็น simulated backends
+- Runtime tool catalogue เปิด Knowledge และ OMS แบบ typed เท่านั้น; Sabuy และ VOC ไม่ลงทะเบียนและคงเฉพาะ implementation/contracts/isolated tests แบบ dormant
+- OMS ใช้ external REST connector ตาม immutable `oms.openapi.yaml` และ gateway ที่กำหนด แต่ผล ToolResult ยังคง `simulation=true`
 - Knowledge live verification ที่บันทึกไว้เป็นเพียงบางกรณี ไม่ใช่ full live evaluation
 - จำนวน DOCX และจำนวน tests ที่ระบุใน `README.md` กับ `docs/integration_report.md` ไม่ตรงกันและอาจล้าสมัย
 - ข้อมูลใน process สูญหายเมื่อ restart
 - ยังไม่มี authentication/authorization สำหรับ production
 - Workflow ส่งคำถามที่ตอบไม่ได้ให้เจ้าหน้าที่เป็นข้อความแจ้งเท่านั้น ยังไม่มี ticket integration จริง
 - โหมดเสียงใช้ `gemini-3.1-flash-live-preview` (Preview) — ตรวจสอบสดด้วย key จริงแล้วว่า `/ws/live` เชื่อมต่อและ SDK รับ transcription/PCM audio ได้ แต่ยังไม่มีการทดสอบไมโครโฟน/ลำโพงจริงแบบอัตโนมัติ ต้องซ้อมสดด้วยมือก่อนนำเสนอ
-- โหมดเสียงเปิดใช้เฉพาะ Knowledge และ VOC และต้องใช้เบราว์เซอร์ที่รองรับ AudioWorklet/getUserMedia (แนะนำ Chrome/Edge ล่าสุด)
+- โหมดเสียงเป็น bridge บาง ๆ ไปยังความสามารถ Knowledge และ OMS ของ Main Agent และต้องใช้เบราว์เซอร์ที่รองรับ AudioWorklet/getUserMedia (แนะนำ Chrome/Edge ล่าสุด)
 
 ก่อนทำสไลด์ release/demo ให้รัน test/evaluator และอัปเดตหลักฐานสถานะในเอกสารที่เกี่ยวข้อง
 
@@ -345,7 +345,7 @@ Known gaps ณ baseline นี้:
 
 ### Phase 1 — Demo completeness
 
-- ตัดสินใจว่าจะเปิด Sabuy/OMS ใน runtime demo หรือปรับ scope/contract ให้ตรงกับ capability ที่นำเสนอ
+- พิจารณา production OMS authentication/authorization และ controls หลัง security/privacy review
 - ทำ live evaluation ครบชุดที่ประกาศ
 - ยืนยันและจัด version ของ knowledge sources
 - ทำ demo script และ evidence snapshot ที่สร้างซ้ำได้

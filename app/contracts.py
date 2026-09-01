@@ -44,9 +44,11 @@ class ToolAction(str, Enum):
     VOC_PREPARE_CASE = "prepare_case"
     VOC_SUBMIT_CASE = "submit_case"
     VOC_GET_CASE = "get_case"
-    OMS_OUTAGE_STATUS = "get_outage_status"
-    OMS_PREPARE_OUTAGE_REPORT = "prepare_outage_report"
-    OMS_SUBMIT_OUTAGE_REPORT = "submit_outage_report"
+    OMS_GET_OUTAGE_BY_CA = "get_outage_by_ca"
+    OMS_PREPARE_OUTAGE_WITH_CA = "prepare_outage_with_ca"
+    OMS_SUBMIT_OUTAGE_WITH_CA = "submit_outage_with_ca"
+    OMS_PREPARE_ANONYMOUS_OUTAGE = "prepare_anonymous_outage"
+    OMS_SUBMIT_ANONYMOUS_OUTAGE = "submit_anonymous_outage"
 
 
 TOOL_ACTIONS: dict[ToolName, frozenset[ToolAction]] = {
@@ -63,16 +65,20 @@ TOOL_ACTIONS: dict[ToolName, frozenset[ToolAction]] = {
         ToolAction.VOC_GET_CASE,
     }),
     ToolName.OMS: frozenset({
-        ToolAction.OMS_OUTAGE_STATUS,
-        ToolAction.OMS_PREPARE_OUTAGE_REPORT,
-        ToolAction.OMS_SUBMIT_OUTAGE_REPORT,
+        ToolAction.OMS_GET_OUTAGE_BY_CA,
+        ToolAction.OMS_PREPARE_OUTAGE_WITH_CA,
+        ToolAction.OMS_SUBMIT_OUTAGE_WITH_CA,
+        ToolAction.OMS_PREPARE_ANONYMOUS_OUTAGE,
+        ToolAction.OMS_SUBMIT_ANONYMOUS_OUTAGE,
     }),
 }
 
 PREPARE_TO_SUBMIT: dict[ToolAction, ToolAction] = {
+    # คง mapping ของ Sabuy ไว้สำหรับสัญญาเดิมที่ไม่ถูกลงทะเบียนใน runtime
     ToolAction.SABUY_PREPARE_PAYMENT: ToolAction.SABUY_SUBMIT_PAYMENT,
     ToolAction.VOC_PREPARE_CASE: ToolAction.VOC_SUBMIT_CASE,
-    ToolAction.OMS_PREPARE_OUTAGE_REPORT: ToolAction.OMS_SUBMIT_OUTAGE_REPORT,
+    ToolAction.OMS_PREPARE_OUTAGE_WITH_CA: ToolAction.OMS_SUBMIT_OUTAGE_WITH_CA,
+    ToolAction.OMS_PREPARE_ANONYMOUS_OUTAGE: ToolAction.OMS_SUBMIT_ANONYMOUS_OUTAGE,
 }
 
 
@@ -297,14 +303,22 @@ class VocGetCaseInput(FrozenModel):
     tracking_key: str = Field(min_length=1, max_length=64, serialization_alias="trackingKey")
 
 
-class OmsOutageStatusInput(FrozenModel):
-    area_code: str = Field(min_length=1, max_length=32, serialization_alias="areaCode")
+class OmsGetOutageByCaInput(FrozenModel):
+    ca_number: str = Field(pattern=r"^[0-9]{12}$", serialization_alias="caNumber")
 
 
-class OmsPrepareOutageReportInput(FrozenModel):
-    area_code: str = Field(min_length=1, max_length=32, serialization_alias="areaCode")
-    location_note: str = Field(min_length=1, max_length=500, serialization_alias="locationNote")
-    symptoms: str = Field(min_length=1, max_length=1000)
+class OmsPrepareOutageWithCaInput(FrozenModel):
+    ca_number: str = Field(pattern=r"^[0-9]{12}$", serialization_alias="caNumber")
+    description: str = Field(min_length=1, max_length=2000)
+    contact_phone: str | None = Field(default=None, min_length=8, max_length=32, serialization_alias="contactPhone")
+    location_note: str | None = Field(default=None, min_length=1, max_length=500, serialization_alias="locationNote")
+    idempotency_key: str = Field(min_length=1, max_length=128, serialization_alias="idempotencyKey")
+
+
+class OmsPrepareAnonymousOutageInput(FrozenModel):
+    description: str = Field(min_length=1, max_length=2000)
+    location: str = Field(min_length=1, max_length=1000)
+    contact_phone: str = Field(min_length=8, max_length=32, serialization_alias="contactPhone")
     idempotency_key: str = Field(min_length=1, max_length=128, serialization_alias="idempotencyKey")
 
 
@@ -377,30 +391,63 @@ class VocGetCaseOutput(FrozenModel):
     updated_at: datetime = Field(serialization_alias="updatedAt")
 
 
-class OutageStatus(str, Enum):
-    NORMAL = "normal"
-    PLANNED = "planned_outage"
-    UNPLANNED = "unplanned_outage"
+class OmsEventLevel(str, Enum):
+    METER = "METER"
+    TRANSFORMER = "TRANSFORMER"
+    FEEDER = "FEEDER"
 
 
-class OmsOutageStatusOutput(FrozenModel):
-    area_code: str = Field(min_length=1, serialization_alias="areaCode")
-    status: OutageStatus
-    updated_at: datetime = Field(serialization_alias="updatedAt")
+class OmsOutageStatus(str, Enum):
+    RECEIVED = "RECEIVED"
+    ACKNOWLEDGED = "ACKNOWLEDGED"
+    IN_PROGRESS = "IN_PROGRESS"
+    RESTORED = "RESTORED"
+
+
+class OmsRecommendedAction(str, Enum):
+    INFORM_EXISTING_EVENT = "INFORM_EXISTING_EVENT"
+    CREATE_METER_EVENT = "CREATE_METER_EVENT"
+
+
+class OmsNetworkReference(FrozenModel):
+    meter_id: str = Field(min_length=1, serialization_alias="meterId")
+    transformer_id: str = Field(min_length=1, serialization_alias="transformerId")
+    feeder_id: str = Field(min_length=1, serialization_alias="feederId")
+
+
+class OmsActiveOutageEvent(FrozenModel):
+    event_id: str = Field(min_length=1, serialization_alias="eventId")
+    level: OmsEventLevel
+    status: OmsOutageStatus
+    message: str = Field(min_length=1, max_length=1000)
+    started_at: datetime = Field(serialization_alias="startedAt")
     estimated_restore_at: datetime | None = Field(serialization_alias="estimatedRestoreAt")
-    safety_message: str = Field(min_length=1, max_length=1000, serialization_alias="safetyMessage")
 
 
-class OmsPrepareOutageReportOutput(FrozenModel):
-    area_code: str = Field(min_length=1, serialization_alias="areaCode")
+class OmsGetOutageByCaOutput(FrozenModel):
+    ca_number: str = Field(pattern=r"^[0-9]{12}$", serialization_alias="caNumber")
+    customer_found: Literal[True] = Field(serialization_alias="customerFound")
+    network: OmsNetworkReference
+    active_event: OmsActiveOutageEvent | None = Field(serialization_alias="activeEvent")
+    recommended_action: OmsRecommendedAction = Field(serialization_alias="recommendedAction")
+
+
+class OmsPrepareOutageOutput(FrozenModel):
     summary: str = Field(min_length=1, max_length=500)
-    safety_message: str = Field(min_length=1, max_length=1000, serialization_alias="safetyMessage")
 
 
-class OmsOutageReportOutput(FrozenModel):
+class OmsCreateOutageWithCaOutput(FrozenModel):
+    event_id: str = Field(min_length=1, serialization_alias="eventId")
+    ca_number: str = Field(pattern=r"^[0-9]{12}$", serialization_alias="caNumber")
+    level: Literal[OmsEventLevel.METER]
+    status: OmsOutageStatus
+    message: str = Field(min_length=1, max_length=1000)
+
+
+class OmsCreateAnonymousOutageOutput(FrozenModel):
     report_id: str = Field(min_length=1, serialization_alias="reportId")
-    status: Literal["submitted"]
-    area_code: str = Field(min_length=1, serialization_alias="areaCode")
+    status: OmsOutageStatus
+    message: str = Field(min_length=1, max_length=1000)
 
 
 INPUT_MODELS: ClassVar[dict[ToolAction, type[FrozenModel]]] = {
@@ -412,9 +459,11 @@ INPUT_MODELS: ClassVar[dict[ToolAction, type[FrozenModel]]] = {
     ToolAction.VOC_PREPARE_CASE: VocPrepareCaseInput,
     ToolAction.VOC_SUBMIT_CASE: SubmitPreparedActionInput,
     ToolAction.VOC_GET_CASE: VocGetCaseInput,
-    ToolAction.OMS_OUTAGE_STATUS: OmsOutageStatusInput,
-    ToolAction.OMS_PREPARE_OUTAGE_REPORT: OmsPrepareOutageReportInput,
-    ToolAction.OMS_SUBMIT_OUTAGE_REPORT: SubmitPreparedActionInput,
+    ToolAction.OMS_GET_OUTAGE_BY_CA: OmsGetOutageByCaInput,
+    ToolAction.OMS_PREPARE_OUTAGE_WITH_CA: OmsPrepareOutageWithCaInput,
+    ToolAction.OMS_SUBMIT_OUTAGE_WITH_CA: SubmitPreparedActionInput,
+    ToolAction.OMS_PREPARE_ANONYMOUS_OUTAGE: OmsPrepareAnonymousOutageInput,
+    ToolAction.OMS_SUBMIT_ANONYMOUS_OUTAGE: SubmitPreparedActionInput,
 }
 
 
@@ -427,9 +476,11 @@ OUTPUT_MODELS: ClassVar[dict[ToolAction, type[FrozenModel]]] = {
     ToolAction.VOC_PREPARE_CASE: VocPrepareCaseOutput,
     ToolAction.VOC_SUBMIT_CASE: VocCaseOutput,
     ToolAction.VOC_GET_CASE: VocGetCaseOutput,
-    ToolAction.OMS_OUTAGE_STATUS: OmsOutageStatusOutput,
-    ToolAction.OMS_PREPARE_OUTAGE_REPORT: OmsPrepareOutageReportOutput,
-    ToolAction.OMS_SUBMIT_OUTAGE_REPORT: OmsOutageReportOutput,
+    ToolAction.OMS_GET_OUTAGE_BY_CA: OmsGetOutageByCaOutput,
+    ToolAction.OMS_PREPARE_OUTAGE_WITH_CA: OmsPrepareOutageOutput,
+    ToolAction.OMS_SUBMIT_OUTAGE_WITH_CA: OmsCreateOutageWithCaOutput,
+    ToolAction.OMS_PREPARE_ANONYMOUS_OUTAGE: OmsPrepareOutageOutput,
+    ToolAction.OMS_SUBMIT_ANONYMOUS_OUTAGE: OmsCreateAnonymousOutageOutput,
 }
 
 

@@ -6,7 +6,7 @@
 
 - ฟิลด์ JSON ใช้ `camelCase` ที่รอยต่อของ HTTP และ tool/LLM ส่วนโมเดล Python ใช้ `snake_case` พร้อม alias ของ Pydantic
 - เพย์โหลดสำหรับการเขียนทั้งหมดที่ไคลเอนต์ส่งมาต้องมี `idempotencyKey` ที่ไม่ว่าง (สูงสุด 128 อักขระ)
-- ผลลัพธ์ Sabuy, VOC และ OMS ทุกรายการต้องมี `simulation` และมีค่าเป็น `true`
+- ผลลัพธ์ operational ของ OMS ต้องมี `simulation` และมีค่าเป็น `true`; สัญญา Sabuy/VOC ที่คงไว้แบบ dormant รักษากฎเดิมเพื่อ compatibility
 - การเรียกเครื่องมือมี `callId` ที่ระบบสร้างขึ้น โดยเครื่องมือไม่รับ call id ที่ไคลเอนต์เป็นผู้กำหนด
 - `ToolResult.status` เป็น `success` หรือ `error` โดยข้อผิดพลาดต้องมีชนิดชัดเจน ปลอดภัยสำหรับผู้ใช้ และต้องไม่มีข้อมูลรับรอง
 - `Citation` ปรากฏเฉพาะในการสืบค้นองค์ความรู้ ข้อเท็จจริงจำลองจะไม่แสดงในรูปแบบการอ้างอิง
@@ -91,7 +91,7 @@
 
 ล้าง conversation ทั้งหมดใน process, pending action, สถานะ backend จำลอง และข้อมูล trace endpoint นี้ใช้สำหรับสภาพแวดล้อมสาธิตที่มีการจัดการเท่านั้น
 
-ข้อยกเว้น: เคส VOC ที่ `submit_case` สำเร็จแล้วจะไม่ถูกล้าง เพราะผู้ใช้ถือ `vocId` และ `trackingKey` ไว้แล้ว และต้องติดตามสถานะได้ในแชตใหม่ภายหลัง ทั้งนี้ตัวนับ `vocId` จะไม่ย้อนกลับ เพื่อไม่ให้เคสใหม่ได้เลขซ้ำกับเคสที่ยังติดตามอยู่ ส่วนฉบับร่างที่ยังไม่ได้ส่งจะถูกล้างตามปกติ (สถานะทั้งหมดยังคงอยู่ใน process เท่านั้น และหายเมื่อรีสตาร์ทเซิร์ฟเวอร์)
+หมายเหตุสัญญา dormant: isolated VOC component เดิมอาจรักษาเคสที่ submit แล้วเพื่อทดสอบการติดตาม แต่ runtime ปัจจุบันไม่ลงทะเบียน VOC และ public reset จึงไม่มี active VOC state
 
 ### `GET /health`
 
@@ -183,7 +183,7 @@ trace และ redaction ทั้งหมดไม่เปลี่ยนแ
 | ฟิลด์ | ชนิด | กฎ |
 |---|---|---|
 | `callId` | UUID | สร้างโดย agent/runtime |
-| `name` | enum | ต้องเป็นหนึ่งในชื่อ tool ระดับบนสุดทั้งสี่รายการเท่านั้น |
+| `name` | enum | enum คงค่า compatibility ไว้ แต่ runtime catalogue เปิดรับเฉพาะ `knowledge_tool` และ `oms_tool`; `voc_tool` ไม่ลงทะเบียน |
 | `action` | enum | หนึ่งใน action ที่อยู่ในตารางด้านล่าง |
 | `input` | object | schema ที่ตรึงไว้และเฉพาะเจาะจงตาม action |
 
@@ -210,7 +210,7 @@ Tool จะปฏิเสธการเรียกที่ `name` ไม่�
 |---|---|---|
 | `pendingActionId` | UUID | สร้างโดย server |
 | `conversationId` | UUID | conversation ที่เป็นเจ้าของ |
-| `toolName` | `sabuy_tool` / `voc_tool` / `oms_tool` | knowledge ไม่สามารถเขียนได้ |
+| `toolName` | runtime ปัจจุบันใช้ `oms_tool` เท่านั้น; ค่า Sabuy/VOC คงในโมเดล compatibility แบบ dormant | knowledge ไม่สามารถเขียนได้ |
 | `prepareAction` | prepare action enum | action ต้นฉบับที่ผ่านการตรวจสอบแล้ว |
 | `submitAction` | submit action enum | ใช้ได้เฉพาะ mapping ที่กำหนดไว้ล่วงหน้า |
 | `preparedInput` | object | เปิดเผยเฉพาะฟิลด์ที่ผู้ใช้ระบุเองเพื่อให้ตรวจทานก่อนยืนยัน ฟิลด์ภายในระบบเช่น `idempotencyKey` ถูกปกปิดเป็น `[redacted]` และไม่จัดเก็บ payment token |
@@ -252,9 +252,9 @@ Tool จะปฏิเสธการเรียกที่ `name` ไม่�
 7. หากชุดไฟล์ที่เลือกเกิน context budget ห้ามตัดข้อความท้ายไฟล์โดยเงียบ ต้องลดขอบเขตด้วยคำถามชี้แจงหรือคืน typed failure
 8. เมื่อไม่มีไฟล์หรือหลักฐานตรงกัน tool ต้องคืน `answerContext` ว่าง, `resultCount = 0` และไม่มี citation โดยห้ามใช้ความจำของโมเดลตอบแทน
 
-### 2. `sabuy_tool`
+### 2. Sabuy contracts (dormant, not registered)
 
-**ระบบเบื้องหลัง:** `SimulatedSabuyBackend` โดย output ทุกรายการประกาศ `simulation: true`
+สัญญา Sabuy คงไว้เพื่อ compatibility เท่านั้น ไม่เปิดให้ผู้ใช้และไม่อยู่ใน runtime registry
 
 | การดำเนินการ | ข้อมูลนำเข้า | ข้อมูลเมื่อสำเร็จ |
 |---|---|---|
@@ -264,9 +264,9 @@ Tool จะปฏิเสธการเรียกที่ `name` ไม่�
 
 Main Agent เรียกใช้ `submit_payment` ได้หลังการยืนยันเท่านั้น และต้องขจัดรายการซ้ำด้วย `idempotencyKey`
 
-### 3. `voc_tool`
+### 3. VOC contracts (dormant, not registered)
 
-**ระบบเบื้องหลัง:** `SimulatedVocBackend` โดย output ทุกรายการประกาศ `simulation: true`
+**ระบบเบื้องหลังเดิม:** `SimulatedVocBackend` โดย output ทุกรายการประกาศ `simulation: true`; runtime ปัจจุบันไม่ลงทะเบียน `voc_tool` และไม่เปิด flow นี้ให้ผู้ใช้
 
 | การดำเนินการ | ข้อมูลนำเข้า | ข้อมูลเมื่อสำเร็จ |
 |---|---|---|
@@ -275,21 +275,19 @@ Main Agent เรียกใช้ `submit_payment` ได้หลังกา
 | `submit_case` | สำหรับใช้ภายในเท่านั้น: `{ "pendingActionId": UUID, "idempotencyKey": string }` | `{ "caseId": string, "vocId": string, "trackingKey": string, "status": "submitted", "category": enum }` |
 | `get_case` | `{ "vocId": string(1..64), "trackingKey": string(1..64) }` | `{ "vocId": string, "status": "submitted", "category": enum, "createdAt": UTC datetime, "updatedAt": UTC datetime }` |
 
-กรณี VOC ที่จัดเตรียมไว้เป็นเพียงฉบับร่างเท่านั้น และจะยังไม่สร้างกรณีจำลองจนกว่าจะ submit
-
-การแจ้งเรื่องร้องเรียนต้องเก็บข้อมูลให้ครบ (หมวดหมู่ หัวข้อ รายละเอียด ชื่อผู้แจ้ง เบอร์โทรติดต่อ สถานที่) ก่อน `prepare_case` โดย Main Agent ต้องถามข้อมูลที่ขาดทีละขั้นเหมือนฟอร์มบนเว็บ และห้ามสร้างค่าฟิลด์ขึ้นเอง
-
-การติดตามเรื่อง (`get_case`) ต้องใช้ `vocId` และ `trackingKey` ที่ผู้ใช้ได้รับหลัง `submit_case` ตรงกันทั้งคู่ มิฉะนั้นล้มเหลวแบบ fail-closed โดยไม่เปิดเผยว่า `vocId` มีอยู่จริงหรือไม่
+กฎ prepare/submit/tracking ด้านล่างคงไว้เพื่อ isolated component compatibility เท่านั้น Main Agent และ active evaluation ต้องไม่วางแผนหรือเรียก action VOC
 
 ### 4. `oms_tool`
 
-**ระบบเบื้องหลัง:** `SimulatedOmsBackend` โดย output ทุกรายการประกาศ `simulation: true`
+**ระบบเบื้องหลัง:** Agent-side `httpx` connector ตาม immutable `oms.openapi.yaml`; ผลลัพธ์ operational ทุกตัวประกาศ `simulation: true`
 
 | การดำเนินการ | ข้อมูลนำเข้า | ข้อมูลเมื่อสำเร็จ |
 |---|---|---|
-| `get_outage_status` | `{ "areaCode": string(1..32) }` | `{ "areaCode": string, "status": "normal"\|"planned_outage"\|"unplanned_outage", "updatedAt": UTC datetime, "estimatedRestoreAt": UTC datetime/null, "safetyMessage": string }` |
-| `prepare_outage_report` | `{ "areaCode": string(1..32), "locationNote": string(1..500), "symptoms": string(1..1000), "idempotencyKey": string(1..128) }` | `{ "areaCode": string, "summary": string, "safetyMessage": string }` |
-| `submit_outage_report` | สำหรับใช้ภายในเท่านั้น: `{ "pendingActionId": UUID, "idempotencyKey": string }` | `{ "reportId": string, "status": "submitted", "areaCode": string }` |
+| `get_outage_by_ca` | `{ "caNumber": string(12 ASCII digits) }` | `caNumber`, `customerFound: true`, `network`, `activeEvent` หรือ `null`, `recommendedAction` |
+| `prepare_outage_with_ca` | `{ "caNumber": string(12 ASCII digits), "description": string, "contactPhone": string/null, "locationNote": string/null, "idempotencyKey": string }` | `{ "summary": string }` (local draft only) |
+| `submit_outage_with_ca` | internal `{ "pendingActionId": UUID, "idempotencyKey": string }` | exact 201: `eventId`, `caNumber`, `level: METER`, `status`, `message` |
+| `prepare_anonymous_outage` | `{ "description": string, "location": string, "contactPhone": string, "idempotencyKey": string }` | `{ "summary": string }` (local draft only) |
+| `submit_anonymous_outage` | internal `{ "pendingActionId": UUID, "idempotencyKey": string }` | exact 201: `reportId`, `status`, `message` |
 
 output เหตุไฟฟ้าขัดข้องของ OMS ต้องมี `safetyMessage` เสมอ และ Main Agent ต้องแสดงข้อความนี้ก่อนคำอธิบายเพิ่มเติมจากโมเดล
 
@@ -306,16 +304,18 @@ voc_tool.list_categories                 EmptyInput/VocCategoryListOutput
 voc_tool.prepare_case                    VocPrepareCaseInput/Output
 voc_tool.submit_case                     SubmitPreparedActionInput/VocCaseOutput
 voc_tool.get_case                        VocGetCaseInput/VocGetCaseOutput
-oms_tool.get_outage_status               OmsOutageStatusInput/Output
-oms_tool.prepare_outage_report           OmsPrepareOutageReportInput/Output
-oms_tool.submit_outage_report            SubmitPreparedActionInput/OmsOutageReportOutput
+oms_tool.get_outage_by_ca                  OmsGetOutageByCaInput/OmsGetOutageByCaOutput
+oms_tool.prepare_outage_with_ca            OmsPrepareOutageWithCaInput/OmsPrepareOutageOutput
+oms_tool.submit_outage_with_ca             SubmitPreparedActionInput/OmsCreateOutageWithCaOutput
+oms_tool.prepare_anonymous_outage          OmsPrepareAnonymousOutageInput/OmsPrepareOutageOutput
+oms_tool.submit_anonymous_outage           SubmitPreparedActionInput/OmsCreateAnonymousOutageOutput
 ```
 
 ## สิ่งที่ไม่ใช่เป้าหมายอย่างชัดเจน
 
-- ไม่มีการชำระเงิน การดำเนินการกับลูกค้า เหตุไฟฟ้าขัดข้อง CRM หรือ OMS ของ PEA จริง
-- ไม่มี tool อื่นนอกเหนือจาก tool ระดับบนสุดสี่รายการที่ระบุไว้
+- ไม่มีการชำระเงินจริง CRM หรือการ deploy กับ OMS production; gateway ที่อนุญาตเป็นสภาพแวดล้อมเดโมและ ToolResult ยังคง `simulation=true`
+- ไม่มี tool active อื่นนอกเหนือจาก Knowledge และ OMS และไม่มีการโหลด OpenAPI แบบอัตโนมัติ
 - ไม่มีการยืนยันอัตโนมัติ การส่งในเบื้องหลัง หรือการยืนยันผ่านข้อความแชต
-- ช่องเสียงเปิดใช้เฉพาะ Knowledge และ VOC; ไม่รับ `pendingActionId` จากโมเดล และไม่มีการยืนยันอัตโนมัติด้วยเสียง (ต้องฟังคำตอบชัดเจนจากผู้ใช้ก่อนเรียกฟังก์ชันตัดสินใจ)
+- ช่องเสียงเป็น bridge บาง ๆ ไปยัง Knowledge และ OMS; ไม่รับ `pendingActionId` จากโมเดล และไม่มีการยืนยันอัตโนมัติด้วยเสียง (ต้องฟังคำตอบชัดเจนจากผู้ใช้ก่อนเรียกฟังก์ชันตัดสินใจ)
 - ไม่มี Gemini File Search, vector database, embedding pipeline, document chunker, chunk retrieval หรือ RAG สำรอง; Knowledge ใช้เฉพาะการเลือกไฟล์ระดับ document แล้วส่งข้อความฉบับเต็มของไฟล์ที่เลือกเข้า Long Context
 - ไม่มีการจัดเก็บถาวรสำหรับ production แบบหลายผู้ใช้ authentication, payments หรือการเสริมความแข็งแกร่งสำหรับ deployment

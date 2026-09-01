@@ -65,7 +65,7 @@ async def test_adapter_calls_configured_deepseek_model(monkeypatch: pytest.Monke
 
 
 @pytest.mark.asyncio
-async def test_adapter_prompt_contains_current_voc_intake_contract(monkeypatch: pytest.MonkeyPatch) -> None:
+async def test_adapter_prompt_contains_current_knowledge_oms_contract(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setattr("app.llm.maxplus.httpx.AsyncClient", _Client)
     adapter = MaxPlusDeepSeekAdapter(
         api_key="secret",
@@ -73,12 +73,15 @@ async def test_adapter_prompt_contains_current_voc_intake_contract(monkeypatch: 
         model="deepseek-v4-flash-0731",
     )
     request = LLMRequest(
-        messages=(
-            LLMMessage("user", "ร้องเรียนการบริการหน่อย"),
-            LLMMessage("assistant", "กรุณาเล่ารายละเอียดเรื่องร้องเรียน"),
-            LLMMessage("user", "ไฟดับบ่อยมากที่บ้านฉัน"),
+        messages=(LLMMessage("user", "แจ้งไฟดับสำหรับหมายเลขผู้ใช้ไฟ 123456789012"),),
+        tools=(
+            ToolDefinition(ToolName.KNOWLEDGE, "ค้นหาความรู้ PEA", ("search",)),
+            ToolDefinition(
+                ToolName.OMS,
+                "ตรวจหรือเตรียมแจ้งเหตุไฟฟ้าขัดข้อง",
+                ("get_outage_by_ca", "prepare_outage_with_ca", "prepare_anonymous_outage"),
+            ),
         ),
-        tools=(ToolDefinition(ToolName.VOC, "รับและติดตามเรื่องร้องเรียน", ("prepare_case", "get_case")),),
         correlation_id=uuid4(),
     )
 
@@ -87,10 +90,10 @@ async def test_adapter_prompt_contains_current_voc_intake_contract(monkeypatch: 
     payload = _request_capture["json"]
     assert isinstance(payload, dict)
     system_prompt = payload["messages"][0]["content"]
-    assert "voc_contact_name" in system_prompt
-    assert "voc_tracking_inputs" in system_prompt
-    assert "ห้ามเรียก `voc_tool.prepare_case` จนกว่าข้อมูลจะครบ" in system_prompt
-    assert "คำตอบภาษาธรรมชาติ" in system_prompt
+    assert "oms_tool.get_outage_by_ca" in system_prompt
+    assert "prepare_anonymous_outage" in system_prompt
+    assert "voc_tool" not in system_prompt
+    assert "ห้ามเปิดเผย chain of thought" in system_prompt
 
 
 @pytest.mark.asyncio

@@ -1,6 +1,6 @@
 """จุดประกอบหลักของแอปพลิเคชัน PEA One Agent
 
-โมดูลนี้ทำหน้าที่เชื่อมแพลตฟอร์มตามสัญญา, Main Agent หนึ่งตัว, เครื่องมือระดับบนสุดสี่ตัว
+โมดูลนี้ทำหน้าที่เชื่อมแพลตฟอร์มตามสัญญา, Main Agent หนึ่งตัว, เครื่องมือระดับบนสุดสองตัว
 และ UI แบบ static สำหรับการแข่งขันเท่านั้น นโยบายธุรกิจยังคงอยู่ใน Main Agent
 และโมดูลเครื่องมือ
 """
@@ -28,8 +28,6 @@ from app.core.startup import create_platform_app, startup_event
 from app.llm import JudgeLLMClient, LLMClient, LLMProviderConfig, create_llm_adapter
 from app.tools.knowledge_tool import KnowledgeTool
 from app.tools.oms_tool import OmsTool
-from app.tools.sabuy_tool import SabuyTool
-from app.tools.voc_tool import VocTool
 
 
 class _KnowledgeReadiness:
@@ -89,9 +87,7 @@ judge_llm_client = JudgeLLMClient(judge_llm_adapter)
 tool_registry = ToolRegistry(
     [
         KnowledgeTool(knowledge_backend),
-        SabuyTool(),
-        VocTool(),
-        OmsTool(),
+        OmsTool(settings.oms_base_url, settings.oms_timeout_seconds, api_key=settings.oms_api_key),
     ]
 )
 main_agent = MainAgent(LLMClient(llm_adapter), tool_registry)
@@ -106,6 +102,22 @@ app.include_router(live_router)
 app.add_exception_handler(NotFoundError, _not_found_handler)
 app.add_exception_handler(InvalidActionStateError, _conflict_handler)
 startup_event(app, tool_registry)
+
+# ช่องทาง LINE เปิดเฉพาะเมื่อกรอก credential ครบ (เว้นว่าง = ปิดทั้ง route และบริการ)
+if settings.line_channel_secret and settings.line_channel_access_token:
+    from app.api.line import configure_line_webhook, router as line_router
+    from app.line.api_client import LineApiClient
+    from app.line.bridge import LineBridge
+    from app.line.service import LineWebhookService
+
+    configure_line_webhook(
+        LineWebhookService(
+            secret=settings.line_channel_secret,
+            client=LineApiClient(settings.line_channel_access_token),
+            bridge=LineBridge(main_agent),
+        )
+    )
+    app.include_router(line_router)
 
 _web_root = Path(__file__).resolve().parents[1] / "web"
 if _web_root.is_dir():

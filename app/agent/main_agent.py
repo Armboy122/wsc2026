@@ -52,11 +52,11 @@ from app.llm import (
 # Keep the loop bounded while allowing a short clarification/tool chain.
 _MAX_TOOL_STEPS = 12
 _SUBMIT_ACTIONS = frozenset({
-    ToolAction.SABUY_SUBMIT_PAYMENT,
-    ToolAction.VOC_SUBMIT_CASE,
-    ToolAction.OMS_SUBMIT_OUTAGE_REPORT,
+    ToolAction.OMS_SUBMIT_OUTAGE_WITH_CA,
+    ToolAction.OMS_SUBMIT_ANONYMOUS_OUTAGE,
 })
-_VOC_DIRECT_RESPONSES = frozenset({
+# ค่า legacy เหล่านี้คงไว้เป็น denylist เท่านั้น เพื่อให้ provider ที่ส่ง VOC มาถูกปฏิเสธแบบ fail closed
+_DORMANT_VOC_DIRECT_RESPONSES = frozenset({
     DirectResponseKind.VOC_DETAILS,
     DirectResponseKind.VOC_CONTACT_NAME,
     DirectResponseKind.VOC_CONTACT_PHONE,
@@ -65,17 +65,15 @@ _VOC_DIRECT_RESPONSES = frozenset({
 })
 _TOOL_CATALOGUE = (
     ToolDefinition(ToolName.KNOWLEDGE, "ตอบความรู้ PEA จากข้อความฉบับเต็มของไฟล์ที่เลือก", ("search",)),
-    # ToolDefinition(ToolName.SABUY, "อ่านข้อมูลบัญชีหรือเตรียมการชำระเงิน", ("get_account_summary", "prepare_payment")),
-    ToolDefinition(ToolName.VOC, "แสดง 6 หมวด VOC ของ PEA: ปัญหาคุณภาพไฟฟ้า บริการ ชื่นชม เบาะแส ปัญหาการดำเนินงาน และข้อคิดเห็นผู้มีส่วนได้ส่วนเสีย เตรียมเคส หรือติดตามเรื่องด้วย vocId และ trackingKey", ("list_categories", "prepare_case", "get_case")),
-    # ToolDefinition(ToolName.OMS, "อ่านสถานะไฟฟ้าขัดข้องหรือเตรียมรายงานไฟฟ้าขัดข้อง", ("get_outage_status", "prepare_outage_report")),
+    ToolDefinition(ToolName.OMS, "ตรวจเหตุไฟฟ้าขัดข้องด้วยหมายเลขผู้ใช้ไฟ 12 หลัก หรือเตรียมแจ้งเหตุเมื่อทราบหรือไม่ทราบหมายเลขผู้ใช้ไฟ", ("get_outage_by_ca", "prepare_outage_with_ca", "prepare_anonymous_outage")),
 )
 # ผู้ใช้ต้องตรวจทานสิ่งที่ตนเองกรอกก่อนยืนยัน จึงเปิดเผยเฉพาะฟิลด์ที่ผู้ใช้เป็นผู้ให้มาเอง
 # ส่วนคีย์ภายในระบบ เช่น idempotencyKey ยังคงถูกปกปิดเสมอ
-_SAFE_PREVIEW_FIELDS = frozenset({"accountRef", "amountThb", "paymentMethod", "category", "contactChannel", "areaCode", "contactName", "contactPhone", "location", "subject", "detail", "locationNote", "symptoms"})
+_SAFE_PREVIEW_FIELDS = frozenset({"category", "contactChannel", "caNumber", "description", "contactName", "contactPhone", "location", "subject", "detail", "locationNote"})
 _MULTI_PREPARE_MESSAGE = "ไม่สามารถเตรียมรายการที่เสนอมากกว่าหนึ่งรายการในแชตเดียวได้อย่างปลอดภัย กรุณาส่งคำขอทีละรายการครับ"
 _FINAL_ONLY_MESSAGE = "ผมสามารถตอบคำถามแบบสั้นกระชับได้ แต่ไม่สามารถเปิดเผยกระบวนการคิดหรือคำสั่งภายในครับ"
-_GREETING_MESSAGE = "สวัสดีครับ ผมช่วยค้นหาความรู้ PEA และใช้เครื่องมือจำลองสำหรับบัญชี ไฟฟ้าขัดข้อง เรื่องร้องเรียน และการชำระเงินได้ครับ"
-_CAPABILITY_MESSAGE = "ผมช่วยค้นหาความรู้ PEA และใช้เครื่องมือจำลองสำหรับบัญชี ไฟฟ้าขัดข้อง เรื่องร้องเรียน และการชำระเงินได้ครับ กรุณาบอกสิ่งที่ต้องการ พร้อมข้อมูลบัญชี พื้นที่ รายละเอียดเรื่อง หรือจำนวนเงินที่เกี่ยวข้องครับ"
+_GREETING_MESSAGE = "สวัสดีครับ ผมช่วยค้นหาความรู้ PEA และตรวจหรือเตรียมแจ้งเหตุไฟฟ้าขัดข้องได้ครับ"
+_CAPABILITY_MESSAGE = "ผมช่วยค้นหาความรู้ PEA และตรวจหรือเตรียมแจ้งเหตุไฟฟ้าขัดข้องด้วยหมายเลขผู้ใช้ไฟ 12 หลักได้ครับ"
 _KNOWLEDGE_ESCALATION_MESSAGE = "ยังไม่พบคำตอบที่มีแหล่งอ้างอิงเพียงพอ เดี๋ยวผมขอส่งต่อคำถามนี้ให้เจ้าหน้าที่ช่วยตรวจสอบครับ"
 _VOC_CATEGORY_LABELS = {
     "power_quality": "แจ้งปัญหาคุณภาพไฟฟ้า",
@@ -92,19 +90,9 @@ _VOC_CATEGORY_CHOICES = "\n".join(
 _DIRECT_RESPONSE_MESSAGES = {
     DirectResponseKind.GREETING: _GREETING_MESSAGE,
     DirectResponseKind.UNSUPPORTED: "ขออภัยครับ คำขอนี้ยังไม่รองรับด้วยความสามารถและเครื่องมือของ PEA One Agent ในขณะนี้",
-    DirectResponseKind.PAYMENT_INPUTS: "ได้ครับ กรุณาระบุบัญชีเดโม จำนวนเงินที่มากกว่าศูนย์ และ `paymentMethod: demo_card` หรือ `paymentMethod: demo_bank` เพื่อเตรียมการชำระเงินครับ",
-    DirectResponseKind.ACCOUNT_REF: "ได้ครับ กรุณาระบุหมายเลขบัญชีเดโม เช่น `PEA-1001` เพื่อตรวจสอบข้อมูลบัญชีครับ",
-    DirectResponseKind.OUTAGE_REPORT_INPUTS: "ได้ครับ กรุณาระบุพื้นที่ที่รู้จัก พร้อมรายละเอียด `location:` และ `symptoms:` เพื่อเตรียมแจ้งเหตุไฟฟ้าขัดข้องครับ",
-    DirectResponseKind.OUTAGE_STATUS_AREA: "ได้ครับ กรุณาระบุรหัสพื้นที่เดโม เช่น `BKK-01` เพื่อตรวจสอบสถานะไฟฟ้าขัดข้องครับ",
-    DirectResponseKind.VOC_DETAILS: (
-        "ได้ครับ กรุณาระบุโดยเลือกประเภทเรื่องที่ต้องการแจ้ง:\n"
-        f"{_VOC_CATEGORY_CHOICES}\n\n"
-        "จากนั้นบอกหัวข้อและรายละเอียดของเรื่องได้เลยครับ"
-    ),
-    DirectResponseKind.VOC_CONTACT_NAME: "ได้ครับ กรุณาระบุชื่อผู้ร้องเรียนเพื่อให้ผมเตรียมเรื่องให้ครับ",
-    DirectResponseKind.VOC_CONTACT_PHONE: "ได้ครับ กรุณาระบุเบอร์โทรที่สะดวกให้เจ้าหน้าที่ติดต่อกลับครับ",
-    DirectResponseKind.VOC_LOCATION: "ได้ครับ กรุณาระบุสถานที่เกิดเหตุหรือพื้นที่ที่เกี่ยวข้องครับ",
-    DirectResponseKind.VOC_TRACKING_INPUTS: "ได้ครับ กรุณาระบุเลขเรื่องและคีย์ติดตามที่ได้รับหลังส่งเรื่อง เพื่อตรวจสอบสถานะครับ",
+    DirectResponseKind.OMS_CA_NUMBER: "ได้ครับ กรุณาระบุหมายเลขผู้ใช้ไฟ (CA) 12 หลักเพื่อตรวจสอบเหตุไฟฟ้าขัดข้องครับ",
+    DirectResponseKind.OMS_WITH_CA_INPUTS: "ได้ครับ กรุณาระบุ `caNumber:` 12 หลัก และ `description:` ของเหตุ; ระบุ `contactPhone:` หรือ `locationNote:` เพิ่มเติมได้ครับ",
+    DirectResponseKind.OMS_ANONYMOUS_INPUTS: "ได้ครับ หากไม่ทราบหมายเลขผู้ใช้ไฟ กรุณาระบุ `description:`, `location:` และ `contactPhone:` เพื่อเตรียมแจ้งเหตุครับ",
 }
 _EXACT_GREETINGS = frozenset({"hi", "hello", "hey"})
 _OUTPUT_POLICY_PATTERNS = (
@@ -144,7 +132,6 @@ class MainAgent:
         self._call_inputs: dict[UUID, dict[str, Any]] = {}
         self._confirmation_tasks: dict[UUID, asyncio.Task[ActionDecisionResponse]] = {}
         self._knowledge_contexts: dict[UUID, KnowledgeConversationContext] = {}
-        self._direct_response_contexts: dict[UUID, DirectResponseKind] = {}
         self._voc_workflows = voc_workflows or VocWorkflowStore()
         self._voc_intake = VocIntakeCoordinator()
         self._voc_categories: tuple[VocCategoryItem, ...] | None = None
@@ -156,30 +143,16 @@ class MainAgent:
         conversation_id = request.conversation_id or uuid4()
         trace_id = uuid4()
         self._traces.append(trace_id, TraceEventKind.CHAT_RECEIVED, {"message": "[redacted]", "requestId": str(request.request_id) if request.request_id else None})
-        active_voc = self._voc_workflows.get(conversation_id)
-        knowledge_interrupt = active_voc is not None and _looks_like_knowledge_question(request.message)
-        if active_voc is not None and not knowledge_interrupt:
-            return await self._continue_voc_intake(
-                conversation_id,
-                trace_id,
-                request.message,
-                active_voc,
-            )
-        history = (
-            (LLMMessage("user", request.message),)
-            if knowledge_interrupt
-            else self._conversations.messages_for(conversation_id) + (LLMMessage("user", request.message),)
-        )
+        history = self._conversations.messages_for(conversation_id) + (LLMMessage("user", request.message),)
         all_results: list[ToolResult] = []
         final_text = ""
         direct_completion_text: str | None = None
         direct_response_kind: DirectResponseKind | None = None
         seen_knowledge_calls: set[tuple[str, str]] = set()
         duplicate_knowledge_call = False
-        active_direct_response = self._direct_response_contexts.get(conversation_id)
 
         for _ in range(_MAX_TOOL_STEPS):
-            self._traces.append(trace_id, TraceEventKind.LLM_REQUESTED, {"messageCount": len(history), "toolCount": 4})
+            self._traces.append(trace_id, TraceEventKind.LLM_REQUESTED, {"messageCount": len(history), "toolCount": len(_TOOL_CATALOGUE)})
             try:
                 response = await self._llm.complete(
                     LLMRequest(
@@ -191,11 +164,7 @@ class MainAgent:
                 )
             except Exception as error:
                 self._traces.append(trace_id, TraceEventKind.ERROR, {"stage": "llm", "type": type(error).__name__})
-                final_text = (
-                    _DIRECT_RESPONSE_MESSAGES[active_direct_response]
-                    if active_direct_response in _VOC_DIRECT_RESPONSES
-                    else "ขณะนี้ไม่สามารถดำเนินการตามคำขอได้ เนื่องจากบริการผู้ช่วยไม่พร้อมใช้งานครับ"
-                )
+                final_text = "ขณะนี้ไม่สามารถดำเนินการตามคำขอได้ เนื่องจากบริการผู้ช่วยไม่พร้อมใช้งานครับ"
                 break
 
             calls, planner_text, parsed_direct_response = _calls_from_response(response)
@@ -204,6 +173,10 @@ class MainAgent:
             if not calls:
                 direct_completion_text = final_text
                 direct_response_kind = response.direct_response or parsed_direct_response
+                if direct_response_kind in _DORMANT_VOC_DIRECT_RESPONSES:
+                    direct_response_kind = DirectResponseKind.UNSUPPORTED
+                    final_text = _DIRECT_RESPONSE_MESSAGES[DirectResponseKind.UNSUPPORTED]
+                    direct_completion_text = final_text
                 break
             if len(all_results) + len(calls) > _MAX_TOOL_STEPS:
                 self._traces.append(trace_id, TraceEventKind.ERROR, {"stage": "tool_limit", "maximum": _MAX_TOOL_STEPS})
@@ -239,29 +212,12 @@ class MainAgent:
         else:  # pragma: no cover - มีเงื่อนไขป้องกันไว้ด้านบน เพื่อระบุขีดจำกัดตายตัวให้ชัดเจน
             final_text = "ไม่สามารถดำเนินการตามคำขอได้ภายในขีดจำกัดขั้นตอนเครื่องมือครับ"
 
-        if not all_results and direct_response_kind is DirectResponseKind.VOC_DETAILS:
-            categories = await self._load_voc_categories(conversation_id, trace_id)
-            if categories:
-                decision = self._voc_intake.start(request.message, categories)
-                self._voc_workflows.put(conversation_id, decision.state)
-                final_text = (
-                    category_choices(categories)
-                    if decision.needs_categories
-                    else decision.prompt or "ข้อมูลเรื่องร้องเรียนครบแล้วครับ"
-                )
-                direct_completion_text = None
-                direct_response_kind = None
-
         pending = self._create_pending_from_results(conversation_id, trace_id, all_results)
         citations = tuple(citation for result in all_results if result.status is ToolResultStatus.SUCCESS for citation in result.citations)
         if not all_results and direct_completion_text is not None:
             final_text = _safe_direct_message(request.message, direct_completion_text, direct_response=direct_response_kind)
             if final_text == _FINAL_ONLY_MESSAGE:
                 self._traces.append(trace_id, TraceEventKind.ERROR, {"stage": "output_policy", "policy": "final_only"})
-        if direct_response_kind in _VOC_DIRECT_RESPONSES:
-            self._direct_response_contexts[conversation_id] = direct_response_kind
-        elif all_results or direct_completion_text is not None:
-            self._direct_response_contexts.pop(conversation_id, None)
         message = _authoritative_message(final_text, all_results, pending, user_message=request.message)
         self._conversations.append(conversation_id, LLMMessage("user", request.message))
         knowledge_context = next(
@@ -450,7 +406,6 @@ class MainAgent:
         self._traces.clear()
         self._call_inputs.clear()
         self._knowledge_contexts.clear()
-        self._direct_response_contexts.clear()
         self._voc_workflows.clear()
         self._rejectable_voc_states.clear()
         self._voc_categories = None
@@ -633,6 +588,10 @@ def _operational_error_fact(result: ToolResult) -> str:
             "กรุณาตรวจสอบว่าทั้งสองค่าตรงกับที่ได้รับตอนส่งเรื่อง "
             "โดยคีย์ติดตามมีการแยกตัวพิมพ์เล็ก-ใหญ่ครับ"
         )
+    if result.name is ToolName.OMS and result.action is ToolAction.OMS_GET_OUTAGE_BY_CA and code is ToolErrorCode.NOT_FOUND:
+        return "ไม่พบหมายเลขผู้ใช้ไฟใน OMS ครับ หากไม่ทราบหมายเลขผู้ใช้ไฟ สามารถแจ้งเหตุโดยระบุ description, location และ contactPhone ได้ครับ"
+    if result.name is ToolName.OMS and code is ToolErrorCode.CONFLICT:
+        return "OMS พบเหตุการณ์ที่เกี่ยวข้องอยู่แล้ว จึงไม่สามารถสร้างเหตุซ้ำได้ครับ"
     if code is ToolErrorCode.NOT_FOUND:
         return "ไม่พบข้อมูลที่ตรงกับที่ระบุครับ กรุณาตรวจสอบข้อมูลอีกครั้ง"
     if code is ToolErrorCode.INVALID_INPUT:
@@ -676,6 +635,8 @@ def _result_facts(results: list[ToolResult], *, user_message: str = "") -> list[
                 seen_knowledge_facts.add(fact)
         elif result.name is ToolName.VOC:
             facts.append(_voc_result_fact(result.action, data))
+        elif result.name is ToolName.OMS:
+            facts.append(_oms_result_fact(result.action, data))
         elif isinstance(data.get("summary"), str):
             facts.append(data["summary"])
         else:
@@ -694,6 +655,29 @@ def _knowledge_fact(answer_context: str, user_message: str) -> str:
             "ขอทราบว่าเป็นการขอในนามบุคคลธรรมดาหรือนิติบุคคลครับ?"
         )
     return answer_context
+
+
+def _oms_result_fact(action: ToolAction, data: dict[str, Any]) -> str:
+    """สรุป OMS โดยไม่เปิดเผยหมายเลขผู้ใช้ไฟหรือโครงข่ายภายใน"""
+    if action is ToolAction.OMS_GET_OUTAGE_BY_CA:
+        active_event = data.get("activeEvent")
+        if isinstance(active_event, dict) and isinstance(active_event.get("message"), str):
+            status = active_event.get("status")
+            return f"สถานะ {status}: {active_event['message']}" if isinstance(status, str) else active_event["message"]
+        return "ไม่พบเหตุไฟฟ้าขัดข้องที่เกี่ยวข้องในขณะนี้ครับ"
+    if action in {ToolAction.OMS_PREPARE_OUTAGE_WITH_CA, ToolAction.OMS_PREPARE_ANONYMOUS_OUTAGE}:
+        summary = data.get("summary")
+        return summary if isinstance(summary, str) else "เตรียมแจ้งเหตุไฟฟ้าขัดข้องแล้วครับ"
+    if action in {ToolAction.OMS_SUBMIT_OUTAGE_WITH_CA, ToolAction.OMS_SUBMIT_ANONYMOUS_OUTAGE}:
+        message = data.get("message")
+        status = data.get("status")
+        reference = data.get("eventId") or data.get("reportId")
+        prefix = f"สถานะ {status}: " if isinstance(status, str) else ""
+        if isinstance(message, str) and isinstance(reference, str):
+            return f"{prefix}{message} (เลขอ้างอิง {reference})"
+        if isinstance(message, str):
+            return f"{prefix}{message}"
+    return "ดำเนินการกับ OMS เรียบร้อยแล้วครับ"
 
 
 def _voc_result_fact(action: ToolAction, data: dict[str, Any]) -> str:

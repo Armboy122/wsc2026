@@ -1,4 +1,4 @@
-"""registry แบบคงที่และผ่านการตรวจสอบสำหรับเครื่องมือระดับบนสุดสี่ตัวที่อนุญาต"""
+"""registry แบบคงที่สำหรับปลั๊กอิน Knowledge และ OMS ที่อนุญาต"""
 
 from __future__ import annotations
 
@@ -37,9 +37,9 @@ class Tool(Protocol):
 
 
 class ToolRegistry:
-    """registry ที่เก็บเครื่องมือตามสัญญาได้สี่ตัวพอดี ตัวละหนึ่งรายการ"""
+    """registry ของปลั๊กอินที่เปิดใช้งานจริง โดยไม่ลงทะเบียน VOC/Sabuy ที่พักไว้"""
 
-    _required_names = frozenset(ToolName)
+    _required_names = frozenset({ToolName.KNOWLEDGE, ToolName.OMS})
 
     def __init__(self, tools: tuple[Tool, ...] | list[Tool]) -> None:
         by_name: dict[ToolName, Tool] = {}
@@ -50,7 +50,7 @@ class ToolRegistry:
         if frozenset(by_name) != self._required_names:
             missing = self._required_names - frozenset(by_name)
             extra = frozenset(by_name) - self._required_names
-            raise ValueError(f"registry ต้องมีเครื่องมือคงที่สี่ตัวพอดี; ขาด={missing}, เกิน={extra}")
+            raise ValueError(f"registry ต้องมีปลั๊กอินที่เปิดใช้งานสองตัวพอดี; ขาด={missing}, เกิน={extra}")
         for name, tool in by_name.items():
             if name is not ToolName.KNOWLEDGE and not callable(getattr(tool, "reset", None)):
                 raise ValueError(f"เครื่องมือปฏิบัติการต้องรีเซ็ตได้: {name.value}")

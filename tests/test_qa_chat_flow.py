@@ -6,6 +6,7 @@ import zipfile
 from pathlib import Path
 from types import SimpleNamespace
 
+import httpx
 import pytest
 
 from app.agent.main_agent import MainAgent
@@ -15,8 +16,6 @@ from app.contracts import ChatRequest
 from app.llm import DemoLLMAdapter, LLMClient
 from app.tools.knowledge_tool import KnowledgeTool
 from app.tools.oms_tool import OmsTool
-from app.tools.sabuy_tool import SabuyTool
-from app.tools.voc_tool import VocTool
 
 
 def _write_qa_docx(path: Path, question: str, answer: str) -> None:
@@ -67,7 +66,27 @@ async def test_chat_answers_from_an_approved_qa_document() -> None:
         agent = MainAgent(
             LLMClient(DemoLLMAdapter()),
             ToolRegistry(
-                [KnowledgeTool(backend), SabuyTool(), VocTool(), OmsTool()]
+                [
+                    KnowledgeTool(backend),
+                    OmsTool(
+                        transport=httpx.MockTransport(
+                            lambda request: httpx.Response(
+                                200,
+                                json={
+                                    "caNumber": "100000000003",
+                                    "customerFound": True,
+                                    "network": {
+                                        "meterId": "M",
+                                        "transformerId": "T",
+                                        "feederId": "F",
+                                    },
+                                    "activeEvent": None,
+                                    "recommendedAction": "CREATE_METER_EVENT",
+                                },
+                            )
+                        )
+                    ),
+                ]
             ),
         )
 

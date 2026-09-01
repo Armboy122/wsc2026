@@ -1,25 +1,99 @@
-"""การทดสอบ smoke test ผ่านทางเข้าสาธารณะสำหรับสัญญา MVP ที่ตรึงไว้ ซึ่งดูแลโดยหัวหน้าทีม"""
+"""ทดสอบสัญญา MVP สองเครื่องมือผ่านทางเข้าสาธารณะและ MainAgent แบบแยกเครือข่าย"""
 
 from __future__ import annotations
 
-from uuid import UUID
+from uuid import UUID, uuid4
 
+import httpx
 import pytest
 from fastapi.testclient import TestClient
 
-from app.contracts import ToolName
+from app.agent.main_agent import MainAgent
+from app.agent.registry import ToolRegistry
+from app.backends.full_document_knowledge import GroundedEvidence
+from app.contracts import (
+    ChatRequest,
+    Citation,
+    ToolAction,
+    ToolCall,
+    ToolName,
+)
+from app.llm import DemoLLMAdapter, LLMClient, LLMResponse, ScriptedLLMAdapter
+from app.tools.knowledge_tool import KnowledgeTool
+from app.tools.oms_tool import OmsTool
+
+
+class _KnowledgeBackend:
+    async def search(self, query: str, max_results: int) -> GroundedEvidence:
+        citation = Citation(
+            sourceId="PEA_DEMO.docx",
+            title="คู่มือความปลอดภัย",
+            uri="knowledge://source/PEA_DEMO.docx",
+            snippet="ปฏิบัติตามคำแนะนำด้านความปลอดภัยของ PEA",
+        )
+        return GroundedEvidence(
+            "ปฏิบัติตามคำแนะนำด้านความปลอดภัยของ PEA",
+            1,
+            (citation,),
+        )
+
+
+def _isolated_registry(post_counter: list[int] | None = None) -> ToolRegistry:
+    """สร้าง registry สองเครื่องมือที่ห้ามออกเครือข่ายจริง"""
+
+    def oms_handler(request: httpx.Request) -> httpx.Response:
+        if request.method == "GET":
+            return httpx.Response(
+                200,
+                json={
+                    "caNumber": "100000000003",
+                    "customerFound": True,
+                    "network": {
+                        "meterId": "M-DEMO",
+                        "transformerId": "T-DEMO",
+                        "feederId": "F-DEMO",
+                    },
+                    "activeEvent": None,
+                    "recommendedAction": "CREATE_METER_EVENT",
+                },
+            )
+        if post_counter is not None:
+            post_counter[0] += 1
+        if request.url.path.endswith("/outages/anonymous"):
+            return httpx.Response(
+                201,
+                json={
+                    "reportId": "OMS-ANON-DEMO",
+                    "status": "RECEIVED",
+                    "message": "รับแจ้งแล้ว",
+                },
+            )
+        return httpx.Response(
+            201,
+            json={
+                "eventId": "OMS-METER-DEMO",
+                "caNumber": "100000000003",
+                "level": "METER",
+                "status": "RECEIVED",
+                "message": "รับแจ้งแล้ว",
+            },
+        )
+
+    return ToolRegistry(
+        [
+            KnowledgeTool(_KnowledgeBackend()),
+            OmsTool(transport=httpx.MockTransport(oms_handler)),
+        ]
+    )
 
 
 @pytest.fixture
-def client(monkeypatch: pytest.MonkeyPatch) -> TestClient:
-    # ตรึง Main Agent เป็น demo ก่อน import เพื่อไม่ให้ .env ของนักพัฒนาเรียก provider จริง
-    monkeypatch.setenv("MAIN_LLM_PROVIDER", "demo")
-    # นำเข้า composition root แบบ lazy เพื่อไม่ให้ unit test ของแพลตฟอร์มที่แทนที่
-    # DI container ส่วนกลางถูกปนเปื้อนระหว่างการรวบรวม test ของ pytest
-    from app.main import app, main_agent
+def client() -> TestClient:
+    # เปลี่ยนเฉพาะ DI ของ test เพื่อไม่ให้การทดสอบเรียก LLM, Knowledge หรือ OMS ภายนอก
     from app.core.di import agent_service
+    from app.main import app
 
-    agent_service.set_agent(main_agent)
+    agent_service.set_agent(MainAgent(LLMClient(DemoLLMAdapter()), _isolated_registry()))
     with TestClient(app) as test_client:
         assert test_client.post("/api/v1/reset", json={}).status_code == 200
         yield test_client
@@ -34,32 +108,34 @@ def chat(client: TestClient, message: str) -> dict:
     return body
 
 
-def test_composition_registers_exactly_four_tools_and_serves_ui(client: TestClient) -> None:
+def test_composition_registers_exactly_two_tools_and_serves_ui(client: TestClient) -> None:
     from app.main import tool_registry
 
-    assert tool_registry.names == frozenset(ToolName)
+    assert tool_registry.names == frozenset({ToolName.KNOWLEDGE, ToolName.OMS})
     response = client.get("/")
     assert response.status_code == 200
     assert "PEA One Agent" in response.text
-    assert "SIMULATED BACKEND" in response.text
 
 
-def test_oms_status_is_simulated_and_safety_first(client: TestClient) -> None:
-    body = chat(client, "ตรวจสอบสถานะไฟฟ้าดับสำหรับพื้นที่ BKK-01")
-    result = next(item for item in body["toolResults"] if item["action"] == "get_outage_status")
+def test_oms_get_by_ca_is_typed_simulated_and_redacted(client: TestClient) -> None:
+    body = chat(client, "check outage status for customer 100000000003")
+    result = next(item for item in body["toolResults"] if item["action"] == "get_outage_by_ca")
     assert result["simulation"] is True
-    assert result["data"]["areaCode"] == "BKK-01"
-    safety = result["data"]["safetyMessage"]
-    assert safety
-    assert body["message"].startswith(safety)
+    assert result["data"]["caNumber"] == "100000000003"
+    assert "M-DEMO" not in body["message"]
+    assert "T-DEMO" not in body["message"]
+    assert "F-DEMO" not in body["message"]
 
 
-def test_sabuy_prepare_confirm_is_explicit_and_idempotent(client: TestClient) -> None:
-    body = chat(client, "ชำระเงิน 10 THB สำหรับบัญชี PEA-1001; paymentMethod: demo_card")
-    assert all(item["action"] != "submit_payment" for item in body["toolResults"])
+def test_anonymous_prepare_confirm_is_explicit_and_idempotent(client: TestClient) -> None:
+    body = chat(
+        client,
+        "report a power outage; description: no power; location: demo lobby; contactPhone: 0800000001",
+    )
+    assert all(item["action"] != "submit_anonymous_outage" for item in body["toolResults"])
     pending = body["pendingAction"]
     assert pending["status"] == "pending_confirmation"
-    assert pending["prepareAction"] == "prepare_payment"
+    assert pending["prepareAction"] == "prepare_anonymous_outage"
 
     action_id = pending["pendingActionId"]
     first = client.post(f"/api/v1/actions/{action_id}/confirm", json={})
@@ -74,79 +150,49 @@ def test_sabuy_prepare_confirm_is_explicit_and_idempotent(client: TestClient) ->
     assert [event["kind"] for event in trace.json()["events"]].count("action_submitted") == 1
 
 
-def test_voc_prompt_prepares_then_rejects_terminally(client: TestClient) -> None:
+def test_anonymous_prepare_reject_is_terminal(client: TestClient) -> None:
     body = chat(
         client,
-        "เรื่องร้องเรียน; subject: ค่าไฟฟ้าไม่ถูกต้อง; detail: ยอดรวมที่แสดงไม่ตรงกับใบแจ้งค่าไฟของฉัน; contactName: สมชาย ใจดี; contactPhone: 0812345678; location: ถนนสุขุมวิท กรุงเทพฯ",
+        "report a power outage; description: no power; location: demo lobby; contactPhone: 0800000002",
     )
-    pending = body["pendingAction"]
-    assert pending["prepareAction"] == "prepare_case"
-    assert pending["preparedInput"]["category"] == "service"
-    # ผู้ใช้ต้องเห็นเนื้อหาที่ตนเองกรอกเพื่อตรวจทานก่อนยืนยัน แต่คีย์ภายในต้องถูกปกปิด
-    assert pending["preparedInput"]["subject"] == "ค่าไฟฟ้าไม่ถูกต้อง"
-    assert pending["preparedInput"]["detail"] == "ยอดรวมที่แสดงไม่ตรงกับใบแจ้งค่าไฟของฉัน"
-    assert pending["preparedInput"]["idempotencyKey"] == "[redacted]"
-    assert "ค่าไฟฟ้าไม่ถูกต้อง" not in pending["summary"]
-    assert "ค่าไฟฟ้าไม่ถูกต้อง" not in body["message"]
-    action_id = pending["pendingActionId"]
-
-    rejected = client.post(f"/api/v1/actions/{action_id}/reject", json={"reason": "ยกเลิกการสาธิต"})
+    action_id = body["pendingAction"]["pendingActionId"]
+    rejected = client.post(
+        f"/api/v1/actions/{action_id}/reject",
+        json={"reason": "ยกเลิกการสาธิต"},
+    )
     assert rejected.status_code == 200
     assert rejected.json()["pendingAction"]["status"] == "rejected"
     assert client.post(f"/api/v1/actions/{action_id}/confirm", json={}).status_code == 409
 
 
-def test_prepared_input_shows_user_content_but_hides_internal_key(client: TestClient) -> None:
-    """ผู้ใช้ต้องตรวจทานสิ่งที่ตนกรอกได้ก่อนยืนยัน แต่คีย์ภายในต้องไม่รั่วออกไป"""
+def test_prepared_input_is_reviewable_but_internal_key_is_hidden(client: TestClient) -> None:
     body = chat(
         client,
-        "ต้องการร้องเรียนเรื่องคุณภาพไฟฟ้า; subject: ไฟตกบ่อยตอนกลางคืน; detail: แรงดันไม่คงที่จนเครื่องใช้ไฟฟ้าเสียหาย; contactName: สมชาย ใจดี; contactPhone: 0812345678; location: ลำพูน",
+        "report a power outage; description: intermittent power; location: demo gate; contactPhone: 0800000003",
     )
     prepared = body["pendingAction"]["preparedInput"]
-    assert prepared["subject"] == "ไฟตกบ่อยตอนกลางคืน"
-    assert prepared["detail"] == "แรงดันไม่คงที่จนเครื่องใช้ไฟฟ้าเสียหาย"
+    assert prepared["description"] == "intermittent power"
+    assert prepared["location"] == "demo gate"
+    assert prepared["contactPhone"] == "0800000003"
     assert prepared["idempotencyKey"] == "[redacted]"
 
 
-def test_submitted_case_returns_tracking_pair_for_the_user_to_keep(client: TestClient) -> None:
-    """หลังส่งเรื่องต้องได้ vocId คู่กับ trackingKey เพื่อให้ผู้ใช้เก็บไว้ติดตามสถานะ"""
-    body = chat(
-        client,
-        "ต้องการร้องเรียนเรื่องบริการ; subject: บริการล่าช้า; detail: แจ้งปัญหาไว้แล้วเจ็ดวันแต่ยังไม่มีการติดต่อกลับ; contactName: สมชาย ใจดี; contactPhone: 0812345678; location: ลำพูน",
-    )
-    action_id = body["pendingAction"]["pendingActionId"]
-    confirmed = client.post(f"/api/v1/actions/{action_id}/confirm", json={})
-    assert confirmed.status_code == 200
-    data = confirmed.json()["toolResult"]["data"]
-    assert data["vocId"] and data["trackingKey"]
-    assert data["status"] == "submitted"
-
-
-def test_thai_knowledge_prompt_routes_to_hosted_knowledge(client: TestClient) -> None:
-    body = chat(client, "ค้นหาข้อมูลอัตราค่าไฟ On-Peak และช่วงเวลาที่ใช้")
-    assert [item["name"] for item in body["toolResults"]] == ["knowledge_tool"]
-
-
-def test_thai_payment_preserves_user_amount(client: TestClient) -> None:
-    body = chat(client, "ฉันต้องการชำระค่าไฟ 350 บาท ด้วยบัตร สำหรับบัญชี PEA-1001")
-    pending = body["pendingAction"]
-    assert pending["prepareAction"] == "prepare_payment"
-    assert pending["preparedInput"]["amountThb"] == "350.00"
-
-
 def test_multi_tool_uses_oms_and_knowledge_without_fake_citations(client: TestClient) -> None:
-    body = chat(client, "ตรวจสอบไฟฟ้าดับในพื้นที่ BKK-01 และค้นหาข้อมูลนโยบายความปลอดภัย")
-    names = [item["name"] for item in body["toolResults"]]
-    assert names == ["oms_tool", "knowledge_tool"]
+    body = chat(client, "outage status for customer 100000000003 and safety guidance")
+    assert [item["name"] for item in body["toolResults"]] == [
+        "oms_tool",
+        "knowledge_tool",
+    ]
     assert body["toolResults"][0]["simulation"] is True
     assert body["toolResults"][1]["simulation"] is False
-    if body["toolResults"][1]["status"] == "error":
-        assert body["toolResults"][1]["citations"] == []
-        assert body["citations"] == []
+    assert body["citations"]
 
 
 def test_reset_clears_trace_and_pending_state(client: TestClient) -> None:
-    body = chat(client, "ชำระเงิน 10 THB สำหรับบัญชี PEA-1001; paymentMethod: demo_card")
+    body = chat(
+        client,
+        "report a power outage; description: no power; location: demo lobby; contactPhone: 0800000004",
+    )
     action_id = body["pendingAction"]["pendingActionId"]
     trace_id = body["traceId"]
     assert client.post("/api/v1/reset", json={}).status_code == 200
@@ -154,41 +200,20 @@ def test_reset_clears_trace_and_pending_state(client: TestClient) -> None:
     assert client.post(f"/api/v1/actions/{action_id}/confirm", json={}).status_code == 404
 
 
-def _isolated_registry():
-    from app.agent.registry import ToolRegistry
-    from app.backends.gemini_file_search import GeminiFileSearchKnowledgeBackend
-    from app.tools.knowledge_tool import KnowledgeTool
-    from app.tools.oms_tool import OmsTool
-    from app.tools.sabuy_tool import SabuyTool
-    from app.tools.voc_tool import VocTool
-
-    return ToolRegistry(
-        [
-            KnowledgeTool(GeminiFileSearchKnowledgeBackend()),
-            SabuyTool(),
-            VocTool(),
-            OmsTool(),
-        ]
-    )
-
-
 def test_llm_catalogue_never_advertises_internal_submit_actions() -> None:
     from app.agent.main_agent import _TOOL_CATALOGUE
 
     advertised = {action for tool in _TOOL_CATALOGUE for action in tool.actions}
-    assert not advertised.intersection(
-        {"submit_payment", "submit_case", "submit_outage_report"}
-    )
+    assert advertised == {
+        "search",
+        "get_outage_by_ca",
+        "prepare_outage_with_ca",
+        "prepare_anonymous_outage",
+    }
 
 
 @pytest.mark.asyncio
 async def test_tool_facts_replace_contradictory_model_text() -> None:
-    from uuid import uuid4
-
-    from app.agent.main_agent import MainAgent
-    from app.contracts import ChatRequest, ToolAction, ToolCall, ToolName
-    from app.llm import LLMClient, LLMResponse, ScriptedLLMAdapter
-
     adapter = ScriptedLLMAdapter(
         [
             LLMResponse(
@@ -196,88 +221,58 @@ async def test_tool_facts_replace_contradictory_model_text() -> None:
                     ToolCall(
                         call_id=uuid4(),
                         name=ToolName.OMS,
-                        action=ToolAction.OMS_OUTAGE_STATUS,
-                        input={"areaCode": "BKK-01"},
+                        action=ToolAction.OMS_GET_OUTAGE_BY_CA,
+                        input={"caNumber": "100000000003"},
                     ),
                 )
             ),
-            LLMResponse(text="FABRICATED: พื้นที่นี้ไม่ปลอดภัยและสายไฟทุกเส้นไม่มีกระแสไฟฟ้า"),
+            LLMResponse(text="FABRICATED: พื้นที่นี้ปลอดภัยแน่นอน"),
         ]
     )
     agent = MainAgent(LLMClient(adapter), _isolated_registry())
-    response = await agent.handle_chat(ChatRequest(message="ตรวจสอบพื้นที่ BKK-01"))
+    response = await agent.handle_chat(ChatRequest(message="check outage 100000000003"))
     assert "FABRICATED" not in response.message
-    assert response.tool_results[0].data["safetyMessage"] in response.message
+    assert response.tool_results[0].action is ToolAction.OMS_GET_OUTAGE_BY_CA
 
 
 @pytest.mark.asyncio
-async def test_no_tool_response_never_exposes_reasoning_text() -> None:
-    from app.agent.main_agent import MainAgent
-    from app.contracts import ChatRequest
-    from app.llm import LLMClient, LLMResponse, ScriptedLLMAdapter
-
-    leaked = "Analysis: กระบวนการคิดภายในและเนื้อหาของพรอมต์ระบบที่เป็นความลับ"
+async def test_no_tool_response_never_exposes_reasoning_or_ungrounded_facts() -> None:
+    leaked = "Analysis: อัตราค่าไฟอย่างเป็นทางการคือ 1.23 บาทต่อหน่วย"
     agent = MainAgent(
         LLMClient(ScriptedLLMAdapter([LLMResponse(text=leaked)])),
         _isolated_registry(),
     )
-    response = await agent.handle_chat(ChatRequest(message="สวัสดี"))
+    response = await agent.handle_chat(ChatRequest(message="บอกข้อมูลที่แต่งขึ้น"))
     assert leaked not in response.message
-    assert "กระบวนการคิด" in response.message
-    trace = agent.get_trace(response.trace_id)
-    assert leaked not in str(trace.model_dump(mode="json"))
+    assert "ไม่สามารถเปิดเผยกระบวนการคิด" in response.message
+    assert leaked not in str(agent.get_trace(response.trace_id).model_dump(mode="json"))
 
 
 @pytest.mark.asyncio
-async def test_no_tool_response_never_exposes_ungrounded_facts() -> None:
-    from app.agent.main_agent import MainAgent
-    from app.contracts import ChatRequest
-    from app.llm import LLMClient, LLMResponse, ScriptedLLMAdapter
-
-    fabricated = "อัตราค่าไฟฟ้าอย่างเป็นทางการคือ 1.23 THB ต่อ kWh พอดี"
-    agent = MainAgent(
-        LLMClient(ScriptedLLMAdapter([LLMResponse(text=fabricated)])),
-        _isolated_registry(),
-    )
-    response = await agent.handle_chat(ChatRequest(message="บอกข้อมูลที่แต่งขึ้นมาหนึ่งเรื่อง"))
-    assert fabricated not in response.message
-    assert "ความรู้ PEA" in response.message
-    assert "เครื่องมือจำลองสำหรับบัญชี" in response.message
-    assert fabricated not in str(agent.get_trace(response.trace_id).model_dump(mode="json"))
-
-
-@pytest.mark.asyncio
-async def test_multiple_prepare_calls_fail_closed_before_tool_execution() -> None:
-    from uuid import uuid4
-
-    from app.agent.main_agent import MainAgent
-    from app.contracts import ChatRequest, ToolAction, ToolCall, ToolName
-    from app.llm import LLMClient, LLMResponse, ScriptedLLMAdapter
-
+async def test_multiple_oms_prepare_calls_fail_closed_before_execution() -> None:
     adapter = ScriptedLLMAdapter(
         [
             LLMResponse(
                 tool_calls=(
                     ToolCall(
                         call_id=uuid4(),
-                        name=ToolName.SABUY,
-                        action=ToolAction.SABUY_PREPARE_PAYMENT,
+                        name=ToolName.OMS,
+                        action=ToolAction.OMS_PREPARE_OUTAGE_WITH_CA,
                         input={
-                            "accountRef": "PEA-1001",
-                            "amountThb": "10.00",
-                            "paymentMethod": "demo_card",
-                            "idempotencyKey": "multi-prepare-payment",
+                            "caNumber": "100000000003",
+                            "description": "no power",
+                            "idempotencyKey": "known-prepare",
                         },
                     ),
                     ToolCall(
                         call_id=uuid4(),
                         name=ToolName.OMS,
-                        action=ToolAction.OMS_PREPARE_OUTAGE_REPORT,
+                        action=ToolAction.OMS_PREPARE_ANONYMOUS_OUTAGE,
                         input={
-                            "areaCode": "BKK-01",
-                            "locationNote": "สถานที่สาธิต",
-                            "symptoms": "อาการที่ใช้สาธิต",
-                            "idempotencyKey": "multi-prepare-outage",
+                            "description": "fallen wire",
+                            "location": "demo gate",
+                            "contactPhone": "0800000005",
+                            "idempotencyKey": "anonymous-prepare",
                         },
                     ),
                 )
@@ -285,36 +280,34 @@ async def test_multiple_prepare_calls_fail_closed_before_tool_execution() -> Non
         ]
     )
     agent = MainAgent(LLMClient(adapter), _isolated_registry())
-    response = await agent.handle_chat(ChatRequest(message="เตรียมการเขียนข้อมูลสองรายการ"))
+    response = await agent.handle_chat(ChatRequest(message="prepare two writes"))
     assert response.pending_action is None
     assert response.tool_results == ()
     assert "มากกว่าหนึ่งรายการ" in response.message
 
 
 @pytest.mark.asyncio
-async def test_concurrent_confirms_share_one_submission(monkeypatch: pytest.MonkeyPatch) -> None:
+async def test_concurrent_confirms_share_one_oms_submission(monkeypatch: pytest.MonkeyPatch) -> None:
     import asyncio
 
-    from app.agent.main_agent import MainAgent
-    from app.contracts import ChatRequest, ToolAction
-    from app.llm import DemoLLMAdapter, LLMClient
-
-    agent = MainAgent(LLMClient(DemoLLMAdapter()), _isolated_registry())
+    post_counter = [0]
+    agent = MainAgent(
+        LLMClient(DemoLLMAdapter()),
+        _isolated_registry(post_counter),
+    )
     chat_response = await agent.handle_chat(
         ChatRequest(
-            message="Pay 10 THB for account PEA-1001; paymentMethod: demo_card"
+            message="report a power outage; description: no power; location: demo lobby; contactPhone: 0800000006"
         )
     )
+    assert chat_response.pending_action is not None
     pending_id = chat_response.pending_action.pending_action_id
     original_execute = agent._execute_internal
     entered = asyncio.Event()
     release = asyncio.Event()
-    submit_calls = 0
 
     async def delayed_execute(call, conversation_id, trace_id):
-        nonlocal submit_calls
-        if call.action is ToolAction.SABUY_SUBMIT_PAYMENT:
-            submit_calls += 1
+        if call.action is ToolAction.OMS_SUBMIT_ANONYMOUS_OUTAGE:
             entered.set()
             await release.wait()
         return await original_execute(call, conversation_id, trace_id)
@@ -326,59 +319,4 @@ async def test_concurrent_confirms_share_one_submission(monkeypatch: pytest.Monk
     release.set()
     first, second = await asyncio.gather(first_task, second_task)
     assert first == second
-    assert submit_calls == 1
-
-
-def test_wrong_tracking_key_explains_cause_without_repeating(client: TestClient) -> None:
-    """คีย์ติดตามไม่ตรงต้องบอกสาเหตุที่ผู้ใช้แก้ได้ ไม่ใช่อ้างว่าบริการขัดข้อง และต้องไม่ซ้ำ"""
-    body = chat(
-        client,
-        "ต้องการร้องเรียนเรื่องคุณภาพไฟฟ้า; subject: ไฟตกบ่อย; detail: ไฟตกบ่อยจนอุปกรณ์เสียหาย; contactName: นายอาร์ม; contactPhone: 0626509444; location: บ้านพรุ",
-    )
-    action_id = body["pendingAction"]["pendingActionId"]
-    submitted = client.post(f"/api/v1/actions/{action_id}/confirm", json={}).json()["toolResult"]["data"]
-
-    wrong = chat(client, f"ติดตามเรื่องร้องเรียน; เลขเรื่อง: {submitted['vocId']}; คีย์ติดตาม: WRONGKEY123")
-    assert [item["action"] for item in wrong["toolResults"]] == ["get_case"]
-    assert "ไม่พบเรื่องร้องเรียน" in wrong["message"]
-    assert "บริการที่จำเป็นไม่พร้อมใช้งาน" not in wrong["message"]
-
-    correct = chat(client, f"ติดตามเรื่องร้องเรียน; เลขเรื่อง: {submitted['vocId']}; คีย์ติดตาม: {submitted['trackingKey']}")
-    assert submitted["vocId"] in correct["message"]
-
-
-def test_tracking_accepts_values_pasted_without_labels(client: TestClient) -> None:
-    """ผู้ใช้คัดลอกเลขเรื่องและคีย์ติดตามมาวางตรง ๆ ต้องติดตามได้ทันทีโดยไม่ต้องใส่ label"""
-    body = chat(
-        client,
-        "ต้องการร้องเรียนเรื่องคุณภาพไฟฟ้า; subject: ไฟตก; detail: ไฟตกบ่อยจนอุปกรณ์เสียหาย; contactName: นายอาร์ม; contactPhone: 0626509444; location: บ้านพรุ",
-    )
-    action_id = body["pendingAction"]["pendingActionId"]
-    submitted = client.post(f"/api/v1/actions/{action_id}/confirm", json={}).json()["toolResult"]["data"]
-    voc_id, tracking_key = submitted["vocId"], submitted["trackingKey"]
-
-    for message in (f"{voc_id}\n\n{tracking_key}", f"{voc_id} {tracking_key}"):
-        result = chat(client, message)
-        assert [item["action"] for item in result["toolResults"]] == ["get_case"]
-        assert voc_id in result["message"]
-
-    # ให้มาไม่ครบต้องขอเพิ่ม ไม่ใช่เดาค่าเอง
-    partial = chat(client, voc_id)
-    assert partial["toolResults"] == []
-
-
-def test_submitted_case_survives_reset_and_new_conversation(client: TestClient) -> None:
-    """ผู้ใช้กลับมาติดตามในแชตใหม่ภายหลังได้ แม้เดโมจะถูกรีเซ็ตไปแล้ว"""
-    body = chat(
-        client,
-        "ต้องการร้องเรียนเรื่องคุณภาพไฟฟ้า; subject: ไฟตก; detail: ไฟตกบ่อยจนอุปกรณ์เสียหาย; contactName: นายอาร์ม; contactPhone: 0626509444; location: บ้านพรุ",
-    )
-    action_id = body["pendingAction"]["pendingActionId"]
-    submitted = client.post(f"/api/v1/actions/{action_id}/confirm", json={}).json()["toolResult"]["data"]
-
-    assert client.post("/api/v1/reset", json={}).status_code == 200
-
-    # แชตใหม่ (ไม่ส่ง conversationId เดิม) ต้องยังติดตามเคสเดิมได้
-    tracked = chat(client, f"ติดตามเรื่อง; เลขเรื่อง: {submitted['vocId']}; คีย์ติดตาม: {submitted['trackingKey']}")
-    assert [item["action"] for item in tracked["toolResults"]] == ["get_case"]
-    assert submitted["vocId"] in tracked["message"]
+    assert post_counter == [1]

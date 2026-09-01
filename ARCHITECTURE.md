@@ -2,12 +2,12 @@
 
 ## สรุปการตัดสินใจ
 
-สร้างโพรเซส FastAPI หนึ่งโพรเซสที่มี **Main Agent** เพียงหนึ่งตัว และโมดูลเครื่องมือระดับบนสุดที่เรียกใช้ได้สี่โมดูลเท่านั้น:
+สร้างโพรเซส FastAPI หนึ่งโพรเซสที่มี **Main Agent** เพียงหนึ่งตัว และโมดูลเครื่องมือระดับบนสุดที่เรียกใช้ได้สองโมดูลเท่านั้น:
 
 1. `knowledge_tool`
-2. `sabuy_tool`
-3. `voc_tool`
-4. `oms_tool`
+2. `oms_tool`
+
+Sabuy และ VOC คงเฉพาะ implementation/contracts/isolated tests แบบ dormant และไม่ลงทะเบียนใน runtime catalogue
 
 นี่คือการออกแบบโมดูลที่มีขนาดเล็กแต่มีความลึกโดยตั้งใจ: ตัวจัดการ HTTP ทำหน้าที่เพียงตรวจสอบและแปลงคำขอ; Main Agent รับผิดชอบการประสานงาน นโยบาย และคำตอบสำหรับผู้ใช้ ส่วนโมดูลเครื่องมือรับผิดชอบความหมายของข้อมูลที่เกี่ยวข้องและรายละเอียดของระบบหลังบ้านจำลอง งานนี้ไม่ครอบคลุม LangGraph, LangChain, คิว, ไมโครเซอร์วิส, ฐานข้อมูลเวกเตอร์ที่สร้างเอง หรือการผสานระบบ PEA จริง
 
@@ -23,11 +23,11 @@ FastAPI routes (/api/v1/*, /health)
         |
         v
 Main Agent  <---->  LLMAdapter (judge-provided LLM implementation)
-    |  |  |  |
-    |  |  |  +--> oms_tool ------> SimulatedOmsBackend
-    |  |  +-----> voc_tool ------> SimulatedVocBackend
-    |  +--------> sabuy_tool ----> SimulatedSabuyBackend
+    |  |
+    |  +--------> oms_tool ------> httpx → External OMS REST (`oms.openapi.yaml`)
     +-----------> knowledge_tool -> Document Router -> Full selected DOCX text -> Gemini Long Context
+
+Sabuy/VOC implementation + contracts + isolated tests: dormant, not registered
         |
         v
 TraceStore + PendingActionStore (in-process, resettable demo state)
@@ -58,9 +58,9 @@ WebSocket /ws/live  -->  GeminiLiveSession (Gemini Live API, one per socket)
 
 - รับข้อความผู้ใช้และแยก conversation history, workflow state และผลลัพธ์จาก tool ออกจากกัน;
 - ใช้ agent loop แบบ bounded โดยค่าเริ่มต้นไม่เกิน 12 agent steps/12 tool calls ต่อหนึ่งข้อความ และหยุดทันทีเมื่อพบ Knowledge call ซ้ำ;
-- เรียกเฉพาะ tool ระดับบนสุดที่เปิดใช้งานใน runtime catalogue (MVP ปัจจุบันคือ Knowledge และ VOC; Sabuy/OMS ยังปิดอยู่);
+- เรียกเฉพาะ tool ระดับบนสุดที่เปิดใช้งานใน runtime catalogue ซึ่งปัจจุบันคือ Knowledge และ OMS; Sabuy/VOC ไม่ลงทะเบียน;
 - ถือว่าผลลัพธ์จาก tool เป็นข้อเท็จจริงที่มีอำนาจเหนือข้อความจากโมเดล และไม่รวม no-evidence เข้ากับคำตอบที่มี citation แล้ว;
-- ใช้ `VocWorkflowStore` และ `VocIntakeCoordinator` เติมข้อมูลตามลำดับ `category → subject → detail → contact_name → contact_phone → location`; ประเภทเรื่องมาจาก `voc_tool.list_categories` และคำถาม Knowledge สามารถพัก/กลับมาทำ VOC intake เดิมต่อได้;
+- บังคับ OMS flow แบบมี CA ให้ GET ก่อน prepare เสมอ และใช้ anonymous prepare เมื่อไม่มี CA;
 - สร้าง pending action หลังจากได้รับผลลัพธ์ `prepare_*` ที่สำเร็จ;
 - ส่งคำขอเขียนหลังจากมีการเรียก confirm route อย่างชัดเจนเท่านั้น;
 - สร้าง trace event ตามลำดับ;
@@ -90,7 +90,7 @@ class LLMAdapter(Protocol):
     async def complete(self, request: LLMRequest) -> LLMResponse: ...
 ```
 
-`LLMRequest` ประกอบด้วย messages, แค็ตตาล็อก tool สี่รายการที่กำหนดตายตัว และ correlation id ส่วน `LLMResponse` ประกอบด้วย text และค่า `ToolCall` ตั้งแต่ศูนย์รายการขึ้นไป อะแดปเตอร์สำหรับกรรมการจะแปลงโครงสร้าง SDK ของตนเป็น contract ภายในเหล่านี้ โดย `ScriptedLLMAdapter` เพียงพอสำหรับเดโม/การทดสอบที่กำหนดผลได้แน่นอน
+`LLMRequest` ประกอบด้วย messages, แค็ตตาล็อก tool สองรายการที่ลงทะเบียนแบบ typed และกำหนดตายตัว และ correlation id ส่วน `LLMResponse` ประกอบด้วย text และค่า `ToolCall` ตั้งแต่ศูนย์รายการขึ้นไป อะแดปเตอร์สำหรับกรรมการจะแปลงโครงสร้าง SDK ของตนเป็น contract ภายในเหล่านี้ โดย `ScriptedLLMAdapter` เพียงพอสำหรับเดโม/การทดสอบที่กำหนดผลได้แน่นอน
 
 อะแดปเตอร์ต้องไม่มีนโยบายของ PEA, ข้อมูลลับในผลลัพธ์ trace หรือการเข้าถึงระบบหลังบ้านโดยตรง
 
@@ -114,7 +114,7 @@ Tool Registry ถูกกำหนดตายตัวเมื่อเริ
 - หากคำถามเกี่ยวข้องหลายหัวข้อให้เลือกหลายไฟล์ฉบับเต็ม หากกำกวมหรือไม่มีไฟล์ที่ตรงต้องคืน no-evidence เพื่อให้ Main Agent ถามกลับหรือแจ้งว่าไม่มีข้อมูล ห้ามเดาคำตอบ
 - คำตอบต้องอ้างอิงเฉพาะไฟล์ที่ถูกเลือก และ citation ต้องใช้รหัสไฟล์/ชื่อไฟล์จริงพร้อมข้อความหลักฐานที่ตรวจสอบได้ว่าอยู่ในไฟล์นั้น
 - backend อาจ cache ข้อความฉบับเต็มที่แปลงแล้วใน memory ได้ แต่ห้ามใช้ cache เป็นดัชนีค้น chunk หากไฟล์ที่เลือกทั้งหมดเกิน context budget ต้องลดชุดผ่านการถามให้ชัดเจนหรือ fail closed ห้ามตัดท้ายไฟล์โดยเงียบ
-- `SimulatedSabuyBackend`, `SimulatedVocBackend` และ `SimulatedOmsBackend` ใช้ข้อมูล fixture ใน memory แบบ deterministic คำตอบของระบบเหล่านี้มี `simulation: true` และจะไม่มีการกล่าวอ้างว่า action ได้ส่งถึง PEA แล้ว
+- `SimulatedVocBackend` ใช้ข้อมูล fixture ใน memory แบบ deterministic; OMS เป็น connector ภายนอกผ่าน httpx ตาม `oms.openapi.yaml` คำตอบของระบบเหล่านี้มี `simulation: true` และจะไม่มีการกล่าวอ้างว่า action ได้ส่งถึง PEA แล้ว
 
 สำหรับเดโม 2 วัน store จะอยู่ภายใน process และ reset ได้ การสูญเสียสถานะหลัง restart เป็นสิ่งที่ยอมรับได้และมีการระบุไว้ใน UI/สคริปต์เดโม
 
@@ -171,7 +171,7 @@ prepare_* -> pending_confirmation -> confirm endpoint -> submit_* -> submitted |
 | หัวหน้าทีม/การผสานระบบ | `ARCHITECTURE.md`, `CONTRACTS.md`, `app/contracts.py`, `app/main.py`, `tests/test_contracts.py` | เป็นเจ้าของ frozen contract และการเชื่อม route; อนุมัติการเปลี่ยนแปลง contract ทั้งหมด |
 | ผู้ปฏิบัติงาน A — เอเจนต์ | `app/agent/`, `app/llm/` | import เฉพาะ `app.contracts`; เรียกเฉพาะ interface `ToolRegistry` |
 | ผู้ปฏิบัติงาน B — ฐานความรู้ | `app/tools/knowledge_tool.py`, `app/backends/full_document_knowledge.py`, `knowledge/` | ใช้ document-level routing และ full-file context เท่านั้น; ห้ามเพิ่ม vector DB, chunk retrieval หรือเปลี่ยน public contract |
-| ผู้ปฏิบัติงาน C — งานปฏิบัติการจำลอง | `app/tools/sabuy_tool.py`, `app/tools/voc_tool.py`, `app/tools/oms_tool.py`, `app/backends/simulated_*.py` | ใช้ action และ model ที่ตรึงไว้ใน `app.contracts` |
+| ผู้ปฏิบัติงาน C — งานปฏิบัติการ | `app/tools/oms_tool.py` และ external OMS connector; ไฟล์ VOC คง dormant | ใช้ action และ model ที่ตรึงไว้ใน `app.contracts` |
 | ผู้ปฏิบัติงาน Voice — โหมดเสียง | `app/live/`, `app/api/live.py`, `web/gemini-live-client.js`, `web/media-handler.js`, `web/pcm-processor.js` | import เฉพาะ `app.contracts` + `app.live.models`; เรียก Main Agent ผ่าน `MainAgentGateway` เท่านั้น; ห้ามแตะ ToolRegistry/backend ธุรกิจ |
 | ผู้ปฏิบัติงาน D — การตรวจสอบ/เอกสาร | `tests/`, `README.md`, `demo/` | ไม่แก้ไข production module หรือ contract |
 
@@ -185,14 +185,14 @@ prepare_* -> pending_confirmation -> confirm endpoint -> submit_* -> submitted |
 
 ## รายการตรวจสอบการผสานระบบ
 
-- [ ] startup ลงทะเบียน `knowledge_tool`, `sabuy_tool`, `voc_tool` และ `oms_tool` อย่างละหนึ่งครั้งเท่านั้น
+- [ ] startup ลงทะเบียน `knowledge_tool` และ `oms_tool` อย่างละหนึ่งครั้งเท่านั้น โดยใช้ typed registry และไม่โหลด OpenAPI แบบอัตโนมัติ
 - [ ] `POST /api/v1/chat` ตรวจสอบ frozen request/response model และส่งคืน trace id
 - [ ] Document Router เลือกเฉพาะไฟล์ที่เกี่ยวข้องจาก allowlisted catalog และไม่เกิน `maxResults`
 - [ ] knowledge search ส่งข้อความฉบับเต็มของไฟล์ที่เลือกให้ Gemini Long Context โดยไม่ chunk, truncate หรือโหลดทั้ง corpus โดยไม่จำเป็น
 - [ ] knowledge citations อ้างถึงชื่อไฟล์จริงและข้อความหลักฐานที่ตรวจสอบได้; ไม่มี Gemini File Search, local embedding/index/vector หรือ chunk retrieval
-- [ ] คำตอบจาก Sabuy, VOC และ OMS ระบุ `simulation: true` อย่างชัดเจน
+- [ ] ผลลัพธ์ operational จาก OMS ระบุ `simulation: true` อย่างชัดเจน
 - [ ] ทุกเส้นทางการเขียนพิสูจน์ลำดับ prepare -> human confirm -> submit; การ submit โดยตรงจากแชตจะถูกปฏิเสธ
-- [ ] การ confirm ซ้ำไม่สร้าง simulated payment, VOC case หรือ outage report ซ้ำ
+- [ ] การ confirm ซ้ำไม่สร้าง outage event/report ซ้ำ
 - [ ] reject เป็น terminal และไม่ทิ้ง simulated side effect
 - [ ] `GET /api/v1/traces/{trace_id}` แสดง event ตามลำดับและปกปิดข้อมูลสำหรับแต่ละเส้นทาง
 - [ ] `POST /api/v1/reset` ล้างสถานะเดโม รวมถึง pending action และ trace
@@ -200,4 +200,4 @@ prepare_* -> pending_confirmation -> confirm endpoint -> submit_* -> submitted |
 
 ## นิยามของคำว่าเสร็จสมบูรณ์
 
-prototype พร้อมสำหรับเดโมเมื่อ public route ใน `CONTRACTS.md` ทำงานกับ frozen Pydantic model ได้; Document Router เลือกเฉพาะไฟล์ที่เกี่ยวข้องและ Main Agent สามารถตอบตรงคำถามจากข้อความฉบับเต็มของไฟล์เหล่านั้นผ่าน Gemini Long Context พร้อม citation ที่ตรวจสอบได้; สามารถอ่านข้อมูล Sabuy/VOC/OMS ที่จำลองขึ้น; และสามารถ prepare, รอการยืนยันจากมนุษย์อย่างชัดเจน แล้ว submit การเขียนจำลองหนึ่งครั้งโดยมี trace ที่ตรวจสอบย้อนหลังได้ ระบบต้องทำงานเป็น FastAPI process หนึ่ง process มี Main Agent เพียงหนึ่งตัวและ tool ระดับบนสุดสี่รายการที่ประกาศไว้เท่านั้น และระบุอย่างชัดเจนว่าข้อมูลเชิงปฏิบัติการทั้งหมดที่ไม่ใช่ knowledge เป็นข้อมูลจำลอง
+prototype พร้อมสำหรับเดโมเมื่อ public route ใน `CONTRACTS.md` ทำงานกับ frozen Pydantic model ได้; Document Router เลือกเฉพาะไฟล์ที่เกี่ยวข้องและ Main Agent ตอบจากข้อความฉบับเต็มของไฟล์เหล่านั้นพร้อม citation ที่ตรวจสอบได้; OMS connector รักษาสาม operation ใน immutable OpenAPI และคืน `simulation: true`; สามารถ prepare รอ explicit human confirmation แล้ว internal submit หนึ่งครั้งโดยมี trace ที่ปกปิดข้อมูล ระบบต้องทำงานเป็น FastAPI process หนึ่ง process มี Main Agent เพียงหนึ่งตัวและ tool ระดับบนสุดสองรายการคือ Knowledge และ OMS เท่านั้น โดย Sabuy/VOC คงแบบ dormant

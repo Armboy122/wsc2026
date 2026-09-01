@@ -15,7 +15,7 @@ from app.core.middleware import RequestIdMiddleware, add_cors_middleware
 logger = get_logger(__name__)
 
 REQUIRED_TOOLS: frozenset[ToolName] = frozenset(
-    {ToolName.KNOWLEDGE, ToolName.SABUY, ToolName.VOC, ToolName.OMS}
+    {ToolName.KNOWLEDGE, ToolName.OMS}
 )
 
 
@@ -31,7 +31,7 @@ def _resolve_tool_names(tool_registry: Any) -> set[ToolName]:
 
 
 def validate_tool_registry(tool_registry: Any) -> None:
-    """ตรวจสอบว่า Main Agent ลงทะเบียนเครื่องมือตามสัญญาครบสี่ตัว ตัวละหนึ่งครั้ง"""
+    """ตรวจสอบว่า Main Agent ลงทะเบียนเครื่องมือตามสัญญาครบสองตัว ตัวละหนึ่งครั้ง"""
     names = _resolve_tool_names(tool_registry)
     if names != set(REQUIRED_TOOLS):
         raise RuntimeError(

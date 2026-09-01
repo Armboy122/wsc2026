@@ -11,6 +11,7 @@ import json
 from datetime import UTC, datetime
 from uuid import UUID, uuid4
 
+import httpx
 import pytest
 
 from app.contracts import (
@@ -509,15 +510,19 @@ def _real_agent() -> object:
     from app.llm import DemoLLMAdapter, LLMClient
     from app.tools.knowledge_tool import KnowledgeTool
     from app.tools.oms_tool import OmsTool
-    from app.tools.sabuy_tool import SabuyTool
-    from app.tools.voc_tool import VocTool
+
+    def oms_handler(request: httpx.Request) -> httpx.Response:
+        if request.method == "GET":
+            return httpx.Response(404, json={})
+        return httpx.Response(
+            201,
+            json={"reportId": "OMS-ANON-VOICE-1", "status": "RECEIVED", "message": "รับแจ้งแล้ว"},
+        )
 
     registry = ToolRegistry(
         [
             KnowledgeTool(FullDocumentKnowledgeBackend()),
-            SabuyTool(),
-            VocTool(),
-            OmsTool(),
+            OmsTool(transport=httpx.MockTransport(oms_handler)),
         ]
     )
     return MainAgent(LLMClient(DemoLLMAdapter()), registry)
@@ -536,26 +541,21 @@ async def test_voice_flow_against_real_main_agent() -> None:
     agent = _real_agent()
     bridge = VoiceBridge(agent)  # type: ignore[arg-type]
 
-    # รอบแรก: เริ่มการร้องเรียน → ถามรายละเอียด ยังไม่มี pending
-    first = await bridge.handle_text("ต้องการร้องเรียนการบริการ")
-    assert first["pendingAction"] is None
-    assert "หัวข้อ" in first["message"]
-
-    # รอบสอง: ให้ข้อมูลครบ → เตรียมเคส → bridge เก็บ pending ปัจจุบัน
-    second = await bridge.handle_text(
-        "subject: เจ้าหน้าที่ให้บริการล่าช้า; detail: รอเจ็ดวันแล้วยังไม่มีการติดต่อกลับ; "
-        "contactName: สมชาย ใจดี; contactPhone: 0812345678; location: ถนนสุขุมวิท กรุงเทพฯ"
+    # ให้ข้อมูล anonymous ครบในครั้งเดียว → เตรียมรายงาน OMS โดยยังไม่ submit
+    prepared = await bridge.handle_text(
+        "แจ้งเหตุไฟดับ; description: ไฟดับทั้งอาคาร; location: อาคารสาธิต; "
+        "contactPhone: 0812345678"
     )
-    assert second["pendingAction"] is not None
-    assert second["pendingAction"]["status"] == "pending_confirmation"
-    assert second["pendingAction"]["toolName"] == "voc_tool"
+    assert prepared["pendingAction"] is not None
+    assert prepared["pendingAction"]["status"] == "pending_confirmation"
+    assert prepared["pendingAction"]["toolName"] == "oms_tool"
     assert bridge.has_pending_action is True
 
-    # ยืนยันด้วยเสียง → submit_case หนึ่งครั้ง → สถานะสิ้นสุดและล้าง pending
+    # ยืนยันด้วยเสียง → internal submit หนึ่งครั้ง → สถานะสิ้นสุดและล้าง pending
     decision = await bridge.confirm_current(confirmation_note="ยืนยันจากเสียง")
     assert decision["pendingAction"]["status"] == "submitted"
     assert decision["toolResult"]["status"] == "success"
-    assert decision["toolResult"]["data"]["vocId"]
+    assert decision["toolResult"]["data"]["reportId"] == "OMS-ANON-VOICE-1"
     assert bridge.has_pending_action is False
 
     # การยืนยันซ้ำ fail closed

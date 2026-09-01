@@ -12,7 +12,13 @@ def _comma_origins(raw: str) -> tuple[str, ...]:
 
 
 # ชื่อฟิลด์ที่ห้ามแสดงผ่าน repr/str/logging โดยเด็ดขาด
-_SECRET_FIELD_NAMES: frozenset[str] = frozenset({"gemini_api_key", "maxplus_api_key"})
+_SECRET_FIELD_NAMES: frozenset[str] = frozenset({
+    "gemini_api_key",
+    "maxplus_api_key",
+    "oms_api_key",
+    "line_channel_secret",
+    "line_channel_access_token",
+})
 
 
 @dataclass(frozen=True, slots=True)
@@ -57,6 +63,11 @@ class Settings:
     gemini_long_context_model: str = "gemini-3.5-flash-lite"
     live_model: str = "gemini-3.1-flash-live-preview"
     live_voice: str = "Puck"
+    oms_base_url: str = "http://127.0.0.1:8080/api/v1/oms"
+    oms_timeout_seconds: float = 5.0
+    oms_api_key: str | None = field(default="88888888", repr=False)
+    line_channel_secret: str | None = field(default=None, repr=False)
+    line_channel_access_token: str | None = field(default=None, repr=False)
 
     @classmethod
     def from_env(cls, environ: dict[str, str] | None = None) -> Settings:
@@ -77,6 +88,14 @@ class Settings:
         )
         live_model = env.get("GEMINI_LIVE_MODEL", "gemini-3.1-flash-live-preview")
         live_voice = env.get("GEMINI_LIVE_VOICE", "Puck")
+        oms_base_url = (_get("OMS_BASE_URL") or "http://127.0.0.1:8080/api/v1/oms").rstrip("/")
+        oms_api_key = _get("OMS_API_KEY") or "88888888"
+        try:
+            oms_timeout_seconds = float(env.get("OMS_TIMEOUT_SECONDS", "5"))
+            if oms_timeout_seconds <= 0:
+                raise ValueError
+        except (TypeError, ValueError):
+            oms_timeout_seconds = 5.0
 
         def _llm_settings(
             prefix: str,
@@ -121,6 +140,9 @@ class Settings:
         )
         judge_llm = _llm_settings("JUDGE")
 
+        line_channel_secret = _get("LINE_CHANNEL_SECRET")
+        line_channel_access_token = _get("LINE_CHANNEL_ACCESS_TOKEN")
+
         return cls(
             app_env=env.get("APP_ENV", "development").lower(),
             log_level=env.get("LOG_LEVEL", "info").lower(),
@@ -151,6 +173,11 @@ class Settings:
             gemini_long_context_model=gemini_long_context_model,
             live_model=live_model,
             live_voice=live_voice,
+            oms_base_url=oms_base_url,
+            oms_timeout_seconds=oms_timeout_seconds,
+            oms_api_key=oms_api_key,
+            line_channel_secret=line_channel_secret,
+            line_channel_access_token=line_channel_access_token,
         )
 
     @property

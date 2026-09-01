@@ -2,7 +2,7 @@
 
 ## ขอบเขตปัจจุบัน
 
-ระบบมี Main Agent หนึ่งตัวและ tool ระดับบนสุดสี่รายการ ได้แก่ `knowledge_tool`, `sabuy_tool`, `voc_tool` และ `oms_tool` โดย OMS, Sabuy และ VOC เป็น **SIMULATED** ส่วน knowledge ใช้ Gemini กับเอกสารจริงที่เลือกจาก `knowledge/source/`
+ระบบมี Main Agent หนึ่งตัวและ tool ระดับบนสุดที่เปิดใช้สองรายการ ได้แก่ `knowledge_tool` และ `oms_tool` โดย OMS REST ใช้ `simulation=true` ส่วน Knowledge ใช้ provider กับเอกสารจริงที่เลือกจาก `knowledge/source/` Sabuy และ VOC คงเฉพาะ implementation/contracts/tests แบบ dormant และไม่อยู่ใน runtime catalogue
 
 Knowledge เปลี่ยนเป็น **Document Routing + Full-file Long Context** แล้ว และไม่ใช้ Gemini File Search, RAG, embedding, vector index หรือ chunk retrieval
 
@@ -58,8 +58,6 @@ python3 -m pytest -q
 |---|---:|---|
 | Knowledge | 40 | การตอบตรงคำถามจากเอกสาร การอ้างอิง และ no-evidence |
 | OMS | 10 | สถานะและการรายงานไฟฟ้าดับ (**SIMULATED**) |
-| Sabuy | 10 | บัญชีตัวอย่างและการเตรียมชำระเงิน (**SIMULATED**) |
-| VOC | 10 | การจัดหมวดหมู่และเตรียมเคส (**SIMULATED**) |
 | Multi-tool | 10 | การประสานหลาย tool |
 | Adversarial | 10 | prompt injection, invalid fields และ write safety |
 
