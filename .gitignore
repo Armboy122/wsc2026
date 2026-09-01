@@ -6,4 +6,3 @@ __pycache__/
 *.py[cod]
 .DS_Store
 .agent-teams
-knowledge/manifest.json
