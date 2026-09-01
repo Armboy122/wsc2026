@@ -148,3 +148,10 @@ def test_label_truncation(label: str, limit: int) -> None:
     from app.line.service import _truncate_button_label
 
     assert len(_truncate_button_label(label)) <= limit
+
+
+def test_chat_reply_always_carries_new_chat_quick_reply() -> None:
+    """ทุกคำตอบแชตต้องมี quickReply เริ่มแชทใหม่ แม้ไม่มี citation"""
+    response = {"message": "คำตอบ", "citations": [], "pendingAction": None, "toolResults": []}
+    messages = format_chat_messages(response)
+    assert messages[-1]["quickReply"]["items"][0]["action"]["data"] == "action=new_chat"

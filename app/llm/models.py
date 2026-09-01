@@ -49,6 +49,7 @@ class DirectResponseKind(str, Enum):
     GREETING = "greeting"
     UNSUPPORTED = "unsupported"
     OMS_CA_NUMBER = "oms_ca_number"
+    OMS_OUTAGE_START = "oms_outage_start"
     OMS_WITH_CA_INPUTS = "oms_with_ca_inputs"
     OMS_ANONYMOUS_INPUTS = "oms_anonymous_inputs"
     VOC_DETAILS = "voc_details"

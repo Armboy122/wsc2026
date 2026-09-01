@@ -91,7 +91,8 @@ class DemoLLMAdapter:
             elif ca_number:
                 return _direct_response(DirectResponseKind.OMS_WITH_CA_INPUTS)
             else:
-                return _direct_response(DirectResponseKind.OMS_ANONYMOUS_INPUTS)
+                # ยังไม่รู้ว่าผู้ใช้มี CA หรือไม่ ถาม CA ก่อนเสมอ
+                return _direct_response(DirectResponseKind.OMS_OUTAGE_START)
 
         if knowledge_requested:
             _append_plan(planned, message, ("knowledge", "policy", "tariff", "rate", "guidance", "safety", "payment channels", "ค้นหา", "นโยบาย", "อัตราค่าไฟ"), ToolName.KNOWLEDGE, ToolAction.KNOWLEDGE_SEARCH, {"query": _safe_query(message), "maxResults": 3})

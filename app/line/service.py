@@ -32,14 +32,15 @@ _LOADING_SECONDS = 30
 _SIMULATION_NOTICE = "ℹ️ รายการนี้ทำงานบนระบบจำลองเพื่อการสาธิต (ไม่ใช่ระบบ PEA จริง)"
 
 _WELCOME_TEXT = (
-    "สวัสดีครับ ผมคือผู้ช่วย PEA One Agent 📌\n"
-    "ถามเรื่องความรู้ PEA หรือแจ้งไฟฟ้าขัดข้องได้เลยครับ\n"
-    "(ข้อความนี้เป็นระบบสาธิต ข้อมูลปฏิบัติการเป็นข้อมูลจำลอง)"
+    "สวัสดีครับ ผมคือ น้องทัชชี่ พร้อมให้บริการแล้วครับ📌"
 )
 
 _POSTBACK_CONFIRM = "action=confirm"
 _POSTBACK_REJECT = "action=reject"
 _POSTBACK_NEW_CHAT = "action=new_chat"
+# ปุ่มเมนู rich menu ส่ง intent เป็นข้อความเข้า flow แชตเดิม เช่น
+# "action=intent&text=%E0%B9%81%E0%B8%88%E0%B9%89%E0%B8%87%E0%B9%84%E0%B8%9F%E0%B8%94%E0%B8%B1%E0%B8%9A"
+_POSTBACK_INTENT_PREFIX = "action=intent&text="
 
 # เพดานของ LINE: ปุ่ม uri ใน template มีได้ 4 ปุ่ม และ label ยาวสุด 20 ตัวอักษร
 _MAX_URI_BUTTONS = 3  # เผื่อปุ่มที่ 4 ไว้ให้ "เริ่มแชทใหม่"
@@ -122,6 +123,26 @@ class LineWebhookService:
         if data == _POSTBACK_NEW_CHAT:
             await self.bridge.start_new_chat(user_id)
             messages = [{"type": "text", "text": _WELCOME_TEXT}]
+        elif data.startswith(_POSTBACK_INTENT_PREFIX):
+            intent_text = data[len(_POSTBACK_INTENT_PREFIX):].strip()
+            if not intent_text:
+                messages = [{"type": "text", "text": "ไม่เข้าใจคำสั่งนี้ครับ กรุณาใช้ปุ่มในข้อความที่ระบบส่งให้ครับ"}]
+            else:
+                await self._show_loading_best_effort(user_id)
+                try:
+                    response = await self.bridge.handle_chat(user_id, intent_text)
+                except LineBridgeError as exc:
+                    await self._reply_or_push(user_id, reply_token, [
+                        {"type": "text", "text": exc.message}
+                    ])
+                    return
+                except Exception:
+                    logger.exception("LINE intent postback ล้มเหลว")
+                    await self._reply_or_push(user_id, reply_token, [
+                        {"type": "text", "text": "ขออภัยครับ เกิดข้อผิดพลาดภายในระบบ กรุณาลองอีกครั้งครับ"}
+                    ])
+                    return
+                messages = format_chat_messages(response)
         elif data == _POSTBACK_CONFIRM:
             await self._show_loading_best_effort(user_id)
             try:
@@ -239,6 +260,31 @@ def format_chat_messages(response: dict[str, Any]) -> list[dict[str, Any]]:
     if pending_action is not None:
         messages.extend(_pending_action_messages(pending_action))
 
+    messages = _attach_new_chat_quick_reply(messages)
+    return messages
+
+
+def _attach_new_chat_quick_reply(messages: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    """แนบ quickReply "เริ่มแชทใหม่" ท้ายข้อความ text สุดท้าย
+
+    quickReply ไม่กินพื้นที่เพิ่มเป็นข้อความ ผู้ใช้จึงเริ่มบทสนทนาใหม่ได้
+    ทุกรอบ แม้คำตอบไม่มี citation หรือปุ่มอื่น
+    """
+    for message in reversed(messages):
+        if message.get("type") == "text":
+            message["quickReply"] = {
+                "items": [
+                    {
+                        "type": "action",
+                        "action": {
+                            "type": "postback",
+                            "label": "เริ่มแชทใหม่",
+                            "data": _POSTBACK_NEW_CHAT,
+                        },
+                    }
+                ]
+            }
+            break
     return messages
 
 
