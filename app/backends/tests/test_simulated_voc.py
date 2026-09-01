@@ -112,11 +112,28 @@ def test_get_case_wrong_key_fails_closed():
     assert missing.value.code is ToolErrorCode.NOT_FOUND
 
 
-def test_reset_clears_state():
+def test_reset_clears_drafts_but_keeps_submitted_cases_trackable():
+    """ผู้ใช้ถือคีย์ติดตามไว้แล้ว จึงต้องติดตามเคสที่ส่งแล้วได้ต่อหลังรีเซ็ต"""
     backend = SimulatedVocBackend()
     _prepare(backend, key="k1")
-    backend.submit_case(uuid4(), "k1")
+    submitted = backend.submit_case(uuid4(), "k1")
+    _prepare(backend, key="draft-only")
+
     backend.reset()
+
     assert backend._prepared == {}
-    assert backend._cases == {}
-    assert backend._seq == 0
+    tracked = backend.get_case(submitted["vocId"], submitted["trackingKey"])
+    assert tracked["status"] == "submitted"
+
+
+def test_reset_does_not_recycle_voc_ids():
+    """ตัวนับต้องไม่ย้อนกลับ มิฉะนั้นเคสใหม่จะได้ ``vocId`` ซ้ำกับเคสที่ยังติดตามอยู่"""
+    backend = SimulatedVocBackend()
+    _prepare(backend, key="k1")
+    first = backend.submit_case(uuid4(), "k1")
+
+    backend.reset()
+    _prepare(backend, key="k2")
+    second = backend.submit_case(uuid4(), "k2")
+
+    assert first["vocId"] != second["vocId"]

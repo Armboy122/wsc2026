@@ -563,15 +563,20 @@ import { GeminiLiveClient } from './gemini-live-client.js';
 
   /* ---------- ข้อความจากผู้ช่วย ---------- */
 
-  function addAgentMessage(resp) {
+  function addAgentMessage(resp, { silent = false } = {}) {
     const el = document.createElement('article');
     el.className = 'msg msg-agent';
+    // ในโหมดเสียง ผู้ช่วยพูดสรุปให้แล้ว การแสดงข้อความของโฟลว์ซ้ำอีกทำให้อ่านสับสน
+    // จึงคงไว้เฉพาะการ์ดยืนยันและหลักฐานการเรียกเครื่องมือ
+    const bubble = silent
+      ? ''
+      : `<div class="bubble">${escapeHtml(resp.message || '(ไม่มีข้อความตอบกลับ)')}</div>`;
     el.innerHTML = `
       <span class="agent-avatar" aria-hidden="true">
         <svg viewBox="0 0 24 24" width="15" height="15" fill="currentColor"><path d="M13.6 1.6 4.9 13.9h4.9L8.6 22.4l9.1-12.7h-5l.9-8.1z"/></svg>
       </span>
       <div class="msg-stack">
-        <div class="bubble">${escapeHtml(resp.message || '(ไม่มีข้อความตอบกลับ)')}</div>
+        ${bubble}
         ${renderToolChips(resp.toolResults)}
         ${renderCitations(resp.citations)}
       </div>
@@ -864,7 +869,8 @@ import { GeminiLiveClient } from './gemini-live-client.js';
       updateTraceIdLabel();
     }
     if (operation === 'chat' && typeof response.message === 'string') {
-      addAgentMessage(response);
+      // เสียงพูดสรุปรายการที่เตรียมไว้แล้ว จึงแสดงเฉพาะการ์ดยืนยันโดยไม่ทวนข้อความเดิม
+      addAgentMessage(response, { silent: Boolean(response.pendingAction) });
     } else if ((operation === 'confirm' || operation === 'reject') && response.pendingAction) {
       const pendingId = response.pendingAction.pendingActionId;
       const existing = pendingId && document.querySelector(`[data-pa-id="${pendingId}"]`);

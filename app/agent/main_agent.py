@@ -148,6 +148,8 @@ class MainAgent:
         self._voc_workflows = voc_workflows or VocWorkflowStore()
         self._voc_intake = VocIntakeCoordinator()
         self._voc_categories: tuple[VocCategoryItem, ...] | None = None
+        # ข้อมูลที่กรอกไว้ของรายการที่ยังไม่สิ้นสุด ใช้คืนให้ผู้ใช้แก้ต่อเมื่อปฏิเสธ
+        self._rejectable_voc_states: dict[UUID, VocIntakeState] = {}
         self._reset_generation = 0
 
     async def handle_chat(self, request: ChatRequest) -> ChatResponse:
@@ -217,10 +219,12 @@ class MainAgent:
                 call for call in calls if call.action in PREPARE_TO_SUBMIT
             )
             for call in ordered_calls:
-                if call.name is ToolName.KNOWLEDGE:
-                    key = (call.action.value, json.dumps(call.input, sort_keys=True, default=str))
+                # การเรียกอ่านข้อมูลด้วย input ชุดเดิมซ้ำย่อมให้ผลเหมือนเดิม
+                # จึงหยุดทันที เพื่อไม่ให้ผู้ใช้เห็นข้อความล้มเหลวซ้ำหลายรอบ
+                if call.name is ToolName.KNOWLEDGE or call.action not in PREPARE_TO_SUBMIT:
+                    key = (call.name.value, call.action.value, json.dumps(call.input, sort_keys=True, default=str))
                     if key in seen_knowledge_calls:
-                        self._traces.append(trace_id, TraceEventKind.ERROR, {"stage": "duplicate_knowledge_call"})
+                        self._traces.append(trace_id, TraceEventKind.ERROR, {"stage": "duplicate_read_call", "action": call.action.value})
                         duplicate_knowledge_call = True
                         break
                     seen_knowledge_calls.add(key)
@@ -331,7 +335,10 @@ class MainAgent:
         result = await self._execute_chat_call(call, conversation_id, trace_id)
         results = [result]
         pending = self._create_pending_from_results(conversation_id, trace_id, results)
-        if result.status is ToolResultStatus.SUCCESS:
+        if result.status is ToolResultStatus.SUCCESS and pending is not None:
+            # เก็บข้อมูลที่กรอกไว้จนกว่าจะส่งเรื่องจริง ผู้ใช้ที่ปฏิเสธเพราะพิมพ์ผิด
+            # จะได้แก้เฉพาะฟิลด์ที่ผิดต่อได้ โดยไม่ต้องกรอกใหม่ทั้งหมด
+            self._rejectable_voc_states[pending.pending_action_id] = decision.state
             self._voc_workflows.pop(conversation_id)
         response_text = _authoritative_message("", results, pending)
         self._conversations.append(conversation_id, LLMMessage("user", message))
@@ -404,6 +411,8 @@ class MainAgent:
         status = PendingActionStatus.SUBMITTED if result.status is ToolResultStatus.SUCCESS else PendingActionStatus.FAILED
         terminal = confirmed.model_copy(update={"status": status, "updated_at": _now(), "submission_result": result})
         self._pending_actions.update(terminal)
+        # ส่งเรื่องแล้วไม่ต้องคืนฟอร์มให้แก้อีก
+        self._rejectable_voc_states.pop(pending_action_id, None)
         return ActionDecisionResponse(pending_action=terminal, tool_result=result, trace_id=trace_id)
 
     async def reject_pending_action(self, pending_action_id: UUID, reason: str) -> ActionDecisionResponse:
@@ -416,6 +425,11 @@ class MainAgent:
         rejected = pending.model_copy(update={"status": PendingActionStatus.REJECTED, "updated_at": _now()})
         self._pending_actions.update(rejected)
         self._traces.append(trace_id, TraceEventKind.ACTION_REJECTED, {"pendingActionId": str(pending_action_id), "reason": "[redacted]"})
+        # ผู้ใช้มักปฏิเสธเพราะกรอกผิดบางฟิลด์ จึงคืนข้อมูลที่กรอกไว้ให้แก้ต่อได้
+        # แทนการทิ้งบทสนทนาจนต้องเริ่มกรอกใหม่ทั้งหมด
+        resumable = self._rejectable_voc_states.pop(pending_action_id, None)
+        if resumable is not None:
+            self._voc_workflows.put(pending.conversation_id, resumable.reopen())
         return ActionDecisionResponse(pending_action=rejected, tool_result=None, trace_id=trace_id)
 
     def get_trace(self, trace_id: UUID) -> TraceResponse:
@@ -438,6 +452,7 @@ class MainAgent:
         self._knowledge_contexts.clear()
         self._direct_response_contexts.clear()
         self._voc_workflows.clear()
+        self._rejectable_voc_states.clear()
         self._voc_categories = None
         return ResetResponse()
 
@@ -605,6 +620,26 @@ def _authoritative_message(
     return f"{safety}\n\n{message}".strip() if safety and not message.startswith(safety) else message
 
 
+def _operational_error_fact(result: ToolResult) -> str:
+    """อธิบายสาเหตุที่ผู้ใช้แก้ไขเองได้ แทนการเหมารวมว่าบริการไม่พร้อมใช้งาน
+
+    ``not_found`` ของการติดตามเรื่องเกิดจาก ``vocId``/``trackingKey`` ไม่ตรงกัน
+    ซึ่งผู้ใช้แก้ไขเองได้ จึงต้องไม่สื่อสารเหมือนระบบขัดข้อง
+    """
+    code = result.error.code if result.error else None
+    if result.action is ToolAction.VOC_GET_CASE and code is ToolErrorCode.NOT_FOUND:
+        return (
+            "ไม่พบเรื่องร้องเรียนที่ตรงกับเลขเรื่องและคีย์ติดตามที่ระบุครับ "
+            "กรุณาตรวจสอบว่าทั้งสองค่าตรงกับที่ได้รับตอนส่งเรื่อง "
+            "โดยคีย์ติดตามมีการแยกตัวพิมพ์เล็ก-ใหญ่ครับ"
+        )
+    if code is ToolErrorCode.NOT_FOUND:
+        return "ไม่พบข้อมูลที่ตรงกับที่ระบุครับ กรุณาตรวจสอบข้อมูลอีกครั้ง"
+    if code is ToolErrorCode.INVALID_INPUT:
+        return "ข้อมูลที่ระบุยังไม่ครบถ้วนหรือไม่ถูกต้องครับ กรุณาตรวจสอบแล้วลองใหม่อีกครั้ง"
+    return "ไม่สามารถดำเนินการบางส่วนของคำขอได้ เนื่องจากบริการที่จำเป็นไม่พร้อมใช้งานครับ"
+
+
 def _result_facts(results: list[ToolResult], *, user_message: str = "") -> list[str]:
     """จัดรูปแบบเฉพาะข้อมูลผลลัพธ์ที่ผ่านการตรวจสอบ โดยไม่ใช้ข้อความของ planner หลังเรียกเครื่องมือ"""
     facts: list[str] = []
@@ -620,11 +655,14 @@ def _result_facts(results: list[ToolResult], *, user_message: str = "") -> list[
         if result.name is ToolName.KNOWLEDGE and knowledge_has_grounded and not result.citations:
             continue
         if result.status is ToolResultStatus.ERROR:
-            facts.append(
+            fact = (
                 _KNOWLEDGE_ESCALATION_MESSAGE
                 if result.name is ToolName.KNOWLEDGE
-                else "ไม่สามารถดำเนินการบางส่วนของคำขอได้ เนื่องจากบริการที่จำเป็นไม่พร้อมใช้งานครับ"
+                else _operational_error_fact(result)
             )
+            # การลองซ้ำของโมเดลต้องไม่ทำให้ผู้ใช้เห็นข้อความเดิมซ้ำหลายรอบ
+            if fact not in facts:
+                facts.append(fact)
             continue
         data = result.data or {}
         if result.name is ToolName.KNOWLEDGE and isinstance(data.get("answerContext"), str):

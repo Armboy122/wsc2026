@@ -327,3 +327,58 @@ async def test_concurrent_confirms_share_one_submission(monkeypatch: pytest.Monk
     first, second = await asyncio.gather(first_task, second_task)
     assert first == second
     assert submit_calls == 1
+
+
+def test_wrong_tracking_key_explains_cause_without_repeating(client: TestClient) -> None:
+    """คีย์ติดตามไม่ตรงต้องบอกสาเหตุที่ผู้ใช้แก้ได้ ไม่ใช่อ้างว่าบริการขัดข้อง และต้องไม่ซ้ำ"""
+    body = chat(
+        client,
+        "ต้องการร้องเรียนเรื่องคุณภาพไฟฟ้า; subject: ไฟตกบ่อย; detail: ไฟตกบ่อยจนอุปกรณ์เสียหาย; contactName: นายอาร์ม; contactPhone: 0626509444; location: บ้านพรุ",
+    )
+    action_id = body["pendingAction"]["pendingActionId"]
+    submitted = client.post(f"/api/v1/actions/{action_id}/confirm", json={}).json()["toolResult"]["data"]
+
+    wrong = chat(client, f"ติดตามเรื่องร้องเรียน; เลขเรื่อง: {submitted['vocId']}; คีย์ติดตาม: WRONGKEY123")
+    assert [item["action"] for item in wrong["toolResults"]] == ["get_case"]
+    assert "ไม่พบเรื่องร้องเรียน" in wrong["message"]
+    assert "บริการที่จำเป็นไม่พร้อมใช้งาน" not in wrong["message"]
+
+    correct = chat(client, f"ติดตามเรื่องร้องเรียน; เลขเรื่อง: {submitted['vocId']}; คีย์ติดตาม: {submitted['trackingKey']}")
+    assert submitted["vocId"] in correct["message"]
+
+
+def test_tracking_accepts_values_pasted_without_labels(client: TestClient) -> None:
+    """ผู้ใช้คัดลอกเลขเรื่องและคีย์ติดตามมาวางตรง ๆ ต้องติดตามได้ทันทีโดยไม่ต้องใส่ label"""
+    body = chat(
+        client,
+        "ต้องการร้องเรียนเรื่องคุณภาพไฟฟ้า; subject: ไฟตก; detail: ไฟตกบ่อยจนอุปกรณ์เสียหาย; contactName: นายอาร์ม; contactPhone: 0626509444; location: บ้านพรุ",
+    )
+    action_id = body["pendingAction"]["pendingActionId"]
+    submitted = client.post(f"/api/v1/actions/{action_id}/confirm", json={}).json()["toolResult"]["data"]
+    voc_id, tracking_key = submitted["vocId"], submitted["trackingKey"]
+
+    for message in (f"{voc_id}\n\n{tracking_key}", f"{voc_id} {tracking_key}"):
+        result = chat(client, message)
+        assert [item["action"] for item in result["toolResults"]] == ["get_case"]
+        assert voc_id in result["message"]
+
+    # ให้มาไม่ครบต้องขอเพิ่ม ไม่ใช่เดาค่าเอง
+    partial = chat(client, voc_id)
+    assert partial["toolResults"] == []
+
+
+def test_submitted_case_survives_reset_and_new_conversation(client: TestClient) -> None:
+    """ผู้ใช้กลับมาติดตามในแชตใหม่ภายหลังได้ แม้เดโมจะถูกรีเซ็ตไปแล้ว"""
+    body = chat(
+        client,
+        "ต้องการร้องเรียนเรื่องคุณภาพไฟฟ้า; subject: ไฟตก; detail: ไฟตกบ่อยจนอุปกรณ์เสียหาย; contactName: นายอาร์ม; contactPhone: 0626509444; location: บ้านพรุ",
+    )
+    action_id = body["pendingAction"]["pendingActionId"]
+    submitted = client.post(f"/api/v1/actions/{action_id}/confirm", json={}).json()["toolResult"]["data"]
+
+    assert client.post("/api/v1/reset", json={}).status_code == 200
+
+    # แชตใหม่ (ไม่ส่ง conversationId เดิม) ต้องยังติดตามเคสเดิมได้
+    tracked = chat(client, f"ติดตามเรื่อง; เลขเรื่อง: {submitted['vocId']}; คีย์ติดตาม: {submitted['trackingKey']}")
+    assert [item["action"] for item in tracked["toolResults"]] == ["get_case"]
+    assert submitted["vocId"] in tracked["message"]

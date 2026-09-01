@@ -127,3 +127,60 @@ def test_workflow_store_is_scoped_by_conversation_and_resettable() -> None:
 
     store.clear()
     assert store.get(conversation_id) is None
+
+
+def test_spoken_answers_are_cleaned_without_losing_real_values() -> None:
+    """ผู้ใช้เสียงตอบเป็นประโยคเต็ม ระบบต้องเก็บเฉพาะสาระ แต่ห้ามตัดข้อมูลจริงทิ้ง"""
+    from app.agent.voc_intake import VocStep, _spoken_value
+
+    # ตัดคำทวนชื่อฟิลด์และคำลงท้ายออก
+    assert _spoken_value("ชื่อผู้ร้องเรียน นายอาร์ม ครับ", VocStep.CONTACT_NAME) == "นายอาร์ม"
+    assert _spoken_value("เบอร์โทรศัพท์ 0626509444 ครับ", VocStep.CONTACT_PHONE) == "0626509444"
+    assert _spoken_value("หมู่บ้านศุภาลัย ครับ", VocStep.LOCATION) == "หมู่บ้านศุภาลัย"
+    assert _spoken_value("088-123-4567", VocStep.CONTACT_PHONE) == "0881234567"
+
+    # ค่าจริงที่บังเอิญขึ้นต้นคล้ายคำนำหน้าต้องไม่ถูกตัด
+    assert _spoken_value("ชื่นกมล ดีงาม", VocStep.CONTACT_NAME) == "ชื่นกมล ดีงาม"
+    assert _spoken_value("ที่ว่าการอำเภอเมือง", VocStep.LOCATION) == "ที่ว่าการอำเภอเมือง"
+
+    # ข้อความอิสระต้องคงเดิม ไม่ตีความเกินจริง
+    assert _spoken_value("ไฟตกบ่อยครับที่บ้าน", VocStep.SUBJECT) == "ไฟตกบ่อยครับที่บ้าน"
+
+
+def test_opening_sentence_supplies_both_category_and_subject() -> None:
+    """ประโยคเปิดที่บอกทั้งประเภทและเรื่อง ต้องไม่ถามหัวข้อซ้ำอีก"""
+    from app.agent.voc_intake import _subject_from_opening
+
+    categories = CATEGORIES
+    assert _subject_from_opening("ร้องเรียนการบริการของเจ้าหน้าที่หน่อยครับ", categories) == "บริการของเจ้าหน้าที่"
+    assert _subject_from_opening("อยากร้องเรียนเรื่องไฟตกบ่อยที่บ้านครับ", categories) == "ไฟตกบ่อยที่บ้าน"
+
+    # บอกแค่ประเภทต้องคืน None เพื่อให้ระบบถามหัวข้อตามปกติ ไม่เดาแทนผู้ใช้
+    for opening in ("ร้องเรียนบริการครับ", "ขอร้องเรียนครับ", "แจ้งปัญหาด้านบริการ", "ชื่นชม"):
+        assert _subject_from_opening(opening, categories) is None
+
+
+def test_rejected_case_reopens_form_for_the_wrong_field_only() -> None:
+    """ปฏิเสธเพราะกรอกผิด ต้องแก้เฉพาะฟิลด์สุดท้าย ไม่ต้องกรอกใหม่ทั้งหมด"""
+    from app.agent.voc_intake import VocIntakeState, VocStep
+    from app.contracts import VocCategory
+
+    ready = VocIntakeState(
+        category=VocCategory.SERVICE,
+        subject="บริการล่าช้า",
+        detail="รอนานมาก",
+        contact_name="นายอาร์ม",
+        contact_phone="0626509444",
+        location="พิมพ์ผิด",
+        step=VocStep.READY,
+    )
+    reopened = ready.reopen()
+
+    assert reopened.location is None
+    assert reopened.step is VocStep.LOCATION
+    assert not reopened.ready
+    assert (reopened.subject, reopened.contact_name, reopened.contact_phone) == (
+        "บริการล่าช้า",
+        "นายอาร์ม",
+        "0626509444",
+    )

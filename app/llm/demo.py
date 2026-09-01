@@ -26,6 +26,9 @@ from app.llm.models import (
 _ACCOUNT_REF_PATTERN = re.compile(r"\bPEA-\d{4}\b", re.IGNORECASE)
 _AREA_CODE_PATTERN = re.compile(r"\b[A-Z]{3}-\d{2}\b", re.IGNORECASE)
 _AMOUNT_PATTERN = re.compile(r"(?:฿|thb\s*)(\d+(?:\.\d{1,2})?)\b|\b(\d+(?:\.\d{1,2})?)\s*(?:baht|thb|บาท)\b", re.IGNORECASE)
+# ผู้ใช้มักคัดลอกเลขเรื่องและคีย์ติดตามมาวางตรง ๆ โดยไม่ใส่ label
+_BARE_VOC_ID_PATTERN = re.compile(r"\bSIM-CASE-\d{4,8}\b", re.IGNORECASE)
+_BARE_TRACKING_KEY_PATTERN = re.compile(r"[A-Za-z0-9_-]{6,64}")
 _DEMO_ACCOUNT_REFS = frozenset({"PEA-1001", "PEA-1002", "PEA-1003"})
 _DEMO_AREA_CODES = frozenset({"BKK-01", "CNX-02", "HKT-03"})
 
@@ -61,8 +64,8 @@ class DemoLLMAdapter:
         detail = _labelled_value(message, "detail", 2000)
         contact_name = _labelled_value(message, "contactName", 100)
         contact_phone = _labelled_value(message, "contactPhone", 32)
-        voc_id = _labelled_value(message, "vocId", 64)
-        tracking_key = _labelled_value(message, "trackingKey", 64)
+        voc_id = _labelled_value(message, "vocId", 64) or _bare_voc_id(message)
+        tracking_key = _labelled_value(message, "trackingKey", 64) or _bare_tracking_key(message, voc_id)
         amount = _requested_amount(message)
         payment_method = _payment_method(message)
         planned: list[tuple[int, ToolName, ToolAction, dict[str, Any]]] = []
@@ -383,6 +386,9 @@ def _tracking_requested(text: str, *, wants_categories: bool, has_details: bool)
     """
     if wants_categories:
         return False
+    # การวางเลขเรื่องมาตรง ๆ เป็นเจตนาติดตามอยู่แล้ว แม้ไม่มีคำว่า "ติดตาม"
+    if _BARE_VOC_ID_PATTERN.search(text):
+        return True
     return any(term in text for term in (
         "track", "tracking", "ติดตาม", "ติดตามเรื่อง", "ตรวจสอบเรื่อง",
     )) or bool(re.search(r"\b(?:vocid|trackingkey)\b", text))
@@ -552,6 +558,29 @@ def _labelled_value(message: str, label: str, maximum: int) -> str | None:
         return None
     value = " ".join(match.group(1).split())
     return value if 0 < len(value) <= maximum else None
+
+
+def _bare_voc_id(message: str) -> str | None:
+    """รับเลขเรื่องที่ผู้ใช้วางมาโดยไม่มี label เพราะรูปแบบ ``SIM-CASE-000001`` ชัดเจนพอ"""
+    match = _BARE_VOC_ID_PATTERN.search(message)
+    return match.group(0).upper() if match else None
+
+
+def _bare_tracking_key(message: str, voc_id: str | None) -> str | None:
+    """รับคีย์ติดตามที่วางมาโดยไม่มี label เมื่อพบเลขเรื่องคู่กันในข้อความเดียว
+
+    ยอมรับเฉพาะโทเคนที่หน้าตาเหมือนคีย์จาก ``secrets.token_urlsafe`` เท่านั้น
+    เพื่อไม่ให้คำภาษาไทยหรือคำสั่งทั่วไปถูกตีความเป็นคีย์โดยไม่ตั้งใจ
+    """
+    if not voc_id:
+        return None
+    remainder = message.replace(voc_id, " ").replace(voc_id.lower(), " ")
+    candidates = [
+        token
+        for token in re.split(r"[\s;]+", remainder)
+        if _BARE_TRACKING_KEY_PATTERN.fullmatch(token)
+    ]
+    return candidates[0] if len(candidates) == 1 else None
 
 
 def _requested_amount(message: str) -> str | None:
