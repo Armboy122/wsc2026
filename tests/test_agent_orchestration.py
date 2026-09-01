@@ -463,3 +463,56 @@ async def test_grounded_multi_applicant_answer_asks_useful_clarification() -> No
     assert "บุคคลธรรมดาหรือนิติบุคคล" in response.message
     assert response.citations == (citation,)
     assert "หนังสือรับรองบริษัท" not in response.message
+
+
+@pytest.mark.asyncio
+async def test_followup_after_outage_check_does_not_ask_for_the_ca_again() -> None:
+    """Regression: คำถามต่อเนื่องหลังตรวจเหตุสำเร็จเคยถูกตอบด้วยแม่แบบขอ CA ซ้ำ
+
+    ``_safe_direct_message`` เคยทิ้งข้อความของโมเดลทุกกรณีที่ไม่มี ``directResponse``
+    ผู้ใช้ที่เพิ่งให้หมายเลขผู้ใช้ไฟจึงถูกถามซ้ำทั้งที่ระบบมีคำตอบอยู่แล้ว
+    """
+    from app.llm import LLMResponse, ScriptedLLMAdapter
+
+    followup_text = "ใช่ครับ ขณะนี้เจ้าหน้าที่กำลังดำเนินการแก้ไขเหตุไฟฟ้าขัดข้องอยู่ครับ"
+    adapter = ScriptedLLMAdapter(
+        [
+            LLMResponse(
+                tool_calls=(
+                    ToolCall(
+                        call_id=uuid4(),
+                        name=ToolName.OMS,
+                        action=ToolAction.OMS_GET_OUTAGE_BY_CA,
+                        input={"caNumber": "100000000003"},
+                    ),
+                )
+            ),
+            LLMResponse(text="ตรวจสอบเรียบร้อยแล้วครับ"),
+            LLMResponse(text=followup_text),
+        ]
+    )
+    agent = MainAgent(LLMClient(adapter), _registry())
+
+    first = await agent.handle_chat(ChatRequest(message="ไฟดับ ตรวจสอบ ca 100000000003"))
+    second = await agent.handle_chat(
+        ChatRequest(
+            message="งั้นเจ้าหน้าที่กำลังดำเนินการใช่ไหม",
+            conversation_id=first.conversation_id,
+        )
+    )
+
+    assert second.message == followup_text
+    assert "กรุณาแจ้งหมายเลขผู้ใช้ไฟ" not in second.message
+
+
+@pytest.mark.asyncio
+async def test_free_text_without_grounded_outage_still_uses_safe_template() -> None:
+    """ไม่มีผล OMS ในบทสนทนา ต้องไม่ปล่อยข้อความอิสระของโมเดลออกไป"""
+    from app.llm import LLMResponse, ScriptedLLMAdapter
+
+    adapter = ScriptedLLMAdapter([LLMResponse(text="ไฟจะมาภายใน 10 นาทีครับ")])
+    agent = MainAgent(LLMClient(adapter), _registry())
+
+    response = await agent.handle_chat(ChatRequest(message="อีกนานไหมกว่าไฟจะมา"))
+
+    assert "10 นาที" not in response.message

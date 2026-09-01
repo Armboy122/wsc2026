@@ -14,9 +14,8 @@ from app.core.middleware import RequestIdMiddleware, add_cors_middleware
 
 logger = get_logger(__name__)
 
-REQUIRED_TOOLS: frozenset[ToolName] = frozenset(
-    {ToolName.KNOWLEDGE, ToolName.OMS}
-)
+# Knowledge เป็น built-in ที่ต้องมีเสมอ ส่วนเครื่องมือปฏิบัติการมาจากปลั๊กอินที่เปิดใช้งาน
+REQUIRED_TOOLS: frozenset[ToolName] = frozenset({ToolName.KNOWLEDGE})
 
 
 def _resolve_tool_names(tool_registry: Any) -> set[ToolName]:
@@ -31,11 +30,12 @@ def _resolve_tool_names(tool_registry: Any) -> set[ToolName]:
 
 
 def validate_tool_registry(tool_registry: Any) -> None:
-    """ตรวจสอบว่า Main Agent ลงทะเบียนเครื่องมือตามสัญญาครบสองตัว ตัวละหนึ่งครั้ง"""
+    """ตรวจสอบว่าเครื่องมือ built-in ที่จำเป็นถูกลงทะเบียนครบก่อนเปิดให้บริการ"""
     names = _resolve_tool_names(tool_registry)
-    if names != set(REQUIRED_TOOLS):
+    missing = set(REQUIRED_TOOLS) - names
+    if missing:
         raise RuntimeError(
-            f"registry เครื่องมือต้องมีรายการต่อไปนี้ครบถ้วนพอดี {sorted(n.value for n in REQUIRED_TOOLS)}, "
+            f"registry เครื่องมือขาดรายการที่จำเป็น {sorted(n.value for n in missing)}, "
             f"แต่ได้รับ {sorted(getattr(n, 'value', str(n)) for n in names)}"
         )
 

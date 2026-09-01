@@ -203,9 +203,14 @@ def test_reset_clears_trace_and_pending_state(client: TestClient) -> None:
 
 
 def test_llm_catalogue_never_advertises_internal_submit_actions() -> None:
-    from app.agent.main_agent import _TOOL_CATALOGUE
+    """แค็ตตาล็อกที่ compile จาก manifest จริงต้องไม่เปิด submit action ให้ LLM"""
+    from app.agent.registry import BUILT_IN_CATALOGUE
+    from app.core.config import load_settings
+    from app.plugins import load_plugins
 
-    advertised = {action for tool in _TOOL_CATALOGUE for action in tool.actions}
+    plugins = load_plugins(load_settings())
+    catalogue = BUILT_IN_CATALOGUE + tuple(plugin.tool_definition for plugin in plugins)
+    advertised = {action for tool in catalogue for action in tool.actions}
     assert advertised == {
         "search",
         "get_outage_by_ca",

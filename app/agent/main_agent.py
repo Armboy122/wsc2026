@@ -63,10 +63,8 @@ _DORMANT_VOC_DIRECT_RESPONSES = frozenset({
     DirectResponseKind.VOC_LOCATION,
     DirectResponseKind.VOC_TRACKING_INPUTS,
 })
-_TOOL_CATALOGUE = (
-    ToolDefinition(ToolName.KNOWLEDGE, "ตอบความรู้ PEA จากข้อความฉบับเต็มของไฟล์ที่เลือก", ("search",)),
-    ToolDefinition(ToolName.OMS, "ตรวจเหตุไฟฟ้าขัดข้องด้วยหมายเลขผู้ใช้ไฟ 12 หลัก หรือเตรียมแจ้งเหตุเมื่อทราบหรือไม่ทราบหมายเลขผู้ใช้ไฟ", ("get_outage_by_ca", "prepare_outage_with_ca", "prepare_anonymous_outage")),
-)
+# แค็ตตาล็อกที่ LLM เห็นมาจาก registry (Knowledge built-in + ปลั๊กอินที่โหลดได้)
+# เพิ่มเครื่องมือใหม่จึงไม่ต้องแก้ Main Agent อีก
 # ผู้ใช้ต้องตรวจทานสิ่งที่ตนเองกรอกก่อนยืนยัน จึงเปิดเผยเฉพาะฟิลด์ที่ผู้ใช้เป็นผู้ให้มาเอง
 # ส่วนคีย์ภายในระบบ เช่น idempotencyKey ยังคงถูกปกปิดเสมอ
 _SAFE_PREVIEW_FIELDS = frozenset({"category", "contactChannel", "caNumber", "description", "contactName", "contactPhone", "location", "subject", "detail", "locationNote"})
@@ -106,6 +104,8 @@ _DIRECT_RESPONSE_MESSAGES = {
     ),
 }
 _EXACT_GREETINGS = frozenset({"hi", "hello", "hey"})
+# คำตอบต่อเนื่องเป็นการยืนยันสั้น ๆ ข้อความยาวผิดปกติแปลว่าโมเดลเริ่มเล่าเรื่องเอง
+_MAX_FOLLOWUP_LENGTH = 500
 _OUTPUT_POLICY_PATTERNS = (
     re.compile(r"<\s*/?\s*(?:analysis|thinking|thought|reasoning|scratchpad|system)\b|<\|(?:analysis|thinking|reasoning|system)\|>", re.IGNORECASE),
     re.compile(r"\b(?:chain[- ]of[- ]thought|cot|scratchpad|system\s+prompt|developer\s+(?:message|instructions)|internal\s+(?:reasoning|instructions|prompt)|hidden\s+(?:reasoning|instructions))\b", re.IGNORECASE),
@@ -137,12 +137,16 @@ class MainAgent:
     ) -> None:
         self._llm = llm_client
         self._tools = tool_registry
+        # แค็ตตาล็อกมาจาก registry เสมอ เพิ่มปลั๊กอินใหม่จึงไม่ต้องแก้ Main Agent
+        self._tool_catalogue = tool_registry.llm_catalogue
         self._conversations = conversations or ConversationStore()
         self._pending_actions = pending_actions or PendingActionStore()
         self._traces = traces or TraceStore()
         self._call_inputs: dict[UUID, dict[str, Any]] = {}
         self._confirmation_tasks: dict[UUID, asyncio.Task[ActionDecisionResponse]] = {}
         self._knowledge_contexts: dict[UUID, KnowledgeConversationContext] = {}
+        # บทสนทนาที่มีผล OMS สำเร็จแล้ว ใช้อนุญาตคำตอบต่อเนื่องที่อ้างอิงผลนั้นได้
+        self._oms_grounded_conversations: set[UUID] = set()
         self._voc_workflows = voc_workflows or VocWorkflowStore()
         self._voc_intake = VocIntakeCoordinator()
         self._voc_categories: tuple[VocCategoryItem, ...] | None = None
@@ -163,12 +167,12 @@ class MainAgent:
         duplicate_knowledge_call = False
 
         for _ in range(_MAX_TOOL_STEPS):
-            self._traces.append(trace_id, TraceEventKind.LLM_REQUESTED, {"messageCount": len(history), "toolCount": len(_TOOL_CATALOGUE)})
+            self._traces.append(trace_id, TraceEventKind.LLM_REQUESTED, {"messageCount": len(history), "toolCount": len(self._tool_catalogue)})
             try:
                 response = await self._llm.complete(
                     LLMRequest(
                         history,
-                        _TOOL_CATALOGUE,
+                        self._tool_catalogue,
                         trace_id,
                         self._knowledge_contexts.get(conversation_id),
                     )
@@ -226,7 +230,12 @@ class MainAgent:
         pending = self._create_pending_from_results(conversation_id, trace_id, all_results)
         citations = tuple(citation for result in all_results if result.status is ToolResultStatus.SUCCESS for citation in result.citations)
         if not all_results and direct_completion_text is not None:
-            final_text = _safe_direct_message(request.message, direct_completion_text, direct_response=direct_response_kind)
+            final_text = _safe_direct_message(
+                request.message,
+                direct_completion_text,
+                direct_response=direct_response_kind,
+                allow_grounded_followup=conversation_id in self._oms_grounded_conversations,
+            )
             if final_text == _FINAL_ONLY_MESSAGE:
                 self._traces.append(trace_id, TraceEventKind.ERROR, {"stage": "output_policy", "policy": "final_only"})
         message = _authoritative_message(final_text, all_results, pending, user_message=request.message)
@@ -244,6 +253,14 @@ class MainAgent:
             self._knowledge_contexts.pop(conversation_id, None)
         else:
             self._knowledge_contexts[conversation_id] = knowledge_context
+        # ผลอ่านของ OMS ที่สำเร็จเป็นหลักฐานให้คำถามต่อเนื่องรอบถัดไปอ้างอิงได้
+        if any(
+            result.name is ToolName.OMS
+            and result.action is ToolAction.OMS_GET_OUTAGE_BY_CA
+            and result.status is ToolResultStatus.SUCCESS
+            for result in all_results
+        ):
+            self._oms_grounded_conversations.add(conversation_id)
         self._conversations.append(conversation_id, LLMMessage("assistant", message))
         return ChatResponse(conversation_id=conversation_id, trace_id=trace_id, message=message, citations=citations, pending_action=pending, tool_results=tuple(all_results))
 
@@ -417,6 +434,7 @@ class MainAgent:
         self._traces.clear()
         self._call_inputs.clear()
         self._knowledge_contexts.clear()
+        self._oms_grounded_conversations.clear()
         self._voc_workflows.clear()
         self._rejectable_voc_states.clear()
         self._voc_categories = None
@@ -515,14 +533,24 @@ def _safe_direct_message(
     completion_text: str,
     *,
     direct_response: DirectResponseKind | None = None,
+    allow_grounded_followup: bool = False,
 ) -> str:
-    """สร้างข้อความตรงจากชนิดที่กำหนดไว้ โดยไม่เชื่อถือข้อความอิสระจากโมเดล"""
+    """สร้างข้อความตรงจากชนิดที่กำหนดไว้ โดยไม่เชื่อถือข้อความอิสระจากโมเดล
+
+    ข้อยกเว้นเดียวคือคำถามต่อเนื่องหลังผล OMS ที่สำเร็จในบทสนทนาเดียวกัน เช่น
+    "งั้นเจ้าหน้าที่กำลังดำเนินการใช่ไหม" ซึ่งไม่มีแม่แบบใดตอบได้ตรง การบังคับใช้
+    แม่แบบจึงทำให้ผู้ใช้ถูกถามหมายเลขผู้ใช้ไฟซ้ำทั้งที่เพิ่งให้ไป รอบนี้จึงยอมใช้ข้อความ
+    ของโมเดล เพราะข้อเท็จจริงที่อ้างถึงมาจาก typed OMS result ที่อยู่ใน history แล้ว
+    """
     if _requires_final_only_output(completion_text):
         return _FINAL_ONLY_MESSAGE
     if user_message.strip().casefold() in _EXACT_GREETINGS:
         return _GREETING_MESSAGE
     if isinstance(direct_response, DirectResponseKind):
         return _DIRECT_RESPONSE_MESSAGES[direct_response]
+    followup = " ".join(completion_text.split())
+    if allow_grounded_followup and 0 < len(followup) <= _MAX_FOLLOWUP_LENGTH:
+        return followup
     return _CAPABILITY_MESSAGE
 
 

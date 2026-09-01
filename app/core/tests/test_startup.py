@@ -54,19 +54,22 @@ def test_validate_tool_registry_accepts_iterable_names() -> None:
     validate_tool_registry(_ListNamesRegistry())
 
 
-def test_validate_tool_registry_rejects_missing_tool() -> None:
-    class IncompleteRegistry:
-        names = frozenset({ToolName.KNOWLEDGE, ToolName.SABUY, ToolName.VOC})
+def test_validate_tool_registry_rejects_missing_built_in_tool() -> None:
+    """Knowledge เป็น built-in ที่ขาดไม่ได้ แม้จะมีเครื่องมืออื่นลงทะเบียนอยู่"""
+    class WithoutKnowledgeRegistry:
+        names = frozenset({ToolName.OMS})
 
     with pytest.raises(RuntimeError):
-        validate_tool_registry(IncompleteRegistry())
+        validate_tool_registry(WithoutKnowledgeRegistry())
 
 
-def test_validate_tool_registry_rejects_extra_tool() -> None:
-    extra = "unknown_tool"
+def test_validate_tool_registry_accepts_plugin_supplied_tools() -> None:
+    """เครื่องมือปฏิบัติการมาจากปลั๊กอิน จึงเพิ่ม/ปิดได้โดยไม่ต้องแก้ startup"""
+    class WithPluginRegistry:
+        names = frozenset({*REQUIRED_TOOLS, ToolName.OMS})
 
-    class ExtraRegistry:
-        names = frozenset({*REQUIRED_TOOLS, extra})
+    class KnowledgeOnlyRegistry:
+        names = frozenset(REQUIRED_TOOLS)
 
-    with pytest.raises(RuntimeError):
-        validate_tool_registry(ExtraRegistry())
+    validate_tool_registry(WithPluginRegistry())
+    validate_tool_registry(KnowledgeOnlyRegistry())

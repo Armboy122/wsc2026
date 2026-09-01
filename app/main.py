@@ -26,8 +26,8 @@ from app.core.di import adapter_service, agent_service
 from app.core.errors import ConflictException, NotFoundException, platform_exception_handler
 from app.core.startup import create_platform_app, startup_event
 from app.llm import JudgeLLMClient, LLMClient, LLMProviderConfig, create_llm_adapter
+from app.plugins import load_plugins
 from app.tools.knowledge_tool import KnowledgeTool
-from app.tools.oms_tool import OmsTool
 
 
 class _KnowledgeReadiness:
@@ -84,11 +84,11 @@ knowledge_backend = FullDocumentKnowledgeBackend(
 llm_adapter = create_llm_adapter(_provider_config(settings.main_llm))
 judge_llm_adapter = create_llm_adapter(_provider_config(settings.judge_llm))
 judge_llm_client = JudgeLLMClient(judge_llm_adapter)
+# Knowledge เป็น built-in ส่วนเครื่องมือปฏิบัติการมาจาก manifest ของปลั๊กอินตอน startup
+plugins = load_plugins(settings)
 tool_registry = ToolRegistry(
-    [
-        KnowledgeTool(knowledge_backend),
-        OmsTool(settings.oms_base_url, settings.oms_timeout_seconds, api_key=settings.oms_api_key),
-    ]
+    [KnowledgeTool(knowledge_backend), *(plugin.tool for plugin in plugins)],
+    catalogue=tuple(plugin.tool_definition for plugin in plugins),
 )
 main_agent = MainAgent(LLMClient(llm_adapter), tool_registry)
 

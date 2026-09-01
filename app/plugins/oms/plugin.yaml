@@ -1,0 +1,65 @@
+apiVersion: pea.one/v1
+kind: Plugin
+
+metadata:
+  id: oms_tool
+  name: OMS Outage
+  enabled: true
+  category: operational
+  description: >
+    ตรวจเหตุไฟฟ้าขัดข้องด้วยหมายเลขผู้ใช้ไฟ 12 หลัก
+    หรือเตรียมแจ้งเหตุเมื่อทราบหรือไม่ทราบหมายเลขผู้ใช้ไฟ
+
+runtime:
+  factory: app.plugins.oms.factory:create_plugin
+
+configuration:
+  baseUrlEnv: OMS_BASE_URL
+  timeoutEnv: OMS_TIMEOUT_SECONDS
+  apiKeyEnv: OMS_API_KEY
+
+operations:
+  - action: get_outage_by_ca
+    description: >
+      ตรวจสอบเหตุไฟฟ้าขัดข้องจากหมายเลขผู้ใช้ไฟ 12 หลัก
+      โดย OMS จะ resolve Meter → Transformer → Feeder
+    exposure: llm
+    mode: read
+    inputContract: OmsGetOutageByCaInput
+    outputContract: OmsGetOutageByCaOutput
+
+  - action: prepare_outage_with_ca
+    description: >
+      เตรียมแจ้งเหตุเมื่อทราบหมายเลขผู้ใช้ไฟ
+      แต่ยังไม่ส่งจนกว่าผู้ใช้จะยืนยันอย่างชัดเจน
+    exposure: llm
+    mode: prepare
+    submitAction: submit_outage_with_ca
+    inputContract: OmsPrepareOutageWithCaInput
+    outputContract: OmsPrepareOutageOutput
+
+  - action: submit_outage_with_ca
+    description: >
+      ส่งรายการที่ผ่านการยืนยันจากผู้ใช้แล้วไปยัง OMS
+    exposure: internal
+    mode: submit
+    inputContract: SubmitPreparedActionInput
+    outputContract: OmsCreateOutageWithCaOutput
+
+  - action: prepare_anonymous_outage
+    description: >
+      เตรียมแจ้งเหตุเมื่อไม่ทราบหมายเลขผู้ใช้ไฟ
+      โดยใช้อาการที่เกิดขึ้น สถานที่ และเบอร์ติดต่อกลับ
+    exposure: llm
+    mode: prepare
+    submitAction: submit_anonymous_outage
+    inputContract: OmsPrepareAnonymousOutageInput
+    outputContract: OmsPrepareOutageOutput
+
+  - action: submit_anonymous_outage
+    description: >
+      ส่งรายการแจ้งเหตุแบบไม่ทราบหมายเลขผู้ใช้ไฟหลังผู้ใช้ยืนยัน
+    exposure: internal
+    mode: submit
+    inputContract: SubmitPreparedActionInput
+    outputContract: OmsCreateAnonymousOutageOutput

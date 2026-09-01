@@ -2,12 +2,54 @@
 
 ## สรุปการตัดสินใจ
 
-สร้างโพรเซส FastAPI หนึ่งโพรเซสที่มี **Main Agent** เพียงหนึ่งตัว และโมดูลเครื่องมือระดับบนสุดที่เรียกใช้ได้สองโมดูลเท่านั้น:
+สร้างโพรเซส FastAPI หนึ่งโพรเซสที่มี **Main Agent** เพียงหนึ่งตัว โดยแบ่งเครื่องมือเป็นสองชั้น:
 
-1. `knowledge_tool`
-2. `oms_tool`
+1. `knowledge_tool` — **built-in capability** ประกอบใน `app/main.py` โดยตรง
+2. `oms_tool` — **external plugin** ที่ค้นพบจาก manifest ตอน startup
 
 Sabuy และ VOC คงเฉพาะ implementation/contracts/isolated tests แบบ dormant และไม่ลงทะเบียนใน runtime catalogue
+
+### ระบบปลั๊กอิน (Plugin Architecture v1)
+
+เครื่องมือปฏิบัติการทุกตัวเป็นปลั๊กอิน ทำให้เพิ่ม REST backend ใหม่ได้โดยไม่ต้องแก้ Main Agent:
+
+```text
+app/plugins/
+  manifest.py            สัญญาของ manifest (ตรวจกับ Pydantic contracts จริง)
+  loader.py              scan → validate → import factory → สร้าง Tool → compile catalogue
+  oms/
+    plugin.yaml          metadata + operations + ชื่อ env var ของ configuration
+    factory.py           สร้าง OmsTool จาก settings ที่มีอยู่แล้ว
+```
+
+การแบ่งความรับผิดชอบที่ต้องรักษาไว้:
+
+| ส่วน | หน้าที่ | ไม่ใช่หน้าที่ |
+| --- | --- | --- |
+| `plugin.yaml` | discovery, metadata, description, ประกาศ operation, ชี้ชื่อ env var | ยิง HTTP, ถือ schema, เก็บ secret |
+| `factory.py` | ประกอบเครื่องมือหนึ่งตัวจาก settings | business logic |
+| Python tool (`app/tools/oms_tool.py`) | HTTP request, authentication, payload/error mapping, prepare-submit | — |
+| `app/contracts.py` (Pydantic) | **source of truth เดียว** ของ input/output schema | — |
+
+manifest อ้าง schema ด้วย **ชื่อคลาส** (เช่น `inputContract: OmsGetOutageByCaInput`) แล้ว `manifest.py`
+ตรวจกับ `INPUT_MODELS` / `OUTPUT_MODELS` / `PREPARE_TO_SUBMIT` จริง หากไม่ตรงจะ fail closed ตอน startup
+จึงไม่มี JSON Schema ชุดที่สองใน YAML ให้ drift
+
+LLM ไม่เคยเห็น YAML ดิบ: loader อ่าน manifest ครั้งเดียวตอน startup แล้ว compile เป็น
+`ToolDefinition` catalogue สั้น ๆ ซึ่ง **ตัด operation ที่ `exposure: internal` ออกทั้งหมด**
+ทำให้ `submit_*` ไม่ถูกโฆษณาให้โมเดลเลือกเอง และ write state machine
+(`prepare_* → explicit confirm endpoint → submit_*`) ยังบังคับใช้เหมือนเดิม
+
+ความปลอดภัยของ loader: manifest เป็น trusted config ที่ commit ใน repo เท่านั้น,
+`runtime.factory` ต้องอยู่ใต้ `app.plugins.` เท่านั้น, ไม่มี `eval`/`exec`,
+ไม่มีการดาวน์โหลดโค้ด และ manifest เก็บเพียง *ชื่อ* env var ไม่เก็บค่า secret
+
+**เพิ่มปลั๊กอินตัวถัดไป** (เช่น VOC) ทำ 4 ขั้น โดยไม่ต้องแก้ Main Agent, registry หรือ `main.py`:
+
+1. เพิ่ม action/contract ใน `app/contracts.py` (ถ้ายังไม่มี)
+2. เขียน Python tool ที่รับผิดชอบ HTTP/error mapping
+3. สร้าง `app/plugins/<id>/plugin.yaml` + `factory.py`
+4. ตั้ง `enabled: true` แล้ว startup จะ discover และ register ให้เอง
 
 นี่คือการออกแบบโมดูลที่มีขนาดเล็กแต่มีความลึกโดยตั้งใจ: ตัวจัดการ HTTP ทำหน้าที่เพียงตรวจสอบและแปลงคำขอ; Main Agent รับผิดชอบการประสานงาน นโยบาย และคำตอบสำหรับผู้ใช้ ส่วนโมดูลเครื่องมือรับผิดชอบความหมายของข้อมูลที่เกี่ยวข้องและรายละเอียดของระบบหลังบ้านจำลอง งานนี้ไม่ครอบคลุม LangGraph, LangChain, คิว, ไมโครเซอร์วิส, ฐานข้อมูลเวกเตอร์ที่สร้างเอง หรือการผสานระบบ PEA จริง
 
@@ -24,8 +66,12 @@ FastAPI routes (/api/v1/*, /health)
         v
 Main Agent  <---->  LLMAdapter (judge-provided LLM implementation)
     |  |
-    |  +--------> oms_tool ------> httpx → External OMS REST (gateway จริงเป็น source of truth)
+    |  +--------> ToolRegistry (Knowledge built-in + ปลั๊กอินที่ loader ลงทะเบียน)
+    |               |
+    |               +--> oms_tool (plugin: app/plugins/oms) -> httpx → External OMS REST
     +-----------> knowledge_tool -> Document Router -> Full selected DOCX text -> Gemini Long Context
+
+Plugin loader (startup เท่านั้น): app/plugins/*/plugin.yaml -> validate -> factory -> Tool + catalogue
 
 Sabuy/VOC implementation + contracts + isolated tests: dormant, not registered
         |
@@ -58,7 +104,7 @@ WebSocket /ws/live  -->  GeminiLiveSession (Gemini Live API, one per socket)
 
 - รับข้อความผู้ใช้และแยก conversation history, workflow state และผลลัพธ์จาก tool ออกจากกัน;
 - ใช้ agent loop แบบ bounded โดยค่าเริ่มต้นไม่เกิน 12 agent steps/12 tool calls ต่อหนึ่งข้อความ และหยุดทันทีเมื่อพบ Knowledge call ซ้ำ;
-- เรียกเฉพาะ tool ระดับบนสุดที่เปิดใช้งานใน runtime catalogue ซึ่งปัจจุบันคือ Knowledge และ OMS; Sabuy/VOC ไม่ลงทะเบียน;
+- เรียกเฉพาะ tool ที่อยู่ใน active catalogue ซึ่งรับมาจาก `ToolRegistry.llm_catalogue` (Knowledge built-in + ปลั๊กอินที่เปิดใช้งาน) ไม่ได้ hardcode ไว้ใน Main Agent; ปัจจุบันคือ Knowledge และ OMS ส่วน Sabuy/VOC ไม่ลงทะเบียน;
 - ถือว่าผลลัพธ์จาก tool เป็นข้อเท็จจริงที่มีอำนาจเหนือข้อความจากโมเดล และไม่รวม no-evidence เข้ากับคำตอบที่มี citation แล้ว;
 - บังคับ OMS flow แบบมี CA ให้ GET ก่อน prepare เสมอ และใช้ anonymous prepare เมื่อไม่มี CA;
 - สร้าง pending action หลังจากได้รับผลลัพธ์ `prepare_*` ที่สำเร็จ;
@@ -171,7 +217,7 @@ prepare_* -> pending_confirmation -> confirm endpoint -> submit_* -> submitted |
 | หัวหน้าทีม/การผสานระบบ | `ARCHITECTURE.md`, `CONTRACTS.md`, `app/contracts.py`, `app/main.py`, `tests/test_contracts.py` | เป็นเจ้าของ frozen contract และการเชื่อม route; อนุมัติการเปลี่ยนแปลง contract ทั้งหมด |
 | ผู้ปฏิบัติงาน A — เอเจนต์ | `app/agent/`, `app/llm/` | import เฉพาะ `app.contracts`; เรียกเฉพาะ interface `ToolRegistry` |
 | ผู้ปฏิบัติงาน B — ฐานความรู้ | `app/tools/knowledge_tool.py`, `app/backends/full_document_knowledge.py`, `knowledge/` | ใช้ document-level routing และ full-file context เท่านั้น; ห้ามเพิ่ม vector DB, chunk retrieval หรือเปลี่ยน public contract |
-| ผู้ปฏิบัติงาน C — งานปฏิบัติการ | `app/tools/oms_tool.py` และ external OMS connector; ไฟล์ VOC คง dormant | ใช้ action และ model ที่ตรึงไว้ใน `app.contracts` |
+| ผู้ปฏิบัติงาน C — งานปฏิบัติการ | `app/tools/oms_tool.py`, `app/plugins/` (loader + manifest + ปลั๊กอินแต่ละตัว); ไฟล์ VOC คง dormant | ใช้ action และ model ที่ตรึงไว้ใน `app.contracts`; manifest ห้าม bypass write state machine |
 | ผู้ปฏิบัติงาน Voice — โหมดเสียง | `app/live/`, `app/api/live.py`, `web/gemini-live-client.js`, `web/media-handler.js`, `web/pcm-processor.js` | import เฉพาะ `app.contracts` + `app.live.models`; เรียก Main Agent ผ่าน `MainAgentGateway` เท่านั้น; ห้ามแตะ ToolRegistry/backend ธุรกิจ |
 | ผู้ปฏิบัติงาน D — การตรวจสอบ/เอกสาร | `tests/`, `README.md`, `demo/` | ไม่แก้ไข production module หรือ contract |
 

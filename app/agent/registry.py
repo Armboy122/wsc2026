@@ -1,4 +1,4 @@
-"""registry แบบคงที่สำหรับปลั๊กอิน Knowledge และ OMS ที่อนุญาต"""
+"""registry ของเครื่องมือที่เปิดใช้งาน: Knowledge เป็น built-in ส่วนที่เหลือมาจากปลั๊กอิน"""
 
 from __future__ import annotations
 
@@ -20,6 +20,16 @@ from app.contracts import (
     validate_tool_input,
     validate_tool_success_data,
 )
+from app.llm.models import ToolDefinition
+
+# Knowledge เป็นความสามารถหลักที่ไม่ผ่านระบบปลั๊กอิน จึงประกาศแค็ตตาล็อกไว้ที่เดียว
+BUILT_IN_CATALOGUE: tuple[ToolDefinition, ...] = (
+    ToolDefinition(
+        ToolName.KNOWLEDGE,
+        "ตอบความรู้ PEA จากข้อความฉบับเต็มของไฟล์ที่เลือก",
+        ("search",),
+    ),
+)
 
 
 @dataclass(frozen=True, slots=True)
@@ -37,24 +47,41 @@ class Tool(Protocol):
 
 
 class ToolRegistry:
-    """registry ของปลั๊กอินที่เปิดใช้งานจริง โดยไม่ลงทะเบียน VOC/Sabuy ที่พักไว้"""
+    """registry ของเครื่องมือที่เปิดใช้งานจริง โดย Knowledge ต้องมีเสมอ
 
-    _required_names = frozenset({ToolName.KNOWLEDGE, ToolName.OMS})
+    เครื่องมือปฏิบัติการอื่นมาจาก plugin loader จึงไม่บังคับว่าต้องมี OMS
+    ทำให้ปิดปลั๊กอินใน manifest แล้วระบบยังเริ่มทำงานได้
+    """
 
-    def __init__(self, tools: tuple[Tool, ...] | list[Tool]) -> None:
+    def __init__(
+        self,
+        tools: tuple[Tool, ...] | list[Tool],
+        *,
+        catalogue: tuple[ToolDefinition, ...] | None = None,
+    ) -> None:
         by_name: dict[ToolName, Tool] = {}
         for tool in tools:
             if tool.name in by_name:
                 raise ValueError(f"ลงทะเบียนเครื่องมือซ้ำ: {tool.name.value}")
             by_name[tool.name] = tool
-        if frozenset(by_name) != self._required_names:
-            missing = self._required_names - frozenset(by_name)
-            extra = frozenset(by_name) - self._required_names
-            raise ValueError(f"registry ต้องมีปลั๊กอินที่เปิดใช้งานสองตัวพอดี; ขาด={missing}, เกิน={extra}")
+        if ToolName.KNOWLEDGE not in by_name:
+            raise ValueError("registry ต้องมีเครื่องมือ Knowledge ที่เป็น built-in เสมอ")
         for name, tool in by_name.items():
             if name is not ToolName.KNOWLEDGE and not callable(getattr(tool, "reset", None)):
                 raise ValueError(f"เครื่องมือปฏิบัติการต้องรีเซ็ตได้: {name.value}")
         self._tools = by_name
+        self._catalogue = BUILT_IN_CATALOGUE + tuple(catalogue or ())
+        declared = {definition.name for definition in self._catalogue}
+        unknown = declared - frozenset(by_name)
+        if unknown:
+            raise ValueError(
+                f"แค็ตตาล็อกอ้างถึงเครื่องมือที่ไม่ได้ลงทะเบียน: {sorted(name.value for name in unknown)}"
+            )
+
+    @property
+    def llm_catalogue(self) -> tuple[ToolDefinition, ...]:
+        """แค็ตตาล็อกที่ Main Agent ส่งให้ LLM โดยไม่รวม action ที่เป็น internal"""
+        return self._catalogue
 
     def reset(self) -> None:
         """รีเซ็ตเครื่องมือปฏิบัติการทุกตัวเพียงหนึ่งครั้งสำหรับการรันเดโมใหม่"""
