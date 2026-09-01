@@ -84,7 +84,7 @@ def _isolated_registry(post_counter: list[int] | None = None) -> ToolRegistry:
     return ToolRegistry(
         [
             KnowledgeTool(_KnowledgeBackend()),
-            OmsTool(transport=httpx.MockTransport(oms_handler)),
+            OmsTool(base_url="http://oms.test/api/v1/oms", transport=httpx.MockTransport(oms_handler)),
         ]
     )
 

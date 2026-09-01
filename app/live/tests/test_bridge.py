@@ -522,7 +522,7 @@ def _real_agent() -> object:
     registry = ToolRegistry(
         [
             KnowledgeTool(FullDocumentKnowledgeBackend()),
-            OmsTool(transport=httpx.MockTransport(oms_handler)),
+            OmsTool(base_url="http://oms.test/api/v1/oms", transport=httpx.MockTransport(oms_handler)),
         ]
     )
     return MainAgent(LLMClient(DemoLLMAdapter()), registry)

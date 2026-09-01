@@ -66,10 +66,10 @@ class Settings:
     live_voice: str = "Puck"
     oms_base_url: str = "http://127.0.0.1:8080/api/v1/oms"
     oms_timeout_seconds: float = 5.0
-    oms_api_key: str | None = field(default="88888888", repr=False)
+    oms_api_key: str | None = field(default=None, repr=False)
     voc_base_url: str = "http://127.0.0.1:8080/api/v1/voc"
     voc_timeout_seconds: float = 5.0
-    voc_api_key: str | None = field(default="88888888", repr=False)
+    voc_api_key: str | None = field(default=None, repr=False)
     line_channel_secret: str | None = field(default=None, repr=False)
     line_channel_access_token: str | None = field(default=None, repr=False)
 
@@ -93,9 +93,9 @@ class Settings:
         live_model = env.get("GEMINI_LIVE_MODEL", "gemini-3.1-flash-live-preview")
         live_voice = env.get("GEMINI_LIVE_VOICE", "Puck")
         oms_base_url = (_get("OMS_BASE_URL") or "http://127.0.0.1:8080/api/v1/oms").rstrip("/")
-        oms_api_key = _get("OMS_API_KEY") or "88888888"
+        oms_api_key = _get("OMS_API_KEY")
         voc_base_url = (_get("VOC_BASE_URL") or "http://127.0.0.1:8080/api/v1/voc").rstrip("/")
-        voc_api_key = _get("VOC_API_KEY") or "88888888"
+        voc_api_key = _get("VOC_API_KEY")
         try:
             voc_timeout_seconds = float(env.get("VOC_TIMEOUT_SECONDS", "5"))
             if voc_timeout_seconds <= 0:

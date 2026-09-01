@@ -17,13 +17,13 @@ class OmsTool(SimulatedTool):
 
     def __init__(
         self,
-        base_url: str = "http://127.0.0.1:8080/api/v1/oms",
+        base_url: str | None = None,
         timeout_seconds: float = 5,
         *,
         api_key: str | None = None,
         transport: httpx.BaseTransport | None = None,
     ) -> None:
-        self.base_url = base_url.rstrip("/") + "/"
+        self.base_url = (base_url or "").rstrip("/") + "/"
         self.api_key = api_key
         self.timeout_seconds = timeout_seconds
         self._client = httpx.Client(

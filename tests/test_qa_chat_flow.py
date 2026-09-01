@@ -69,6 +69,7 @@ async def test_chat_answers_from_an_approved_qa_document() -> None:
                 [
                     KnowledgeTool(backend),
                     OmsTool(
+                        base_url="http://oms.test/api/v1/oms",
                         transport=httpx.MockTransport(
                             lambda request: httpx.Response(
                                 200,

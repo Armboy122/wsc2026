@@ -55,7 +55,7 @@ def _registry(knowledge_backend: FakeKnowledgeBackend | None = None) -> ToolRegi
     return ToolRegistry(
         [
             KnowledgeTool(knowledge_backend or FakeKnowledgeBackend()),
-            OmsTool(transport=httpx.MockTransport(oms_handler)),
+            OmsTool(base_url="http://oms.test/api/v1/oms", transport=httpx.MockTransport(oms_handler)),
         ]
     )
 
@@ -557,3 +557,13 @@ async def test_free_text_without_grounded_outage_still_uses_safe_template() -> N
     response = await agent.handle_chat(ChatRequest(message="อีกนานไหมกว่าไฟจะมา"))
 
     assert "10 นาที" not in response.message
+
+
+@pytest.mark.asyncio
+async def test_outage_report_asks_for_ca_before_anonymous_inputs() -> None:
+    """Regression: แจ้งไฟดับโดยไม่มีข้อมูล ต้องถาม CA ก่อน ไม่กระโดดไปขอ 3 อย่างแบบ anonymous"""
+    agent = _agent()
+    first = await agent.handle_chat(ChatRequest(message="แจ้งไฟดับหน่อยครับ"))
+    assert "หมายเลขผู้ใช้ไฟ" in first.message
+    assert "(CA)" in first.message
+    assert "3 อย่างนี้" in first.message  # บอกทางเลือกไว้เผื่อไม่มี CA
