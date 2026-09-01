@@ -56,9 +56,11 @@ def load_plugins(settings: Any, *, plugin_root: Path | None = None) -> tuple[Loa
     loaded: list[LoadedPlugin] = []
     seen: set[ToolName] = set()
     for manifest_path in sorted(root.glob(f"*/{_MANIFEST_FILENAME}")):
-        manifest = _read_manifest(manifest_path)
-        if not manifest.metadata.enabled:
+        raw = _read_yaml(manifest_path)
+        # ปลั๊กอินที่ปิดอยู่ต้องไม่ทำให้ระบบล้ม เพราะโครงที่ยังเขียนไม่เสร็จก็อยู่ในสถานะนี้
+        if not _is_enabled(raw):
             continue
+        manifest = _validate_manifest(raw, manifest_path)
         if manifest.metadata.id in seen:
             raise PluginError(f"ปลั๊กอินซ้ำ: {manifest.metadata.id.value}")
         seen.add(manifest.metadata.id)
@@ -66,13 +68,26 @@ def load_plugins(settings: Any, *, plugin_root: Path | None = None) -> tuple[Loa
     return tuple(loaded)
 
 
-def _read_manifest(path: Path) -> PluginManifest:
+def _read_yaml(path: Path) -> dict[str, Any]:
     try:
         raw = yaml.safe_load(path.read_text(encoding="utf-8"))
     except (OSError, yaml.YAMLError) as error:
         raise PluginError(f"อ่าน manifest ไม่ได้: {path.name}") from error
     if not isinstance(raw, dict):
         raise PluginError(f"manifest ต้องเป็น mapping: {path.name}")
+    return raw
+
+
+def _is_enabled(raw: dict[str, Any]) -> bool:
+    """อ่านสถานะเปิดใช้งานก่อน validate เพื่อให้โครงที่ยังไม่เสร็จอยู่ร่วมใน repo ได้
+
+    ต้องเป็น ``true`` แบบชัดเจนเท่านั้น ค่าที่กำกวมหรือหายไปถือว่าปิดไว้ (fail closed)
+    """
+    metadata = raw.get("metadata")
+    return isinstance(metadata, dict) and metadata.get("enabled") is True
+
+
+def _validate_manifest(raw: dict[str, Any], path: Path) -> PluginManifest:
     try:
         return PluginManifest.model_validate(raw)
     except ValidationError as error:

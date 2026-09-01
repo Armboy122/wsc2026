@@ -4,8 +4,9 @@
 
 - แยกเหตุการณ์จาก webhook ของ LINE (ข้อความ, postback, follow)
 - เรียก LINE bridge ซึ่งเป็นสะพานเดียวไปยัง Main Agent
-- จัดรูปแบบคำตอบเป็นข้อความ LINE พร้อม citation ป้าย simulation
-  และปุ่มยืนยัน/ยกเลิกแบบ postback สำหรับ pending action
+- จัดรูปแบบคำตอบเป็นข้อความ LINE พร้อม citation เป็นปุ่มลิงก์ ป้าย
+  simulation ปุ่มยืนยัน/ยกเลิกแบบ postback สำหรับ pending action
+  และปุ่มเริ่มบทสนทนาใหม่
 - แสดง loading indicator ("...") ระหว่างที่ agent ประมวลผล
 - ตอบกลับด้วย reply token เมื่อทำได้ และ fallback เป็น push เมื่อ
   token หมดอายุ (agent loop อาจนานเกิน 1 นาที)
@@ -38,6 +39,11 @@ _WELCOME_TEXT = (
 
 _POSTBACK_CONFIRM = "action=confirm"
 _POSTBACK_REJECT = "action=reject"
+_POSTBACK_NEW_CHAT = "action=new_chat"
+
+# เพดานของ LINE: ปุ่ม uri ใน template มีได้ 4 ปุ่ม และ label ยาวสุด 20 ตัวอักษร
+_MAX_URI_BUTTONS = 3  # เผื่อปุ่มที่ 4 ไว้ให้ "เริ่มแชทใหม่"
+_MAX_BUTTON_LABEL = 20
 
 
 @dataclass(frozen=True)
@@ -67,8 +73,7 @@ class LineWebhookService:
             user_id = _user_id_of(event)
             if user_id:
                 await self._reply_or_push(
-                    user_id, _reply_token_of(event),
-                    [{"type": "text", "text": _WELCOME_TEXT}],
+                    user_id, _reply_token_of(event), _welcome_messages()
                 )
 
     async def _handle_message_event(self, event: dict[str, Any]) -> None:
@@ -114,7 +119,10 @@ class LineWebhookService:
             return
         data = str((event.get("postback") or {}).get("data") or "")
 
-        if data == _POSTBACK_CONFIRM:
+        if data == _POSTBACK_NEW_CHAT:
+            await self.bridge.start_new_chat(user_id)
+            messages = [{"type": "text", "text": _WELCOME_TEXT}]
+        elif data == _POSTBACK_CONFIRM:
             await self._show_loading_best_effort(user_id)
             try:
                 decision = await self.bridge.confirm_current(user_id)
@@ -188,6 +196,24 @@ class LineWebhookService:
             await self.client.push_message(user_id, rest[offset:offset + _MAX_MESSAGES_PER_CALL])
 
 
+def _welcome_messages() -> list[dict[str, Any]]:
+    """ข้อความต้อนรับพร้อมปุ่มเริ่มบทสนทนาใหม่"""
+    return [
+        {"type": "text", "text": _WELCOME_TEXT},
+        {
+            "type": "template",
+            "altText": "เริ่มบทสนทนาใหม่ได้จากปุ่มนี้",
+            "template": {
+                "type": "buttons",
+                "text": "ต้องการเริ่มบทสนทนาใหม่หรือไม่ครับ",
+                "actions": [
+                    {"type": "postback", "label": "เริ่มแชทใหม่", "data": _POSTBACK_NEW_CHAT},
+                ],
+            },
+        },
+    ]
+
+
 def format_chat_messages(response: dict[str, Any]) -> list[dict[str, Any]]:
     """แปลง ChatResponse (camelCase dict) เป็นข้อความ LINE
 
@@ -203,13 +229,7 @@ def format_chat_messages(response: dict[str, Any]) -> list[dict[str, Any]]:
 
     citations = response.get("citations") or []
     if citations:
-        lines = ["แหล่งอ้างอิง:"]
-        for citation in citations:
-            title = str(citation.get("title") or "เอกสาร")
-            page = citation.get("page")
-            lines.append(f"• {title}" + (f" (หน้า {page})" if page else ""))
-        for part in _split_text("\n".join(lines)):
-            messages.append({"type": "text", "text": part})
+        messages.extend(_citation_messages(citations))
 
     tool_results = response.get("toolResults") or []
     if any(tool_result.get("simulation") for tool_result in tool_results):
@@ -237,6 +257,49 @@ def format_confirm_result_messages(decision: dict[str, Any]) -> list[dict[str, A
 def format_reject_result_messages(decision: dict[str, Any]) -> list[dict[str, Any]]:
     """แปลงผลการปฏิเสธเป็นข้อความตอบกลับ (เป็นสถานะสิ้นสุดเสมอ)"""
     return [{"type": "text", "text": "ยกเลิกรายการเรียบร้อยครับ ✋"}]
+
+
+def _citation_messages(citations: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    """สร้างข้อความแหล่งอ้างอิง: บทสรุปข้อความ + ปุ่มเปิดเอกสาร (uri) + ปุ่มเริ่มแชทใหม่
+
+    ปุ่ม uri ได้มากสุด 3 ปุ่ม (เผื่อช่องที่ 4 ให้ปุ่มเริ่มแชทใหม่) และ
+    ไม่ฝังข้อมูลอื่นนอกจากลิงก์ที่ citation ระบุมาแล้ว
+    """
+    lines = ["แหล่งอ้างอิง:"]
+    actions: list[dict[str, Any]] = []
+    for citation in citations:
+        title = str(citation.get("title") or "เอกสาร")
+        page = citation.get("page")
+        lines.append(f"• {title}" + (f" (หน้า {page})" if page else ""))
+        uri = str(citation.get("uri") or "")
+        if uri.startswith(("http://", "https://")) and len(actions) < _MAX_URI_BUTTONS:
+            actions.append({
+                "type": "uri",
+                "label": _truncate_button_label(title),
+                "uri": uri,
+            })
+    messages = [phase for part in _split_text("\n".join(lines)) for phase in [{"type": "text", "text": part}]]
+    if actions:
+        actions.append({
+            "type": "postback",
+            "label": "เริ่มแชทใหม่",
+            "data": _POSTBACK_NEW_CHAT,
+        })
+        messages.append({
+            "type": "template",
+            "altText": "แหล่งอ้างอิง — กดปุ่มเพื่อเปิดเอกสาร หรือเริ่มบทสนทนาใหม่",
+            "template": {
+                "type": "buttons",
+                "text": "เปิดเอกสารอ้างอิง หรือเริ่มบทสนทนาใหม่",
+                "actions": actions,
+            },
+        })
+    return messages
+
+
+def _truncate_button_label(text: str) -> str:
+    """ตัดป้ายปุ่มให้อยู่ในเพดาน 20 ตัวอักษรของ LINE"""
+    return text if len(text) <= _MAX_BUTTON_LABEL else text[:_MAX_BUTTON_LABEL - 1] + "…"
 
 
 def _pending_action_messages(pending_action: dict[str, Any]) -> list[dict[str, Any]]:

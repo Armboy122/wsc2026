@@ -506,6 +506,47 @@ async def test_followup_after_outage_check_does_not_ask_for_the_ca_again() -> No
 
 
 @pytest.mark.asyncio
+async def test_mislabeled_oms_ca_followup_after_outage_check_uses_model_text() -> None:
+    """Regression: โมเดลติดป้าย oms_ca_number ผิดบนคำถามต่อเนื่องหลังตรวจเหตุสำเร็จ
+
+    ``_safe_direct_message`` เคยให้ ``directResponse`` มีสิทธิ์ชนะข้อความของโมเดลเสมอ
+    คำถามอย่าง "แสดงว่าช่างกำลังมาใช่ไหม" จึงถูกตอบด้วยแม่แบบขอ CA ซ้ำอีกครั้ง
+    ทั้งที่บทสนทนามีผล OMS ที่สำเร็จอยู่แล้ว
+    """
+    from app.llm import DirectResponseKind, LLMResponse, ScriptedLLMAdapter
+
+    followup_text = "ใช่ครับ ช่างการไฟฟ้ากำลังเดินทางไปแก้ไขที่หม้อแปลงครับ"
+    adapter = ScriptedLLMAdapter(
+        [
+            LLMResponse(
+                tool_calls=(
+                    ToolCall(
+                        call_id=uuid4(),
+                        name=ToolName.OMS,
+                        action=ToolAction.OMS_GET_OUTAGE_BY_CA,
+                        input={"caNumber": "100000000003"},
+                    ),
+                )
+            ),
+            LLMResponse(text="ตรวจสอบเรียบร้อยแล้วครับ"),
+            LLMResponse(text=followup_text, direct_response=DirectResponseKind.OMS_CA_NUMBER),
+        ]
+    )
+    agent = MainAgent(LLMClient(adapter), _registry())
+
+    first = await agent.handle_chat(ChatRequest(message="ไฟดับ ตรวจสอบ ca 100000000003"))
+    second = await agent.handle_chat(
+        ChatRequest(
+            message="แสดงว่าช่างกำลังมาใช่ไหมครับ",
+            conversation_id=first.conversation_id,
+        )
+    )
+
+    assert second.message == followup_text
+    assert "กรุณาแจ้งหมายเลขผู้ใช้ไฟ" not in second.message
+
+
+@pytest.mark.asyncio
 async def test_free_text_without_grounded_outage_still_uses_safe_template() -> None:
     """ไม่มีผล OMS ในบทสนทนา ต้องไม่ปล่อยข้อความอิสระของโมเดลออกไป"""
     from app.llm import LLMResponse, ScriptedLLMAdapter

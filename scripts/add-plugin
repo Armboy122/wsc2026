@@ -1,0 +1,223 @@
+#!/usr/bin/env python3
+"""สร้างโครงปลั๊กอินเปล่าใต้ ``app/plugins/<id>/`` จากสัญญาที่ประกาศไว้แล้ว
+
+ใช้เมื่อจะเพิ่มเครื่องมือใหม่เข้าระบบ โดย script จะอ่าน action, input/output contract
+และ prepare→submit mapping จาก ``app/contracts.py`` ซึ่งเป็น source of truth จริง
+แล้วเขียน ``plugin.yaml`` กับ ``factory.py`` ให้ตรงกันตั้งแต่ต้น จึงไม่ต้องพิมพ์เอง
+และไม่มีโอกาสที่ manifest จะ drift จาก Pydantic
+
+ตัวอย่าง:
+
+    ./scripts/add-plugin voc            สร้างโครงปลั๊กอิน voc_tool
+    ./scripts/add-plugin voc --preview  ดูผลลัพธ์ก่อนโดยไม่เขียนไฟล์
+
+หลังรันเสร็จให้แก้ description ใน ``plugin.yaml`` ให้สื่อความหมายกับผู้ใช้จริง
+ตรวจ ``factory.py`` ว่าอ่าน settings ถูกต้อง แล้วตั้ง ``enabled: true`` เมื่อพร้อมใช้งาน
+"""
+from __future__ import annotations
+
+import argparse
+import sys
+from pathlib import Path
+
+_REPO_ROOT = Path(__file__).resolve().parents[1]
+sys.path.insert(0, str(_REPO_ROOT))
+
+from app.contracts import (  # noqa: E402 - ต้องตั้ง sys.path ให้ import แพ็กเกจ app ได้ก่อน
+    INPUT_MODELS,
+    OUTPUT_MODELS,
+    PREPARE_TO_SUBMIT,
+    TOOL_ACTIONS,
+    ToolAction,
+    ToolName,
+)
+
+_PLUGIN_ROOT = _REPO_ROOT / "app" / "plugins"
+# action ที่ส่งรายการเขียนจริงต้องผ่านการยืนยันจากมนุษย์ จึงไม่เปิดให้ LLM เลือกเอง
+_SUBMIT_ACTIONS = frozenset(PREPARE_TO_SUBMIT.values())
+
+
+def _mode_of(action: ToolAction) -> str:
+    if action in PREPARE_TO_SUBMIT:
+        return "prepare"
+    if action in _SUBMIT_ACTIONS:
+        return "submit"
+    return "read"
+
+
+_PLACEHOLDER_OPERATIONS = """  # TODO: ยังไม่มี action ของเครื่องมือนี้ใน app/contracts.py
+  # เพิ่ม ToolName/ToolAction/TOOL_ACTIONS และ INPUT_MODELS/OUTPUT_MODELS ก่อน
+  # แล้วรัน ./scripts/add-plugin <ชื่อ> --force ซ้ำเพื่อ generate บล็อกนี้ให้อัตโนมัติ
+  #
+  # - action: ตัวอย่างชื่อ action
+  #   description: >
+  #     อธิบายว่า action นี้ทำอะไรให้ผู้ใช้
+  #   exposure: llm          # ใช้ internal สำหรับ submit_* เท่านั้น
+  #   mode: read             # read | prepare | submit
+  #   inputContract: ชื่อคลาส Pydantic ใน app/contracts.py
+  #   outputContract: ชื่อคลาส Pydantic ใน app/contracts.py"""
+
+
+def _operations_yaml(tool: ToolName | None) -> str:
+    """สร้างบล็อก operations ตามสัญญาจริง โดยเรียงลำดับให้ผลลัพธ์คงที่
+
+    เครื่องมือใหม่ที่ยังไม่ได้ประกาศใน ``app/contracts.py`` จะได้โครงพร้อมคำแนะนำแทน
+    เพื่อให้เริ่มงานได้ทันทีโดยไม่ต้องแก้ contracts ก่อน
+    """
+    if tool is None:
+        return _PLACEHOLDER_OPERATIONS
+    blocks: list[str] = []
+    for action in sorted(TOOL_ACTIONS[tool], key=lambda item: item.value):
+        mode = _mode_of(action)
+        exposure = "internal" if mode == "submit" else "llm"
+        lines = [
+            f"  - action: {action.value}",
+            "    description: >",
+            f"      TODO: อธิบายว่า {action.value} ทำอะไรให้ผู้ใช้ ด้วยภาษาที่โมเดลใช้ตัดสินใจได้",
+            f"    exposure: {exposure}",
+            f"    mode: {mode}",
+        ]
+        submit_action = PREPARE_TO_SUBMIT.get(action)
+        if submit_action is not None:
+            lines.append(f"    submitAction: {submit_action.value}")
+        lines.append(f"    inputContract: {INPUT_MODELS[action].__name__}")
+        lines.append(f"    outputContract: {OUTPUT_MODELS[action].__name__}")
+        blocks.append("\n".join(lines))
+    return "\n\n".join(blocks)
+
+
+def _manifest(tool: ToolName | None, slug: str, env_prefix: str) -> str:
+    return f"""apiVersion: pea.one/v1
+kind: Plugin
+
+metadata:
+  id: {slug}_tool
+  name: TODO ชื่อที่ใช้แสดง
+  enabled: false
+  category: operational
+  description: >
+    TODO: อธิบายความสามารถของปลั๊กอินนี้ในหนึ่งถึงสองบรรทัด
+    ข้อความนี้จะถูก compile เข้าแค็ตตาล็อกที่ LLM ใช้เลือกเครื่องมือ
+
+runtime:
+  factory: app.plugins.{slug}.factory:create_plugin
+
+configuration:
+  baseUrlEnv: {env_prefix}_BASE_URL
+  timeoutEnv: {env_prefix}_TIMEOUT_SECONDS
+  apiKeyEnv: {env_prefix}_API_KEY
+
+operations:
+{_operations_yaml(tool)}
+"""
+
+
+def _factory(module: str, tool_class: str, env_prefix: str) -> str:
+    lower = env_prefix.lower()
+    return f'''"""ประกอบ {tool_class} จาก settings ที่มีอยู่แล้ว
+
+factory รับผิดชอบเพียงการสร้างเครื่องมือหนึ่งตัว ส่วน HTTP, authentication,
+payload/error mapping และ prepare-submit ยังเป็นความรับผิดชอบของตัวเครื่องมือเอง
+"""
+
+from __future__ import annotations
+
+from typing import Any
+
+from {module} import {tool_class}
+
+
+def create_plugin(settings: Any) -> {tool_class}:
+    """สร้างเครื่องมือหนึ่งตัวตาม configuration ที่ manifest อ้างถึง"""
+    # TODO: ส่ง configuration ที่ปลั๊กอินนี้ต้องใช้จริง เช่น
+    #   return {tool_class}(
+    #       settings.{lower}_base_url,
+    #       settings.{lower}_timeout_seconds,
+    #       api_key=settings.{lower}_api_key,
+    #   )
+    # หากยังไม่มีค่าเหล่านี้ใน app/core/config.py ต้องเพิ่มก่อน
+    return {tool_class}()
+'''
+
+
+def _resolve_tool(raw: str) -> ToolName | None:
+    """คืน ``ToolName`` เมื่อเครื่องมือถูกประกาศไว้แล้ว มิฉะนั้นคืน ``None``
+
+    ชื่อใหม่ที่ยังไม่มีใน ``app/contracts.py`` ไม่ถือเป็นข้อผิดพลาด เพราะการต่อ REST
+    ตัวใหม่มักเริ่มจากสร้างโครงปลั๊กอินก่อน แล้วค่อยประกาศ contract ตามทีหลัง
+    """
+    candidate = raw if raw.endswith("_tool") else f"{raw}_tool"
+    try:
+        return ToolName(candidate)
+    except ValueError:
+        return None
+
+
+def main() -> int:
+    parser = argparse.ArgumentParser(
+        description="สร้างโครงปลั๊กอินเปล่าจากสัญญาที่ประกาศไว้ใน app/contracts.py"
+    )
+    parser.add_argument("tool", help="ชื่อปลั๊กอิน เช่น voc (จะเติม _tool ให้เอง)")
+    parser.add_argument("--tool-class", help="ชื่อคลาสเครื่องมือ (ค่าเริ่มต้นเดาจากชื่อ tool)")
+    parser.add_argument("--module", help="โมดูลที่ import คลาสเครื่องมือ (ค่าเริ่มต้น app.tools.<slug>_tool)")
+    parser.add_argument("--force", action="store_true", help="เขียนทับไฟล์เดิมที่มีอยู่")
+    parser.add_argument("--preview", "--dry-run", dest="preview", action="store_true", help="แสดงผลลัพธ์โดยไม่เขียนไฟล์")
+    args = parser.parse_args()
+
+    slug = args.tool.removesuffix("_tool").strip().lower()
+    if not slug.isidentifier():
+        raise SystemExit(
+            f"ชื่อปลั๊กอิน '{args.tool}' ใช้เป็นชื่อแพ็กเกจ Python ไม่ได้; "
+            "ใช้ตัวอักษร ตัวเลข และ _ โดยไม่ขึ้นต้นด้วยตัวเลข"
+        )
+    tool = _resolve_tool(slug)
+    env_prefix = slug.upper()
+    tool_class = args.tool_class or f"{slug.capitalize()}Tool"
+    module = args.module or f"app.tools.{slug}_tool"
+
+    plugin_dir = _PLUGIN_ROOT / slug
+    files = {
+        plugin_dir / "__init__.py": f'"""ปลั๊กอิน {slug}_tool ที่โหลดผ่าน manifest"""\n',
+        plugin_dir / "plugin.yaml": _manifest(tool, slug, env_prefix),
+        plugin_dir / "factory.py": _factory(module, tool_class, env_prefix),
+    }
+
+    if args.preview:
+        for path, content in files.items():
+            print(f"--- {path.relative_to(_REPO_ROOT)} ---")
+            print(content)
+        return 0
+
+    existing = [path for path in files if path.exists()]
+    if existing and not args.force:
+        listed = ", ".join(str(path.relative_to(_REPO_ROOT)) for path in existing)
+        print(f"มีไฟล์อยู่แล้ว: {listed}\nใช้ --force เพื่อเขียนทับ", file=sys.stderr)
+        return 1
+
+    plugin_dir.mkdir(parents=True, exist_ok=True)
+    for path, content in files.items():
+        path.write_text(content, encoding="utf-8")
+        print(f"เขียน {path.relative_to(_REPO_ROOT)}")
+
+    steps = []
+    if tool is None:
+        # เครื่องมือใหม่ต้องมีที่ยืนใน contracts ก่อน เพราะ loader ตรวจ manifest กับ Pydantic จริง
+        steps.append(
+            f"1. ประกาศ {slug}_tool ใน app/contracts.py: เพิ่ม ToolName, ToolAction,\n"
+            f"     TOOL_ACTIONS, INPUT_MODELS, OUTPUT_MODELS (และ PREPARE_TO_SUBMIT ถ้ามี write flow)"
+        )
+        steps.append(f"2. รัน ./scripts/add-plugin {slug} --force ซ้ำ เพื่อ generate operations ให้อัตโนมัติ")
+    steps.append(f"{len(steps) + 1}. เขียน/ตรวจคลาส {tool_class} ใน {module} ให้รับผิดชอบ HTTP และ error mapping")
+    steps.append(f"{len(steps) + 1}. เติม description ทุกจุดที่เป็น TODO ใน app/plugins/{slug}/plugin.yaml")
+    steps.append(f"{len(steps) + 1}. แก้ factory.py ให้ส่ง configuration ที่ต้องใช้จริง (เพิ่มใน app/core/config.py ถ้ายังไม่มี)")
+    steps.append(f"{len(steps) + 1}. ตั้ง enabled: true แล้ว restart server เพื่อให้ loader ค้นพบ")
+    steps.append(f"{len(steps) + 1}. รัน python3 -m pytest -q")
+
+    if tool is None:
+        print(f"\nหมายเหตุ: ยังไม่มี {slug}_tool ใน app/contracts.py จึงเขียน operations เป็นโครงพร้อมคำแนะนำไว้ให้")
+    print("\nขั้นถัดไป:\n  " + "\n  ".join(steps))
+    return 0
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())

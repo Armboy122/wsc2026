@@ -537,20 +537,27 @@ def _safe_direct_message(
 ) -> str:
     """สร้างข้อความตรงจากชนิดที่กำหนดไว้ โดยไม่เชื่อถือข้อความอิสระจากโมเดล
 
-    ข้อยกเว้นเดียวคือคำถามต่อเนื่องหลังผล OMS ที่สำเร็จในบทสนทนาเดียวกัน เช่น
+    ข้อยกเว้นคือคำถามต่อเนื่องหลังผล OMS ที่สำเร็จในบทสนทนาเดียวกัน เช่น
     "งั้นเจ้าหน้าที่กำลังดำเนินการใช่ไหม" ซึ่งไม่มีแม่แบบใดตอบได้ตรง การบังคับใช้
     แม่แบบจึงทำให้ผู้ใช้ถูกถามหมายเลขผู้ใช้ไฟซ้ำทั้งที่เพิ่งให้ไป รอบนี้จึงยอมใช้ข้อความ
     ของโมเดล เพราะข้อเท็จจริงที่อ้างถึงมาจาก typed OMS result ที่อยู่ใน history แล้ว
+    โมเดลมักติดป้าย ``oms_ca_number`` ผิดบนคำถามต่อเนื่องเช่นนี้ด้วย จึงต้องให้ข้อความ
+    ของโมเดลมีสิทธิ์ชนะแม่แบบ ``oms_ca_number`` ในบทสนทนาที่มีผล OMS สำเร็จแล้ว
     """
     if _requires_final_only_output(completion_text):
         return _FINAL_ONLY_MESSAGE
     if user_message.strip().casefold() in _EXACT_GREETINGS:
         return _GREETING_MESSAGE
-    if isinstance(direct_response, DirectResponseKind):
-        return _DIRECT_RESPONSE_MESSAGES[direct_response]
     followup = " ".join(completion_text.split())
+    if (
+        isinstance(direct_response, DirectResponseKind)
+        and direct_response is not DirectResponseKind.OMS_CA_NUMBER
+    ):
+        return _DIRECT_RESPONSE_MESSAGES[direct_response]
     if allow_grounded_followup and 0 < len(followup) <= _MAX_FOLLOWUP_LENGTH:
         return followup
+    if isinstance(direct_response, DirectResponseKind):
+        return _DIRECT_RESPONSE_MESSAGES[direct_response]
     return _CAPABILITY_MESSAGE
 
 

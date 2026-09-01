@@ -287,6 +287,64 @@ class ContactChannel(str, Enum):
     NONE = "none"
 
 
+class VocApiReporter(FrozenModel):
+    prefix_code: str | None = Field(default=None, serialization_alias="prefixCode")
+    first_name: str | None = Field(default=None, max_length=100, serialization_alias="firstName")
+    last_name: str | None = Field(default=None, max_length=100, serialization_alias="lastName")
+    phone: str | None = Field(default=None, serialization_alias="phone")
+    email: str | None = None
+    ca_number: str | None = Field(default=None, serialization_alias="caNumber")
+    meter_number: str | None = Field(default=None, serialization_alias="meterNumber")
+
+
+class VocApiIncident(FrozenModel):
+    province_code: str = Field(min_length=1, serialization_alias="provinceCode")
+    district_code: str = Field(min_length=1, serialization_alias="districtCode")
+    subdistrict_code: str = Field(min_length=1, serialization_alias="subdistrictCode")
+    pea_office_code: str = Field(min_length=1, serialization_alias="peaOfficeCode")
+    location_text: str = Field(min_length=1, max_length=1000, serialization_alias="locationText")
+
+
+class VocApiClassification(FrozenModel):
+    request_type_code: str = Field(serialization_alias="requestTypeCode")
+    topic_code: str = Field(serialization_alias="topicCode")
+    issue_code: str = Field(serialization_alias="issueCode")
+    sub_issue_code: str | None = Field(default=None, serialization_alias="subIssueCode")
+
+
+class VocApiConsent(FrozenModel):
+    accepted: Literal[True]
+    notice_version: str = Field(min_length=1, serialization_alias="noticeVersion")
+    accepted_at: datetime = Field(serialization_alias="acceptedAt")
+    channel: Literal["CHAT", "VOICE"]
+
+
+class VocExternalCasePayload(FrozenModel):
+    """Canonical, user-supplied payload accepted by the VOC gateway."""
+
+    journey_code: Literal[
+        "POWER_QUALITY", "SERVICE_ISSUE", "PRAISE", "TIP_OFF",
+        "STAKEHOLDER_ISSUE", "STAKEHOLDER_FEEDBACK",
+    ] = Field(serialization_alias="journeyCode")
+    reporter: VocApiReporter | None = None
+    incident: VocApiIncident
+    classification: VocApiClassification
+    frequency_code: str | None = Field(default=None, serialization_alias="frequencyCode")
+    severity_level: int | None = Field(default=None, ge=1, le=5, serialization_alias="severityLevel")
+    detail: str = Field(min_length=1, max_length=2000)
+    consent: VocApiConsent
+
+    @model_validator(mode="after")
+    def validate_journey_requirements(self) -> "VocExternalCasePayload":
+        if self.journey_code != "TIP_OFF" and self.reporter is None:
+            raise ValueError("reporter is required for this journey")
+        if self.journey_code in {"POWER_QUALITY", "SERVICE_ISSUE"} and (self.frequency_code is None or self.severity_level is None):
+            raise ValueError("frequency and severity are required for this journey")
+        if self.journey_code in {"POWER_QUALITY", "SERVICE_ISSUE", "PRAISE"} and not self.classification.sub_issue_code:
+            raise ValueError("subIssueCode is required for this journey")
+        return self
+
+
 class VocPrepareCaseInput(FrozenModel):
     category: VocCategory
     subject: str = Field(min_length=1, max_length=140)
@@ -296,6 +354,7 @@ class VocPrepareCaseInput(FrozenModel):
     location: str = Field(min_length=1, max_length=500)
     contact_channel: ContactChannel = Field(serialization_alias="contactChannel")
     idempotency_key: str = Field(min_length=1, max_length=128, serialization_alias="idempotencyKey")
+    external_payload: VocExternalCasePayload | None = Field(default=None, serialization_alias="externalPayload")
 
 
 class VocGetCaseInput(FrozenModel):

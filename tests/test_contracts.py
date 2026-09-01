@@ -110,10 +110,10 @@ def chat(client: TestClient, message: str) -> dict:
     return body
 
 
-def test_composition_registers_exactly_two_tools_and_serves_ui(client: TestClient) -> None:
+def test_composition_registers_enabled_tools_and_serves_ui(client: TestClient) -> None:
     from app.main import tool_registry
 
-    assert tool_registry.names == frozenset({ToolName.KNOWLEDGE, ToolName.OMS})
+    assert tool_registry.names == frozenset({ToolName.KNOWLEDGE, ToolName.OMS, ToolName.VOC})
     response = client.get("/")
     assert response.status_code == 200
     assert "PEA One Agent" in response.text
@@ -216,6 +216,9 @@ def test_llm_catalogue_never_advertises_internal_submit_actions() -> None:
         "get_outage_by_ca",
         "prepare_outage_with_ca",
         "prepare_anonymous_outage",
+        "list_categories",
+        "prepare_case",
+        "get_case",
     }
 
 

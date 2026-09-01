@@ -1,0 +1,49 @@
+apiVersion: pea.one/v1
+kind: Plugin
+
+metadata:
+  id: voc_tool
+  name: VOC Customer Voice
+  enabled: true
+  category: operational
+  description: >
+    โหลด catalog ประเภทเรื่อง VOC, เตรียมเรื่องร้องเรียนก่อนยืนยัน,
+    ส่งเรื่องหลังผู้ใช้ยืนยัน และติดตามเคสด้วย VOC Number กับ Key Code
+
+runtime:
+  factory: app.plugins.voc.factory:create_plugin
+
+configuration:
+  baseUrlEnv: VOC_BASE_URL
+  timeoutEnv: VOC_TIMEOUT_SECONDS
+  apiKeyEnv: VOC_API_KEY
+
+operations:
+  - action: list_categories
+    description: โหลด catalog ทางเลือกและ taxonomy ล่าสุดจากระบบ VOC
+    exposure: llm
+    mode: read
+    inputContract: EmptyInput
+    outputContract: VocCategoryListOutput
+
+  - action: prepare_case
+    description: เตรียม draft เรื่อง VOC ในเครื่องโดยยังไม่ส่งข้อมูลออกไป
+    exposure: llm
+    mode: prepare
+    submitAction: submit_case
+    inputContract: VocPrepareCaseInput
+    outputContract: VocPrepareCaseOutput
+
+  - action: submit_case
+    description: ส่งเรื่อง VOC ไปยัง API หลังผู้ใช้ยืนยันอย่างชัดเจนแล้วเท่านั้น
+    exposure: internal
+    mode: submit
+    inputContract: SubmitPreparedActionInput
+    outputContract: VocCaseOutput
+
+  - action: get_case
+    description: ติดตามเคสเดียวด้วย VOC Number และ Key Code
+    exposure: llm
+    mode: read
+    inputContract: VocGetCaseInput
+    outputContract: VocGetCaseOutput

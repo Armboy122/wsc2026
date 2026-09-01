@@ -46,10 +46,13 @@ LLM ไม่เคยเห็น YAML ดิบ: loader อ่าน manifest 
 
 **เพิ่มปลั๊กอินตัวถัดไป** (เช่น VOC) ทำ 4 ขั้น โดยไม่ต้องแก้ Main Agent, registry หรือ `main.py`:
 
-1. เพิ่ม action/contract ใน `app/contracts.py` (ถ้ายังไม่มี)
-2. เขียน Python tool ที่รับผิดชอบ HTTP/error mapping
-3. สร้าง `app/plugins/<id>/plugin.yaml` + `factory.py`
+1. `./scripts/add-plugin <ชื่อ>` — สร้าง `plugin.yaml` + `factory.py` (ชื่อใหม่ก็ใช้ได้)
+2. เพิ่ม action/contract ใน `app/contracts.py` แล้วรัน `--force` ซ้ำเพื่อ generate `operations`
+3. เขียน Python tool ที่รับผิดชอบ HTTP/error mapping
 4. ตั้ง `enabled: true` แล้ว startup จะ discover และ register ให้เอง
+
+โครงที่ยังไม่เสร็จอยู่ใน repo ได้ตราบใดที่ `enabled: false` เพราะ loader อ่านสถานะนี้ก่อน validate
+แต่เมื่อเปิดใช้งานแล้ว manifest ต้องสมบูรณ์เสมอ มิฉะนั้น startup ล้มแบบ fail closed
 
 นี่คือการออกแบบโมดูลที่มีขนาดเล็กแต่มีความลึกโดยตั้งใจ: ตัวจัดการ HTTP ทำหน้าที่เพียงตรวจสอบและแปลงคำขอ; Main Agent รับผิดชอบการประสานงาน นโยบาย และคำตอบสำหรับผู้ใช้ ส่วนโมดูลเครื่องมือรับผิดชอบความหมายของข้อมูลที่เกี่ยวข้องและรายละเอียดของระบบหลังบ้านจำลอง งานนี้ไม่ครอบคลุม LangGraph, LangChain, คิว, ไมโครเซอร์วิส, ฐานข้อมูลเวกเตอร์ที่สร้างเอง หรือการผสานระบบ PEA จริง
 
@@ -88,6 +91,22 @@ WebSocket /ws/live  -->  GeminiLiveSession (Gemini Live API, one per socket)
                               |
                               v
                          Main Agent (sole business agent; handle_chat / confirm / reject only)
+
+LINE Messaging API (เปิดเมื่อตั้ง LINE_CHANNEL_SECRET + LINE_CHANNEL_ACCESS_TOKEN)
+        |
+        v
+POST /webhook/line  --> ตรวจ X-Line-Signature (HMAC-SHA256, fail closed)
+        |               ตอบ 200 ทันที -> ประมวลผล event ใน background
+        |               แสดง loading indicator ("...") ก่อนเริ่ม agent loop
+        v
+LineBridge (user-bound: line userId -> conversationId + current pendingActionId)
+        |   เรียก MainAgentGateway ได้เพียง handle_chat / confirm / reject
+        |   การยืนยัน/ปฏิเสธมาจากปุ่ม postback เท่านั้น (ไม่ใช่ข้อความแชต)
+        v
+Main Agent (sole business agent; handle_chat / confirm / reject only)
+        |
+        v
+LINE Reply/Push Message (fallback เป็น push เมื่อ reply token หมดอายุ)
 ```
 
 ## โมดูลและจุดเชื่อมต่อขณะทำงาน
@@ -126,6 +145,20 @@ WebSocket /ws/live  -->  GeminiLiveSession (Gemini Live API, one per socket)
 - **ฟังก์ชันที่โมเดลเรียกได้มีสามตัวเท่านั้น**: `pea_agent_chat`, `pea_confirm_pending_action`, `pea_reject_pending_action` — ไม่มีฟังก์ชันใดรับ/ส่ง `pendingActionId`; การยืนยัน/ปฏิเสธผูกกับรายการปัจจุบันของเซสชัน และ fail closed เมื่อไม่มีรายการ (`no_pending_action`)
 - **โมเดลเป็นเพียงส่วนติดต่อเสียง**: system instruction บังคับให้ส่งต่อทุกคำขอ PEA ไปยัง Main Agent, ห้ามสร้างข้อเท็จจริง/สถานะเรื่องขึ้นเอง, ห้ามตัดสินใจเมื่อคำตอบกำกวม (ถามย้ำก่อน), และห้ามขอ/รับ/ส่ง pending action id
 - สถานะการเขียนยังเป็นไปตามกลไก `prepare → human confirm → submit` เดิม — เสียงเป็นเพียงวิธีบอก "ยืนยัน/ปฏิเสธ" เท่านั้น
+
+### โมดูล LINE (Messaging API webhook)
+
+**ส่วนเชื่อมต่อ:** `app/line/bridge.py` (`LineBridge`), `app/line/service.py` (`LineWebhookService`), `app/line/api_client.py` (`LineApiClient`), `app/line/signature.py` และ `app/api/line.py` (`/webhook/line`)
+
+ช่องทาง LINE เป็นช่องทางขนส่งเพิ่มเติมแบบเดียวกับโหมดเสียง โดยมีหลักการดังนี้:
+
+- **เปิดเฉพาะเมื่อตั้งค่าครบ**: `LINE_CHANNEL_SECRET` + `LINE_CHANNEL_ACCESS_TOKEN`; เว้นว่าง = route และบริการทั้งหมดไม่ถูกลงทะเบียน
+- **ลายเซ็นก่อนทุกอย่าง**: webhook ตรวจ `X-Line-Signature` (HMAC-SHA256 ของ raw body) ก่อนประมวลผลใด ๆ ไม่ผ่านตอบ `403` ทันที (fail closed)
+- **ตอบเร็ว ประมวลผลช้า**: ตอบ `200` ทันทีแล้วทำงานใน background เพราะ agent loop อาจนานเกินกรอบเวลาของ LINE; แสดง loading indicator ("...") ก่อนเริ่มงานและ fallback เป็น push message เมื่อ reply token หมดอายุ
+- **Line Bridge เรียก Main Agent ได้เพียงสามเมทอด** คือ `handle_chat`, `confirm_pending_action`, `reject_pending_action` ผ่านโปรโตคอล `MainAgentGateway` (แชร์กับ voice) และไม่แตะ ToolRegistry หรือ backend ธุรกิจใด ๆ
+- **สถานะผูกกับ LINE user**: `line userId → conversationId + current pendingActionId` (in-process, แยก lock ต่อผู้ใช้) — ไม่รับ `pendingActionId` จากผู้ใช้หรือข้อความแชต ล้างทันทีเมื่อสถานะสิ้นสุด และ fail closed เมื่อกดปุ่มซ้ำ
+- **การยืนยัน/ปฏิเสธเป็นปุ่ม postback เท่านั้น**: ระบบส่ง confirm template (ปุ่ม ยืนยัน/ยกเลิก) เมื่อมี pending action; การตีความข้อความแชตเป็นคำยืนยันเป็นสิ่งต้องห้ามตาม non-goal ของ PRD
+- **การจัดรูปแบบข้อความ**เป็นหน้าที่ของ `LineWebhookService`: คำตอบ + citation + ป้าย simulation (เมื่อผลลัพธ์เป็นข้อมูลจำลอง) + ปุ่มยืนยัน โดยตัดข้อความไม่เกิน ~1,900 ตัวอักษรต่อข้อความและ 5 ข้อความต่อการส่งหนึ่งครั้ง
 
 ### จุดเชื่อมต่อ `LLMAdapter`
 

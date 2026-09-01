@@ -5,6 +5,8 @@ from __future__ import annotations
 import asyncio
 from uuid import uuid4
 
+import httpx
+
 from app.backends.simulated_voc import SimulatedVocBackend
 from app.contracts import ToolAction, ToolCall, ToolErrorCode, ToolName, ToolResultStatus
 from app.tools.voc_tool import VocTool
@@ -135,3 +137,47 @@ def test_execute_get_case_success_and_wrong_key():
     )
     assert bad.status is ToolResultStatus.ERROR
     assert bad.error.code is ToolErrorCode.NOT_FOUND
+
+
+def test_api_plugin_reads_catalog_and_submits_only_after_prepare() -> None:
+    requests: list[httpx.Request] = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        requests.append(request)
+        if request.url.path.endswith("/catalog"):
+            return httpx.Response(200, json={"simulation": True, "journeys": [
+                {"code": code, "label": label} for code, label in [
+                    ("POWER_QUALITY", "คุณภาพไฟฟ้า"), ("SERVICE_ISSUE", "บริการ"),
+                    ("PRAISE", "ชื่นชม"), ("TIP_OFF", "เบาะแส"),
+                    ("STAKEHOLDER_ISSUE", "ดำเนินงาน"), ("STAKEHOLDER_FEEDBACK", "ข้อคิดเห็น"),
+                ]
+            ]})
+        assert request.url.path.endswith("/cases")
+        assert request.headers["Idempotency-Key"] == "k1"
+        return httpx.Response(201, json={
+            "simulation": True, "caseId": "00000000-0000-0000-0000-000000000001",
+            "vocNumber": "I-68100011", "keyCode": "123456", "status": "SUBMITTED",
+            "journeyCode": "SERVICE_ISSUE", "createdAt": "2026-09-01T09:30:01Z", "message": "ok",
+        })
+
+    tool = VocTool(base_url="http://voc.test/api/v1/voc", api_key="secret", transport=httpx.MockTransport(handler))
+    categories = asyncio.run(tool.execute(_call(ToolAction.VOC_LIST_CATEGORIES, {})))
+    assert categories.status is ToolResultStatus.SUCCESS
+    assert len(requests) == 1
+
+    payload = {
+        "journeyCode": "SERVICE_ISSUE",
+        "reporter": {"prefixCode": "MR", "firstName": "สมชาย", "lastName": "ใจดี", "phone": "0812345678"},
+        "incident": {"provinceCode": "10", "districtCode": "1001", "subdistrictCode": "100101", "peaOfficeCode": "PEA-BKK-01", "locationText": "สำนักงาน"},
+        "classification": {"requestTypeCode": "REQUEST_1", "topicCode": "SERVICE", "issueCode": "SERVICE_DELAY", "subIssueCode": "CONTACT_DELAY"},
+        "frequencyCode": "IIT03", "severityLevel": 3, "detail": "รายละเอียด",
+        "consent": {"accepted": True, "noticeVersion": "VOC-PDPA-DEMO-1.0", "acceptedAt": "2026-09-01T09:30:00Z", "channel": "CHAT"},
+    }
+    prepared = asyncio.run(tool.execute(_call(ToolAction.VOC_PREPARE_CASE, {**_prepare_input(), "externalPayload": payload})))
+    assert prepared.status is ToolResultStatus.SUCCESS
+    assert len(requests) == 1  # prepare is local-only
+
+    submitted = asyncio.run(tool.execute(_call(ToolAction.VOC_SUBMIT_CASE, {"pendingActionId": str(uuid4()), "idempotencyKey": "k1"})))
+    assert submitted.status is ToolResultStatus.SUCCESS
+    assert submitted.data["vocId"] == "I-68100011"
+    assert len(requests) == 2

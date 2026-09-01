@@ -39,10 +39,16 @@ def test_real_oms_manifest_loads_and_builds_the_existing_tool() -> None:
 
     plugins = load_plugins(load_settings())
 
-    assert len(plugins) == 1
-    plugin = plugins[0]
-    assert plugin.manifest.metadata.id is ToolName.OMS
+    assert len(plugins) == 2
+    plugin = next(item for item in plugins if item.manifest.metadata.id is ToolName.OMS)
     assert isinstance(plugin.tool, OmsTool)
+
+    voc_plugin = next(item for item in plugins if item.manifest.metadata.id is ToolName.VOC)
+    assert voc_plugin.tool_definition.actions == (
+        "list_categories",
+        "prepare_case",
+        "get_case",
+    )
 
 
 def test_llm_catalogue_hides_internal_submit_actions() -> None:
@@ -65,6 +71,52 @@ def test_disabled_plugin_is_not_registered(tmp_path: Path) -> None:
     payload["metadata"]["enabled"] = False
 
     assert load_plugins(load_settings(), plugin_root=_write(tmp_path, payload)) == ()
+
+
+def test_disabled_scaffold_with_unfinished_manifest_does_not_break_startup(tmp_path: Path) -> None:
+    """โครงที่ ``add-plugin`` สร้างไว้ยังไม่มี action และยังไม่ได้ประกาศใน contracts
+
+    ตราบใดที่ ``enabled`` ยังเป็น false ต้องข้ามไปเงียบ ๆ ไม่ใช่ทำให้ทั้งระบบเริ่มไม่ได้
+    """
+    scaffold = {
+        "apiVersion": "pea.one/v1",
+        "kind": "Plugin",
+        "metadata": {
+            "id": "billing_tool",
+            "name": "TODO",
+            "enabled": False,
+            "category": "operational",
+            "description": "TODO",
+        },
+        "runtime": {"factory": "app.plugins.billing.factory:create_plugin"},
+        "operations": None,
+    }
+    _write(tmp_path, _manifest_dict(), directory="oms")
+    _write(tmp_path, scaffold, directory="billing")
+
+    loaded = load_plugins(load_settings(), plugin_root=tmp_path)
+
+    assert [plugin.manifest.metadata.id.value for plugin in loaded] == ["oms_tool"]
+
+
+def test_enabled_scaffold_that_is_still_unfinished_fails_closed(tmp_path: Path) -> None:
+    """เปิดใช้งานทั้งที่ manifest ยังไม่สมบูรณ์ ต้องล้มตอน startup ไม่ใช่ปล่อยผ่าน"""
+    scaffold = {
+        "apiVersion": "pea.one/v1",
+        "kind": "Plugin",
+        "metadata": {
+            "id": "billing_tool",
+            "name": "TODO",
+            "enabled": True,
+            "category": "operational",
+            "description": "TODO",
+        },
+        "runtime": {"factory": "app.plugins.billing.factory:create_plugin"},
+        "operations": None,
+    }
+
+    with pytest.raises(PluginError):
+        load_plugins(load_settings(), plugin_root=_write(tmp_path, scaffold, directory="billing"))
 
 
 def test_manifest_that_exposes_submit_to_the_llm_fails_closed() -> None:

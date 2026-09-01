@@ -16,6 +16,7 @@ _SECRET_FIELD_NAMES: frozenset[str] = frozenset({
     "gemini_api_key",
     "maxplus_api_key",
     "oms_api_key",
+    "voc_api_key",
     "line_channel_secret",
     "line_channel_access_token",
 })
@@ -66,6 +67,9 @@ class Settings:
     oms_base_url: str = "http://127.0.0.1:8080/api/v1/oms"
     oms_timeout_seconds: float = 5.0
     oms_api_key: str | None = field(default="88888888", repr=False)
+    voc_base_url: str = "http://127.0.0.1:8080/api/v1/voc"
+    voc_timeout_seconds: float = 5.0
+    voc_api_key: str | None = field(default="88888888", repr=False)
     line_channel_secret: str | None = field(default=None, repr=False)
     line_channel_access_token: str | None = field(default=None, repr=False)
 
@@ -90,6 +94,14 @@ class Settings:
         live_voice = env.get("GEMINI_LIVE_VOICE", "Puck")
         oms_base_url = (_get("OMS_BASE_URL") or "http://127.0.0.1:8080/api/v1/oms").rstrip("/")
         oms_api_key = _get("OMS_API_KEY") or "88888888"
+        voc_base_url = (_get("VOC_BASE_URL") or "http://127.0.0.1:8080/api/v1/voc").rstrip("/")
+        voc_api_key = _get("VOC_API_KEY") or "88888888"
+        try:
+            voc_timeout_seconds = float(env.get("VOC_TIMEOUT_SECONDS", "5"))
+            if voc_timeout_seconds <= 0:
+                raise ValueError
+        except (TypeError, ValueError):
+            voc_timeout_seconds = 5.0
         try:
             oms_timeout_seconds = float(env.get("OMS_TIMEOUT_SECONDS", "5"))
             if oms_timeout_seconds <= 0:
@@ -176,6 +188,9 @@ class Settings:
             oms_base_url=oms_base_url,
             oms_timeout_seconds=oms_timeout_seconds,
             oms_api_key=oms_api_key,
+            voc_base_url=voc_base_url,
+            voc_timeout_seconds=voc_timeout_seconds,
+            voc_api_key=voc_api_key,
             line_channel_secret=line_channel_secret,
             line_channel_access_token=line_channel_access_token,
         )

@@ -183,6 +183,7 @@ MAXPLUS_MODEL=deepseek-v4-flash-0731
 | `KNOWLEDGE_SOURCE_ROOT` | โฟลเดอร์เอกสารความรู้ | `knowledge/source` |
 | `KNOWLEDGE_BACKEND_NAME` | backend ของความรู้ (ปัจจุบันรองรับค่าเดียว) | `full_document` |
 | `OMS_BASE_URL` / `OMS_API_KEY` | OMS จำลอง (REST) | `http://127.0.0.1:8080/api/v1/oms` / `88888888` |
+| `VOC_BASE_URL` / `VOC_API_KEY` / `VOC_TIMEOUT_SECONDS` | VOC REST gateway (simulation) | `http://127.0.0.1:8080/api/v1/voc` / `88888888` / `5` |
 | `APP_ENV` / `LOG_LEVEL` | environment และระดับ log | `development` / `info` |
 
 ---
@@ -192,6 +193,8 @@ MAXPLUS_MODEL=deepseek-v4-flash-0731
 - **แชตข้อความ** — ถาม-ตอบ พร้อม citation ของเอกสารความรู้ (DOCX ที่ Document Router เลือก)
 - **ความรู้ (Knowledge)** — ตอบจากข้อความฉบับเต็มของ DOCX ที่เลือก + ตรวจ citation แบบ fail-closed
 - **OMS จำลอง** — ตรวจ/เตรียมแจ้งเหตุไฟฟ้าขัดข้อง (แสดงผลเป็น SIMULATED) โดยต้องกด **ยืนยัน** ก่อนเขียนเสมอ
+- **VOC plugin** — อ่าน catalog และเชื่อม VOC REST gateway แบบ simulation โดยต้องกด **ยืนยัน** ก่อนส่งเคสเสมอ
+- **ระบบปลั๊กอิน** — เพิ่มเครื่องมือใหม่ด้วยการเพิ่มโฟลเดอร์ + `plugin.yaml` โดยไม่ต้องแก้ Main Agent
 - **Trace (การตรวจสอบ)** — ดูเหตุการณ์ที่เรียงตามลำดับและปกปิดข้อมูลแล้ว
 - **โหมดเสียง (Voice)** — พูดคุยด้วย Gemini Live (ต้องอนุญาตไมโครโฟนก่อน)
 - **รีเซ็ต** — ล้างบทสนทนาและสถานะจำลอง
@@ -206,6 +209,119 @@ MAXPLUS_MODEL=deepseek-v4-flash-0731
 | `POST /api/v1/reset` | รีเซ็ตการสาธิต |
 | `GET /health` | ตรวจสอบความพร้อม |
 | `WS /ws/live` | โหมดเสียง Gemini Live |
+
+---
+
+## เพิ่มเครื่องมือใหม่ด้วยระบบปลั๊กอิน
+
+ระบบแบ่งเครื่องมือเป็นสองชั้น:
+
+| ชั้น | ตัวอย่าง | ประกอบที่ไหน |
+|---|---|---|
+| **Built-in** | `knowledge_tool` | `app/main.py` โดยตรง |
+| **Plugin** | `oms_tool` | `app/plugins/<id>/plugin.yaml` (ค้นพบตอน startup) |
+
+เพิ่มเครื่องมือใหม่จึง **ไม่ต้องแก้ Main Agent, registry, `main.py` หรือ `startup.py`**
+loader จะสแกน `app/plugins/*/plugin.yaml` ตอนเปิดเซิร์ฟเวอร์แล้วลงทะเบียนให้เอง
+
+### สร้างโครงปลั๊กอิน
+
+```bash
+./scripts/add-plugin voc            # สร้างโครงใต้ app/plugins/voc/
+./scripts/add-plugin voc --preview  # ดูผลลัพธ์ก่อนโดยไม่เขียนไฟล์
+```
+
+ได้ 3 ไฟล์: `plugin.yaml`, `factory.py`, `__init__.py`
+
+**ใช้ชื่ออะไรก็ได้** เช่น `./scripts/add-plugin billing` สำหรับ REST ตัวใหม่ที่ยังไม่มีใน contracts
+
+- ถ้าเครื่องมือนั้น**ประกาศไว้แล้ว** ใน `app/contracts.py` script จะ generate `operations` ให้ครบ
+  ทั้งรายการ action, `inputContract`/`outputContract`, คู่ `prepare_* → submit_*`
+  และตั้ง `exposure: internal` ให้ทุก `submit_*` อัตโนมัติ — จึงไม่มีทาง drift จาก Pydantic
+- ถ้าเป็น**ชื่อใหม่** จะได้โครง `operations` พร้อมคำแนะนำไว้ให้ (`enabled: false`)
+  เพิ่ม contract แล้วรัน `--force` ซ้ำเพื่อ generate ของจริงทับ
+
+### ขั้นตอนหลังจากนั้น
+
+1. (เฉพาะเครื่องมือใหม่) ประกาศใน `app/contracts.py`: `ToolName`, `ToolAction`, `TOOL_ACTIONS`,
+   `INPUT_MODELS`, `OUTPUT_MODELS` และ `PREPARE_TO_SUBMIT` ถ้ามี write flow
+   แล้วรัน `./scripts/add-plugin <ชื่อ> --force` ซ้ำ
+2. เขียนคลาสเครื่องมือใน `app/tools/<id>_tool.py` — รับผิดชอบ HTTP, authentication, error mapping
+3. เติม `description` ทุกจุดที่เป็น `TODO` ใน `plugin.yaml` (ข้อความนี้คือสิ่งที่ LLM ใช้เลือกเครื่องมือ)
+4. แก้ `factory.py` ให้ส่ง configuration ที่ต้องใช้จริง (เพิ่มใน `app/core/config.py` ถ้ายังไม่มี)
+5. ตั้ง `enabled: true` แล้ว **restart เซิร์ฟเวอร์**
+6. `python3 -m pytest -q`
+
+### เปิด/ปิดปลั๊กอิน
+
+แก้บรรทัดเดียวใน `app/plugins/<id>/plugin.yaml`:
+
+```yaml
+metadata:
+  enabled: true    # false = ข้ามตั้งแต่ก่อน validate/import ไม่กระทบ startup เลย
+```
+
+ต้อง restart ทุกครั้ง เพราะ loader อ่าน manifest ครั้งเดียวตอน startup (ไม่มี hot reload โดยตั้งใจ)
+
+โครงที่ยังเขียนไม่เสร็จอยู่ใน repo ได้อย่างปลอดภัย ตราบใดที่ `enabled: false` — loader จะข้ามก่อน
+ตรวจความถูกต้อง แต่ถ้าตั้ง `enabled: true` ทั้งที่ manifest ยังไม่สมบูรณ์ **startup จะล้มทันที** (fail closed)
+
+### หน้าที่ของแต่ละส่วน
+
+| ส่วน | หน้าที่ | **ไม่ใช่** หน้าที่ |
+|---|---|---|
+| `plugin.yaml` | discovery, metadata, ประกาศ operation, ชี้ชื่อ env var | ยิง HTTP, ถือ schema, เก็บ secret |
+| `factory.py` | ประกอบเครื่องมือหนึ่งตัวจาก settings | business logic |
+| `app/tools/*.py` | HTTP, authentication, payload/error mapping | — |
+| `app/contracts.py` | **source of truth เดียว** ของ schema | — |
+
+YAML เก็บเพียง *ชื่อ* คลาส contract (เช่น `inputContract: OmsGetOutageByCaInput`) แล้ว loader
+ตรวจกับ Pydantic จริงตอน startup — ถ้าไม่ตรงจะ **fail closed** ทันที จึงไม่มี JSON Schema ชุดที่สอง
+
+### สิ่งที่ระบบบังคับให้เสมอ (write safety)
+
+- `submit_*` ที่เป็น `exposure: internal` **ไม่ถูกส่งเข้าแค็ตตาล็อกของ LLM** โมเดลจึงเรียกเองไม่ได้
+- write state machine ยังเป็น `prepare_* → confirm endpoint → submit_*` เหมือนเดิม manifest ข้ามไม่ได้
+- `runtime.factory` ต้องอยู่ใต้ `app.plugins.` เท่านั้น ไม่มี `eval`/`exec` ไม่โหลดโค้ดจากภายนอก
+- manifest เก็บเพียง *ชื่อ* environment variable ไม่เก็บค่า secret
+
+> **ข้อจำกัดที่ควรรู้:** ระบบนี้ไม่ใช่ Generic REST Engine — YAML บอกได้แค่ว่า *มีอะไร*
+> ส่วน *ยิง HTTP อย่างไร* ยังต้องเขียน Python เอง เพราะทุก API มีรูปแบบต่างกัน
+> สิ่งที่หายไปคือ **ต้นทุนคงที่** ของการต่อเครื่องมือเข้าระบบ ไม่ใช่ต้นทุนการเขียน adapter
+
+---
+
+## นโยบายข้อความตอบของ Main Agent (direct response และ follow-up)
+
+Main Agent **ไม่ปล่อยข้อความอิสระของโมเดลออกไปโดยตรง** ข้อความที่ผู้ใช้เห็นมาจาก 3 ทางเท่านั้น:
+
+1. **ข้อเท็จจริงจาก tool result** — สถานะเหตุ, เลขอ้างอิง, คำตอบ Knowledge ที่มี citation
+   จัดรูปแบบโดย `_authoritative_message` ใน `app/agent/main_agent.py` (แม่แบบต่อ action)
+2. **แม่แบบ direct response** — โมเดลเลือก "ป้าย" เช่น `oms_ca_number`, `unsupported`
+   แล้ว Main Agent แทนที่ด้วยข้อความ fix ใน `_DIRECT_RESPONSE_MESSAGES` (ไม่เชื่อข้อความโมเดล)
+3. **ข้อความของโมเดลเอง (grounded follow-up)** — เฉพาะคำถามต่อเนื่องหลัง `oms_tool.get_outage_by_ca`
+   **สำเร็จ** ในบทสนทนาเดียวกัน เช่น "แสดงว่าช่างกำลังมาใช่ไหม" เพราะไม่มีแม่แบบตอบตรง
+   และบทสนทนามีหลักฐาน (typed OMS result) ใน history แล้ว
+
+### กติกาลำดับความสำคัญใน `_safe_direct_message`
+
+- ตรวจ output policy (chain-of-thought/secret) ก่อนเสมอ → ถ้าโดนจับ ตอบด้วยข้อความ fix
+- ป้าย direct response **ยกเว้น `oms_ca_number`** → ใช้แม่แบบทันที
+- ป้าย `oms_ca_number` → ถ้าบทสนทนามีผล OMS สำเร็จแล้ว (`allow_grounded_followup`) และ
+  โมเดลมีข้อความตอบ (≤ 500 ตัวอักษร) → ใช้ข้อความโมเดล เพราะโมเดลมักติดป้ายนี้ผิดบน
+  คำถามต่อเนื่อง ทำให้ผู้ใช้ถูกถามหมายเลขผู้ใช้ไฟซ้ำ ถ้าไม่เข้าเงื่อนไข → ใช้แม่แบบ
+- ไม่มีป้าย ไม่มีผล OMS สำเร็จ → ข้อความความสามารถ fix (fail closed)
+
+### ถ้าต้องการปรับพฤติกรรมนี้ — แก้จุดเดียว
+
+ทั้งหมดอยู่ที่ `app/agent/main_agent.py`: แม่แบบใน `_DIRECT_RESPONSE_MESSAGES`,
+ลำดับความสำคัญใน `_safe_direct_message` และเงื่อนไข grounding ที่ `_oms_grounded_conversations`
+(ตอนนี้เติมเฉพาะเมื่อ `OMS_GET_OUTAGE_BY_CA` สำเร็จ — ถ้าอยากให้ plugin อื่น เช่น VOC
+มี follow-up แบบเดียวกัน ให้เติมเซ็ตนี้เมื่อ action ของ plugin นั้นสำเร็จ)
+เทสครอบพฤติกรรมนี้ไว้ใน `tests/test_agent_orchestration.py`
+(`test_followup_after_outage_check_does_not_ask_for_the_ca_again`,
+`test_mislabeled_oms_ca_followup_after_outage_check_uses_model_text`,
+`test_free_text_without_grounded_outage_still_uses_safe_template`)
 
 ---
 
@@ -228,7 +344,9 @@ MAXPLUS_MODEL=deepseek-v4-flash-0731
 
 ## ข้อจำกัด (พูดตรง ๆ)
 
-- โปรเจกต์เป็น **ระบบสาธิต** — OMS/VOC ทำงานแบบจำลอง ไม่มีการเชื่อมต่อระบบจริง
+- โปรเจกต์เป็น **ระบบสาธิต** — ผลลัพธ์ OMS และ VOC ระบุ `simulation: true` เสมอ ส่วน Sabuy ยังไม่เปิดใช้งาน
+- **ระบบปลั๊กอินไม่ใช่ Generic REST Engine** — เพิ่ม API ใหม่ยังต้องเขียน Python adapter เอง
+  YAML รับผิดชอบเพียง discovery และ metadata; ไม่มี hot reload (แก้ manifest แล้วต้อง restart)
 - **สถานะการเผยแพร่: NOT READY** — ก่อนเผยแพร่ต้องให้เจ้าของข้อมูลยืนยันว่า DOCX ทั้ง 38 ไฟล์
   ใต้ `knowledge/source/` เป็นเอกสารที่อนุมัติแล้ว และรันชุดประเมิน knowledge แบบสดครบทุกกรณี
 - โมเดล Gemini Live เป็น **Preview** — พฤติกรรมและเสียงอาจเปลี่ยนได้โดยไม่แจ้งล่วงหน้า
@@ -242,6 +360,6 @@ MAXPLUS_MODEL=deepseek-v4-flash-0731
 
 - [`knowledge/README.md`](knowledge/README.md) — สเปกและนโยบายคลังความรู้
 - [`web/README.md`](web/README.md) — ส่วนติดต่อผู้ใช้และโหมดเสียง
-- [`ARCHITECTURE.md`](ARCHITECTURE.md) — สถาปัตยกรรม
+- [`ARCHITECTURE.md`](ARCHITECTURE.md) — สถาปัตยกรรม รวมรายละเอียดระบบปลั๊กอินและขอบเขตความรับผิดชอบ
 - [`CONTRACTS.md`](CONTRACTS.md) — สัญญา API และช่องเสียง `/ws/live`
 - [`docs/integration_report.md`](docs/integration_report.md) — หลักฐานการผสานระบบและเกณฑ์อนุมัติการเผยแพร่

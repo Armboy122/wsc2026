@@ -10,7 +10,8 @@
   ข้อความปลอดภัยต่อผู้ใช้
 - **ล้างสถานะสิ้นสุดทันที**: submitted/rejected/failed → ล้าง id ทันที
   ทำให้การกดปุ่มซ้ำ fail closed
-- คง ``conversation_id`` เดียวกันต่อ LINE user ตลอดอายุของ process
+- คง ``conversation_id`` เดิมต่อ LINE user จนกว่าจะกด "เริ่มแชทใหม่"
+  (postback ``action=new_chat``) ซึ่งล้าง conversation และ pending action
 
 สถานะเป็น in-process เหมือน TraceStore/PendingActionStore: restart แล้ว
 เริ่มบทสนทนาใหม่ (เป็นข้อจำกัดระดับเดโมที่ PRD ประกาศไว้แล้ว)
@@ -113,6 +114,17 @@ class LineBridge:
             if response.pending_action is not None:
                 self._pending_action_ids[user_id] = response.pending_action.pending_action_id
             return response.model_dump(mode="json", by_alias=True)
+
+    async def start_new_chat(self, user_id: str) -> None:
+        """เริ่มบทสนทนาใหม่: ล้าง conversation และ pending action ของผู้ใช้นี้
+
+        การแชตครั้งถัดไปจะไม่มี ``conversation_id`` Main Agent จึงเริ่ม
+        บทสนทนาใหม่เอง การล้าง pending action ด้วยทำให้กดปุ่มยืนยันเก่า
+        ไม่ได้อีก (fail closed)
+        """
+        async with await self._lock_for(user_id):
+            self._conversation_ids.pop(user_id, None)
+            self._pending_action_ids.pop(user_id, None)
 
     async def confirm_current(self, user_id: str, confirmation_note: str | None = None) -> dict[str, Any]:
         """ยืนยัน pending action ปัจจุบันของผู้ใช้รายนี้ (ไม่รับ id จากผู้ใช้)"""
