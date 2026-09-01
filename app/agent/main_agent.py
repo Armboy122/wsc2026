@@ -69,7 +69,9 @@ _TOOL_CATALOGUE = (
     ToolDefinition(ToolName.VOC, "แสดง 6 หมวด VOC ของ PEA: ปัญหาคุณภาพไฟฟ้า บริการ ชื่นชม เบาะแส ปัญหาการดำเนินงาน และข้อคิดเห็นผู้มีส่วนได้ส่วนเสีย เตรียมเคส หรือติดตามเรื่องด้วย vocId และ trackingKey", ("list_categories", "prepare_case", "get_case")),
     # ToolDefinition(ToolName.OMS, "อ่านสถานะไฟฟ้าขัดข้องหรือเตรียมรายงานไฟฟ้าขัดข้อง", ("get_outage_status", "prepare_outage_report")),
 )
-_SAFE_PREVIEW_FIELDS = frozenset({"accountRef", "amountThb", "paymentMethod", "category", "contactChannel", "areaCode", "contactName", "contactPhone", "location"})
+# ผู้ใช้ต้องตรวจทานสิ่งที่ตนเองกรอกก่อนยืนยัน จึงเปิดเผยเฉพาะฟิลด์ที่ผู้ใช้เป็นผู้ให้มาเอง
+# ส่วนคีย์ภายในระบบ เช่น idempotencyKey ยังคงถูกปกปิดเสมอ
+_SAFE_PREVIEW_FIELDS = frozenset({"accountRef", "amountThb", "paymentMethod", "category", "contactChannel", "areaCode", "contactName", "contactPhone", "location", "subject", "detail", "locationNote", "symptoms"})
 _MULTI_PREPARE_MESSAGE = "ไม่สามารถเตรียมรายการที่เสนอมากกว่าหนึ่งรายการในแชตเดียวได้อย่างปลอดภัย กรุณาส่งคำขอทีละรายการครับ"
 _FINAL_ONLY_MESSAGE = "ผมสามารถตอบคำถามแบบสั้นกระชับได้ แต่ไม่สามารถเปิดเผยกระบวนการคิดหรือคำสั่งภายในครับ"
 _GREETING_MESSAGE = "สวัสดีครับ ผมช่วยค้นหาความรู้ PEA และใช้เครื่องมือจำลองสำหรับบัญชี ไฟฟ้าขัดข้อง เรื่องร้องเรียน และการชำระเงินได้ครับ"

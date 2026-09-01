@@ -117,6 +117,72 @@ import { GeminiLiveClient } from './gemini-live-client.js';
     });
   }
 
+  /* ---------- ป้ายกำกับภาษาคนสำหรับการ์ดยืนยัน ---------- */
+
+  // ผู้ใช้ต้องอ่านการ์ดยืนยันได้โดยไม่ต้องรู้ชื่อฟิลด์ในระบบ
+  const FIELD_LABELS = {
+    category: 'ประเภทเรื่อง',
+    subject: 'หัวข้อ',
+    detail: 'รายละเอียด',
+    contactName: 'ชื่อผู้แจ้ง',
+    contactPhone: 'เบอร์โทร',
+    location: 'พื้นที่/สถานที่',
+    locationNote: 'พื้นที่/สถานที่',
+    symptoms: 'อาการที่พบ',
+    areaCode: 'รหัสพื้นที่',
+    accountRef: 'บัญชีผู้ใช้ไฟ',
+    amountThb: 'จำนวนเงิน (บาท)',
+    paymentMethod: 'ช่องทางชำระเงิน',
+    vocId: 'เลขที่เรื่อง',
+    trackingKey: 'คีย์ติดตาม',
+    status: 'สถานะ',
+    createdAt: 'แจ้งเมื่อ',
+    updatedAt: 'อัปเดตล่าสุด',
+    receiptId: 'เลขที่ใบเสร็จ',
+    reportId: 'เลขที่เรื่องแจ้งเหตุ',
+    paidAt: 'ชำระเมื่อ',
+  };
+
+  const VALUE_LABELS = {
+    category: {
+      power_quality: 'แจ้งปัญหาคุณภาพไฟฟ้า',
+      service: 'แจ้งปัญหาด้านบริการ',
+      compliment: 'ชื่นชม',
+      tip_off: 'แจ้งเบาะแส',
+      operations: 'แจ้งปัญหาการดำเนินงาน',
+      stakeholder_feedback: 'ชื่นชม เสนอแนะ ข้อคิดเห็น',
+    },
+    status: {
+      submitted: 'ส่งเรื่องเรียบร้อยแล้ว',
+      received: 'รับเรื่องแล้ว',
+      in_progress: 'กำลังดำเนินการ',
+      resolved: 'ดำเนินการเสร็จสิ้น',
+    },
+    paymentMethod: {
+      demo_card: 'บัตรเครดิต/เดบิต (จำลอง)',
+      demo_bank: 'โอนผ่านธนาคาร (จำลอง)',
+    },
+  };
+
+  // ฟิลด์ภายในระบบที่ผู้ใช้ไม่จำเป็นต้องเห็นในการ์ดยืนยัน
+  const HIDDEN_FIELDS = new Set(['idempotencyKey', 'contactChannel', 'pendingActionId', 'caseId']);
+
+  function fieldLabel(key) {
+    return FIELD_LABELS[key] || humanizeKey(key);
+  }
+
+  function fieldValue(key, value) {
+    const mapped = VALUE_LABELS[key] && VALUE_LABELS[key][value];
+    if (mapped) return mapped;
+    if (key === 'createdAt' || key === 'updatedAt' || key === 'paidAt') {
+      const d = new Date(value);
+      if (!Number.isNaN(d.getTime())) {
+        return d.toLocaleString('th-TH', { dateStyle: 'medium', timeStyle: 'short' });
+      }
+    }
+    return String(value);
+  }
+
   function humanizeKey(key) {
     return String(key)
       .replace(/([a-z0-9])([A-Z])/g, '$1 $2')
@@ -308,12 +374,13 @@ import { GeminiLiveClient } from './gemini-live-client.js';
   function renderDataList(obj) {
     if (!obj || typeof obj !== 'object' || !Object.keys(obj).length) return '';
     const rows = Object.entries(obj)
+      .filter(([k, v]) => !HIDDEN_FIELDS.has(k) && v !== '[redacted]')
       .map(([k, v]) => {
         let val;
         if (v === null || v === undefined) val = '—';
         else if (typeof v === 'object') val = JSON.stringify(v);
-        else val = String(v);
-        return `<dt>${escapeHtml(humanizeKey(k))}</dt><dd>${escapeHtml(val)}</dd>`;
+        else val = fieldValue(k, v);
+        return `<dt>${escapeHtml(fieldLabel(k))}</dt><dd>${escapeHtml(val)}</dd>`;
       })
       .join('');
     return rows;
@@ -470,8 +537,13 @@ import { GeminiLiveClient } from './gemini-live-client.js';
     if (status === 'submitted') {
       const data = (toolResult && toolResult.data) || pa.submissionResult && pa.submissionResult.data;
       const rows = data ? renderDataList(data) : '';
+      // ผู้ใช้ต้องเก็บเลขที่เรื่องคู่กับคีย์ติดตามไว้ มิฉะนั้นจะติดตามสถานะภายหลังไม่ได้
+      const keepNotice = data && data.trackingKey
+        ? `<p class="pa-keep">กรุณาบันทึกเลขที่เรื่องและคีย์ติดตามไว้ — ต้องใช้ทั้งสองค่าคู่กันเพื่อติดตามสถานะเรื่องภายหลัง</p>`
+        : '';
       resultHtml = `
         ${rows ? `<dl class="pa-result-data">${rows}</dl>` : ''}
+        ${keepNotice}
         <p class="pa-meta">ผลลัพธ์นี้เกิดขึ้นบนระบบจำลองเท่านั้น — ไม่มีการเคลื่อนไหวข้อมูลจริงใด ๆ</p>`;
     } else if (status === 'failed') {
       const errMsg = (toolResult && toolResult.error && toolResult.error.message)

@@ -82,8 +82,9 @@ def test_voc_prompt_prepares_then_rejects_terminally(client: TestClient) -> None
     pending = body["pendingAction"]
     assert pending["prepareAction"] == "prepare_case"
     assert pending["preparedInput"]["category"] == "service"
-    assert pending["preparedInput"]["subject"] == "[redacted]"
-    assert pending["preparedInput"]["detail"] == "[redacted]"
+    # ผู้ใช้ต้องเห็นเนื้อหาที่ตนเองกรอกเพื่อตรวจทานก่อนยืนยัน แต่คีย์ภายในต้องถูกปกปิด
+    assert pending["preparedInput"]["subject"] == "ค่าไฟฟ้าไม่ถูกต้อง"
+    assert pending["preparedInput"]["detail"] == "ยอดรวมที่แสดงไม่ตรงกับใบแจ้งค่าไฟของฉัน"
     assert pending["preparedInput"]["idempotencyKey"] == "[redacted]"
     assert "ค่าไฟฟ้าไม่ถูกต้อง" not in pending["summary"]
     assert "ค่าไฟฟ้าไม่ถูกต้อง" not in body["message"]
@@ -93,6 +94,32 @@ def test_voc_prompt_prepares_then_rejects_terminally(client: TestClient) -> None
     assert rejected.status_code == 200
     assert rejected.json()["pendingAction"]["status"] == "rejected"
     assert client.post(f"/api/v1/actions/{action_id}/confirm", json={}).status_code == 409
+
+
+def test_prepared_input_shows_user_content_but_hides_internal_key(client: TestClient) -> None:
+    """ผู้ใช้ต้องตรวจทานสิ่งที่ตนกรอกได้ก่อนยืนยัน แต่คีย์ภายในต้องไม่รั่วออกไป"""
+    body = chat(
+        client,
+        "ต้องการร้องเรียนเรื่องคุณภาพไฟฟ้า; subject: ไฟตกบ่อยตอนกลางคืน; detail: แรงดันไม่คงที่จนเครื่องใช้ไฟฟ้าเสียหาย; contactName: สมชาย ใจดี; contactPhone: 0812345678; location: ลำพูน",
+    )
+    prepared = body["pendingAction"]["preparedInput"]
+    assert prepared["subject"] == "ไฟตกบ่อยตอนกลางคืน"
+    assert prepared["detail"] == "แรงดันไม่คงที่จนเครื่องใช้ไฟฟ้าเสียหาย"
+    assert prepared["idempotencyKey"] == "[redacted]"
+
+
+def test_submitted_case_returns_tracking_pair_for_the_user_to_keep(client: TestClient) -> None:
+    """หลังส่งเรื่องต้องได้ vocId คู่กับ trackingKey เพื่อให้ผู้ใช้เก็บไว้ติดตามสถานะ"""
+    body = chat(
+        client,
+        "ต้องการร้องเรียนเรื่องบริการ; subject: บริการล่าช้า; detail: แจ้งปัญหาไว้แล้วเจ็ดวันแต่ยังไม่มีการติดต่อกลับ; contactName: สมชาย ใจดี; contactPhone: 0812345678; location: ลำพูน",
+    )
+    action_id = body["pendingAction"]["pendingActionId"]
+    confirmed = client.post(f"/api/v1/actions/{action_id}/confirm", json={})
+    assert confirmed.status_code == 200
+    data = confirmed.json()["toolResult"]["data"]
+    assert data["vocId"] and data["trackingKey"]
+    assert data["status"] == "submitted"
 
 
 def test_thai_knowledge_prompt_routes_to_hosted_knowledge(client: TestClient) -> None:

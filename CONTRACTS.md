@@ -211,7 +211,7 @@ Tool จะปฏิเสธการเรียกที่ `name` ไม่�
 | `toolName` | `sabuy_tool` / `voc_tool` / `oms_tool` | knowledge ไม่สามารถเขียนได้ |
 | `prepareAction` | prepare action enum | action ต้นฉบับที่ผ่านการตรวจสอบแล้ว |
 | `submitAction` | submit action enum | ใช้ได้เฉพาะ mapping ที่กำหนดไว้ล่วงหน้า |
-| `preparedInput` | object | สำเนาที่ปกปิดข้อมูลแล้ว และไม่จัดเก็บ payment token |
+| `preparedInput` | object | เปิดเผยเฉพาะฟิลด์ที่ผู้ใช้ระบุเองเพื่อให้ตรวจทานก่อนยืนยัน ฟิลด์ภายในระบบเช่น `idempotencyKey` ถูกปกปิดเป็น `[redacted]` และไม่จัดเก็บ payment token |
 | `summary` | string | ผลที่เสนอในรูปแบบที่มนุษย์อ่านได้ สูงสุด 500 อักขระ |
 | `status` | `pending_confirmation`, `confirmed`, `submitted`, `rejected`, `failed` | ถูกจำกัดตาม state machine |
 | `idempotencyKey` | string | คัดลอกจากคำขอเขียน |

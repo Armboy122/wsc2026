@@ -573,8 +573,8 @@ button { font: inherit; color: inherit; }
 }
 
 .pa-input dt {
-  font-family: var(--font-mono);
-  font-size: 0.72rem;
+  font-size: 0.78rem;
+  font-weight: 600;
   color: var(--text-600);
   align-self: baseline;
   white-space: nowrap;
@@ -652,8 +652,21 @@ button { font: inherit; color: inherit; }
   gap: 0.25rem 0.9rem;
   font-size: 0.84rem;
 }
-.pa-result-data dt { font-family: var(--font-mono); font-size: 0.72rem; color: var(--text-600); white-space: nowrap; align-self: baseline; }
-.pa-result-data dd { margin: 0; color: var(--text-900); overflow-wrap: anywhere; }
+.pa-result-data dt { font-size: 0.78rem; font-weight: 600; color: var(--text-600); white-space: nowrap; align-self: baseline; }
+.pa-result-data dd { margin: 0; color: var(--text-900); overflow-wrap: anywhere; font-weight: 600; }
+
+/* เน้นให้ผู้ใช้บันทึกเลขที่เรื่องและคีย์ติดตามไว้ใช้ติดตามสถานะ */
+.pa-keep {
+  margin: 0 0 0.4rem;
+  padding: 0.55rem 0.7rem;
+  border-radius: var(--radius-sm);
+  border: 1px solid var(--amber-border);
+  background: var(--amber-bg);
+  color: var(--amber-text);
+  font-size: 0.8rem;
+  line-height: 1.55;
+  font-weight: 600;
+}
 
 .pa-meta { margin: 0.45rem 0 0; font-size: 0.74rem; color: var(--text-400); }
 
