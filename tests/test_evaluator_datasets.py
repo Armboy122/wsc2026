@@ -15,7 +15,7 @@ def rows(name: str) -> list[dict]:
 
 def test_dataset_counts_and_fixture_identifiers() -> None:
     assert {name: len(rows(name)) for name in ("knowledge.jsonl", "oms.jsonl", "sabuy.jsonl", "voc.jsonl", "multi_tool.jsonl", "adversarial.jsonl")} == {
-        "knowledge.jsonl": 40, "oms.jsonl": 10, "sabuy.jsonl": 10, "voc.jsonl": 10, "multi_tool.jsonl": 10, "adversarial.jsonl": 10,
+        "knowledge.jsonl": 40, "oms.jsonl": 10, "sabuy.jsonl": 10, "voc.jsonl": 28, "multi_tool.jsonl": 10, "adversarial.jsonl": 10,
     }
     text = "\n".join(p.read_text() for p in DATA.glob("*.jsonl"))
     assert not re.search(r"(?<![A-Za-z0-9])(?:A-10[0-4]|PKN-03|NMA-04)(?![A-Za-z0-9])", text)
@@ -24,10 +24,16 @@ def test_dataset_counts_and_fixture_identifiers() -> None:
 
 
 def test_prepare_prompts_supply_required_user_details() -> None:
+    case_label_sets = (
+        ("subject:", "detail:", "contactName:", "contactPhone:", "location:"),
+        ("หัวข้อ:", "รายละเอียด:", "ชื่อ:", "เบอร์โทร:", "สถานที่:"),
+    )
     for name in ("oms.jsonl", "voc.jsonl", "multi_tool.jsonl"):
         for row in rows(name):
             if row.get("expectedAction") == "prepare_outage_report" or "prepare_outage_report" in row.get("expectedActions", []):
                 assert "location:" in row["query"] and "symptoms:" in row["query"]
             if row.get("expectedAction") == "prepare_case" or "prepare_case" in row.get("expectedActions", []):
-                assert "subject:" in row["query"] and "detail:" in row["query"]
-                assert "contactName:" in row["query"] and "contactPhone:" in row["query"] and "location:" in row["query"]
+                assert any(
+                    all(label in row["query"] for label in labels)
+                    for labels in case_label_sets
+                )

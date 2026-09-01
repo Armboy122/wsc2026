@@ -56,9 +56,11 @@ WebSocket /ws/live  -->  GeminiLiveSession (Gemini Live API, one per socket)
 
 โมดูลนี้เป็นตัวประสานงานที่ขับเคลื่อนด้วยโมเดลเพียงตัวเดียว โดยทำหน้าที่ดังนี้:
 
-- รับข้อความผู้ใช้และสถานะการสนทนา;
-- เรียกเฉพาะ tool ระดับบนสุดสี่รายการที่ลงทะเบียนไว้;
-- ถือว่าผลลัพธ์จาก tool เป็นข้อเท็จจริงที่มีอำนาจเหนือข้อความจากโมเดล;
+- รับข้อความผู้ใช้และแยก conversation history, workflow state และผลลัพธ์จาก tool ออกจากกัน;
+- ใช้ agent loop แบบ bounded โดยค่าเริ่มต้นไม่เกิน 12 agent steps/12 tool calls ต่อหนึ่งข้อความ และหยุดทันทีเมื่อพบ Knowledge call ซ้ำ;
+- เรียกเฉพาะ tool ระดับบนสุดที่เปิดใช้งานใน runtime catalogue (MVP ปัจจุบันคือ Knowledge และ VOC; Sabuy/OMS ยังปิดอยู่);
+- ถือว่าผลลัพธ์จาก tool เป็นข้อเท็จจริงที่มีอำนาจเหนือข้อความจากโมเดล และไม่รวม no-evidence เข้ากับคำตอบที่มี citation แล้ว;
+- ใช้ `VocWorkflowStore` และ `VocIntakeCoordinator` เติมข้อมูลตามลำดับ `category → subject → detail → contact_name → contact_phone → location`; ประเภทเรื่องมาจาก `voc_tool.list_categories` และคำถาม Knowledge สามารถพัก/กลับมาทำ VOC intake เดิมต่อได้;
 - สร้าง pending action หลังจากได้รับผลลัพธ์ `prepare_*` ที่สำเร็จ;
 - ส่งคำขอเขียนหลังจากมีการเรียก confirm route อย่างชัดเจนเท่านั้น;
 - สร้าง trace event ตามลำดับ;

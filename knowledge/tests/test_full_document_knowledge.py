@@ -69,6 +69,21 @@ def backend(tmp_path: Path, responses: list[str], **kwargs):
     return instance, client
 
 
+def test_gemini_json_response_requests_json_without_unsupported_thinking_override() -> None:
+    client = FakeClient(['{"ok":true}'])
+
+    result = _json_response(client, "gemini-3.5-flash-lite", "return json")
+
+    assert result == {"ok": True}
+    assert client.calls == [
+        {
+            "model": "gemini-3.5-flash-lite",
+            "contents": "return json",
+            "config": {"response_mime_type": "application/json"},
+        }
+    ]
+
+
 def test_maxplus_openai_client_posts_chat_completion_and_parses_json() -> None:
     captured = {}
 

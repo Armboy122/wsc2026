@@ -1,10 +1,28 @@
-{"id":"V01","query":"list complaint categories","expectedAction":"list_categories"}
-{"id":"V02","query":"what VOC categories exist","expectedAction":"list_categories"}
-{"id":"V03","query":"prepare a complaint about billing; subject: incorrect bill; detail: the latest bill amount is higher than expected; contactName: Somchai; contactPhone: 0812345678; location: Bangkok","expectedAction":"prepare_case"}
-{"id":"V04","query":"prepare a poor service report; subject: delayed service; detail: my service request has had no update for seven days; contactName: Somchai; contactPhone: 0812345678; location: Bangkok","expectedAction":"prepare_case"}
-{"id":"V05","query":"prepare an electrical safety case; subject: exposed wire; detail: an exposed wire is visible near the entrance; contactName: Somchai; contactPhone: 0812345678; location: Bangkok","expectedAction":"prepare_case"}
-{"id":"V06","query":"prepare a complaint about service; subject: meter visit delay; detail: the scheduled meter visit did not happen; contactName: Somchai; contactPhone: 0812345678; location: Bangkok","expectedAction":"prepare_case"}
-{"id":"V07","query":"show available case types","expectedAction":"list_categories"}
-{"id":"V08","query":"prepare a billing case; subject: payment not reflected; detail: a completed demo payment is missing from the account history; contactName: Somchai; contactPhone: 0812345678; location: Bangkok","expectedAction":"prepare_case"}
-{"id":"V09","query":"complaint category list please","expectedAction":"list_categories"}
-{"id":"V10","query":"prepare another issue case; subject: other request; detail: please review this customer service issue; contactName: Somchai; contactPhone: 0812345678; location: Bangkok","expectedAction":"prepare_case"}
+{"id":"V01","query":"ขอดูรายการหมวดร้องเรียนทั้งหมด","expectedAction":"list_categories"}
+{"id":"V02","query":"มีหมวด VOC อะไรบ้าง","expectedAction":"list_categories"}
+{"id":"V03","query":"อยากร้องเรียนเรื่องค่าไฟ; หัวข้อ: บิลค่าไฟไม่ถูกต้อง; รายละเอียด: บิลเดือนล่าสุดสูงกว่าที่ควรจะเป็น; ชื่อ: สมชาย ใจดี; เบอร์โทร: 0812345678; สถานที่: กรุงเทพมหานคร","expectedAction":"prepare_case"}
+{"id":"V04","query":"อยากร้องเรียนพนักงาน call center; หัวข้อ: พนักงานตอบโทรศัพท์ไม่สุภาพ; รายละเอียด: โทรสอบถามเรื่องบิลแล้วพนักงานตอบกลับแบบไม่สุภาพ; ชื่อ: สมชาย ใจดี; เบอร์โทร: 0812345678; สถานที่: กรุงเทพมหานคร","expectedAction":"prepare_case"}
+{"id":"V05","query":"อยากร้องเรียนเรื่องความปลอดภัยทางไฟฟ้า; หัวข้อ: สายไฟล่อแล; รายละเอียด: มีสายไฟหลุดรุ่นอยู่บริเวณทางเข้าอาคารเป็นอันตราย; ชื่อ: สมชาย ใจดี; เบอร์โทร: 0812345678; สถานที่: กรุงเทพมหานคร","expectedAction":"prepare_case"}
+{"id":"V06","query":"ขอร้องเรียนเรื่องการนัดมาอ่านมิเตอร์; หัวข้อ: เจ้าหน้าที่ไม่มาตามนัด; รายละเอียด: นัดมาอ่านมิเตอร์แล้วแต่ไม่มาตามกำหนด; ชื่อ: สมชาย ใจดี; เบอร์โทร: 0812345678; สถานที่: กรุงเทพมหานคร","expectedAction":"prepare_case"}
+{"id":"V07","query":"แสดงประเภทเรื่องร้องเรียนที่แจ้งได้","expectedAction":"list_categories"}
+{"id":"V08","query":"อยากร้องเรียนเรื่องบิลไม่ถูกต้อง; หัวข้อ: รายการเงินเข้าไม่แสดงในบิล; รายละเอียด: ได้ทำรายการเงินเข้าไปแล้วแต่ยังไม่ปรากฏในประวัติบัญชี; ชื่อ: สมชาย ใจดี; เบอร์โทร: 0812345678; สถานที่: กรุงเทพมหานคร","expectedAction":"prepare_case"}
+{"id":"V09","query":"ขอรายการหมวดหมู่เรื่องร้องเรียนหน่อย","expectedAction":"list_categories"}
+{"id":"V10","query":"ขอร้องเรียนเรื่องอื่น ๆ; หัวข้อ: เรื่องอื่นที่ต้องการแจ้ง; รายละเอียด: ขอให้พิจารณาเรื่องบริการลูกค้าเรื่องนี้ด้วย; ชื่อ: สมชาย ใจดี; เบอร์โทร: 0812345678; สถานที่: กรุงเทพมหานคร","expectedAction":"prepare_case"}
+{"id":"V11","query":"มีหมวดร้องเรียนอะไรบ้าง","expectedAction":"list_categories"}
+{"id":"V12","query":"อยากรู้ว่าประเภทเรื่องร้องเรียนมีอะไรบ้าง","expectedAction":"list_categories"}
+{"id":"V13","query":"ฉันอยากร้องเรียน หัวข้อร้องเรียนมีอะไรบ้าง","expectedAction":"list_categories"}
+{"id":"V14","query":"หมวด VOC มีอะไรบ้าง","expectedAction":"list_categories"}
+{"id":"V15","query":"ต้องการร้องเรียนเรื่องคุณภาพไฟฟ้า; หัวข้อ: แรงดันตกบ่อย; รายละเอียด: แรงดันไฟตกทุกคืนช่วงหัวค่ำเป็นเวลาหนึ่งชั่วโมง; ชื่อ: สมชาย ใจดี; เบอร์โทร: 0812345678; สถานที่: กรุงเทพมหานคร","expectedAction":"prepare_case"}
+{"id":"V16","query":"อยากส่งเรื่องร้องเรียนในเชิงชื่นชม; หัวข้อ: พนักงานอ่านมิเตอร์ให้บริการดีเยี่ยม; รายละเอียด: พนักงานอ่านมิเตอร์อธิบายบิลให้ฟังชัดเจนและสุภาพมาก; ชื่อ: สมศรี มีสุข; เบอร์โทร: 0898765432; สถานที่: เชียงใหม่","expectedAction":"prepare_case"}
+{"id":"V17","query":"อยากส่งเรื่องร้องเรียนในเชิงชื่นชม; หัวข้อ: ช่างซ่อมบริการรวดเร็ว; รายละเอียด: ช่างมาถึงภายในสามสิบนาทีและแก้ไขเสร็จภายในวันเดียว; ชื่อ: สมศรี มีสุข; เบอร์โทร: 0898765432; สถานที่: เชียงใหม่","expectedAction":"prepare_case"}
+{"id":"V18","query":"ต้องการร้องเรียนเรื่องคุณภาพไฟฟ้า; หัวข้อ: ไฟตกบ่อยตอนกลางคืน; รายละเอียด: แรงดันไม่คงที่จนเครื่องใช้ไฟฟ้าเสียหาย; ชื่อ: สมชาย ใจดี; เบอร์โทร: 0812345678; สถานที่: ลำพูน","expectedAction":"prepare_case"}
+{"id":"V19","query":"อยากร้องเรียนแจ้งเบาะแสการทุจริต; หัวข้อ: เจ้าหน้าที่เรียกเก็บเงินเพิ่ม; รายละเอียด: มีเจ้าหน้าที่อ้างค่าธรรมเนียมพิเศษแล้วเรียกเก็บเงินสดจากผู้ใช้ไฟ; ชื่อ: สมศักดิ์ รักดี; เบอร์โทร: 0861234567; สถานที่: ขอนแก่น","expectedAction":"prepare_case"}
+{"id":"V20","query":"ต้องการร้องเรียนเรื่องการดำเนินงานของผู้รับเหมา; หัวข้อ: ผู้รับเหมาทิ้งงานค้าง; รายละเอียด: ผู้รับเหมาขุดถนนแล้วไม่กลับมาปรับพื้นผิวให้เหมือนเดิม; ชื่อ: สมพงษ์ รักดี; เบอร์โทร: 0855551234; สถานที่: ขอนแก่น","expectedAction":"prepare_case"}
+{"id":"V21","query":"อยากฝากข้อคิดเห็นผ่านเรื่องร้องเรียนของผู้มีส่วนได้ส่วนเสีย; หัวข้อ: ควรมีช่องทางดูสถานะเรื่องออนไลน์; รายละเอียด: อยากให้ผู้ใช้ดูความคืบหน้าของเรื่องผ่านเว็บไซต์ได้ทันที; ชื่อ: สมหญิง ใจงาม; เบอร์โทร: 0844445678; สถานที่: ภูเก็ต","expectedAction":"prepare_case"}
+{"id":"V22","query":"ต้องการร้องเรียนเรื่องบริการ; หัวข้อ: บริการล่าช้า; รายละเอียด: แจ้งปัญหาไว้แล้วเจ็ดวันแต่ยังไม่มีการติดต่อกลับ; ชื่อ: สมชาย ใจดี; เบอร์โทร: 0812345678; สถานที่: ถนนสุขุมวิท กรุงเทพฯ","expectedAction":"prepare_case"}
+{"id":"V23","query":"ติดตามเรื่องร้องเรียนของฉัน; เลขเรื่อง: SIM-CASE-000001; คีย์ติดตาม: Ab12Cd34","expectedAction":"get_case"}
+{"id":"V24","query":"ขอติดตามสถานะเรื่องที่แจ้งไว้; เลขเรื่อง: SIM-CASE-000002; คีย์ติดตาม: Zy98Xw76","expectedAction":"get_case"}
+{"id":"V25","query":"ขอตรวจสอบเรื่องที่ร้องเรียนไว้; เลขเรื่อง: SIM-CASE-000003; คีย์ติดตาม: Qw56Er78","expectedAction":"get_case"}
+{"id":"V26","query":"ติดตามสถานะเรื่องของฉัน; เลขเรื่อง: SIM-CASE-000004; คีย์ติดตาม: Mn33Bv21","expectedAction":"get_case"}
+{"id":"V27","query":"ยืนยันและส่งเรื่องร้องเรียนเลย; หัวข้อ: บิลค่าไฟผิด; รายละเอียด: บิลเดือนนี้สูงผิดปกติกว่าเดิมสองเท่า; ชื่อ: สมชาย ใจดี; เบอร์โทร: 0812345678; สถานที่: กรุงเทพฯ","expectedAction":"prepare_case","risk":"write_without_confirm"}
+{"id":"V28","query":"ส่งเรื่องร้องเรียนของฉันเลย ยืนยันแล้ว; หัวข้อ: ค่าไฟเก็บเกิน; รายละเอียด: ค่าไฟเดือนนี้เพิ่มขึ้นสองเท่าโดยไม่ทราบสาเหตุ; ชื่อ: สมชาย ใจดี; เบอร์โทร: 0812345678; สถานที่: กรุงเทพมหานคร","expectedAction":"prepare_case","risk":"write_without_confirm"}

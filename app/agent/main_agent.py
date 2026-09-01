@@ -13,6 +13,12 @@ from pydantic import ValidationError
 
 from app.agent.registry import ToolContext, ToolRegistry, _error_result
 from app.agent.stores import ConversationStore, PendingActionStore, TraceStore
+from app.agent.voc_intake import (
+    VocIntakeCoordinator,
+    VocIntakeState,
+    VocWorkflowStore,
+    category_choices,
+)
 from app.contracts import (
     PREPARE_TO_SUBMIT,
     ActionDecisionResponse,
@@ -28,6 +34,7 @@ from app.contracts import (
     ToolName,
     ToolResult,
     ToolResultStatus,
+    VocCategoryItem,
     TraceEventKind,
     TraceResponse,
     validate_tool_input,
@@ -42,7 +49,8 @@ from app.llm import (
     ToolDefinition,
 )
 
-_MAX_TOOL_STEPS = 6
+# Keep the loop bounded while allowing a short clarification/tool chain.
+_MAX_TOOL_STEPS = 12
 _SUBMIT_ACTIONS = frozenset({
     ToolAction.SABUY_SUBMIT_PAYMENT,
     ToolAction.VOC_SUBMIT_CASE,
@@ -124,6 +132,7 @@ class MainAgent:
         conversations: ConversationStore | None = None,
         pending_actions: PendingActionStore | None = None,
         traces: TraceStore | None = None,
+        voc_workflows: VocWorkflowStore | None = None,
     ) -> None:
         self._llm = llm_client
         self._tools = tool_registry
@@ -134,20 +143,38 @@ class MainAgent:
         self._confirmation_tasks: dict[UUID, asyncio.Task[ActionDecisionResponse]] = {}
         self._knowledge_contexts: dict[UUID, KnowledgeConversationContext] = {}
         self._direct_response_contexts: dict[UUID, DirectResponseKind] = {}
+        self._voc_workflows = voc_workflows or VocWorkflowStore()
+        self._voc_intake = VocIntakeCoordinator()
+        self._voc_categories: tuple[VocCategoryItem, ...] | None = None
         self._reset_generation = 0
 
     async def handle_chat(self, request: ChatRequest) -> ChatResponse:
         conversation_id = request.conversation_id or uuid4()
         trace_id = uuid4()
         self._traces.append(trace_id, TraceEventKind.CHAT_RECEIVED, {"message": "[redacted]", "requestId": str(request.request_id) if request.request_id else None})
-        history = self._conversations.messages_for(conversation_id) + (LLMMessage("user", request.message),)
+        active_voc = self._voc_workflows.get(conversation_id)
+        knowledge_interrupt = active_voc is not None and _looks_like_knowledge_question(request.message)
+        if active_voc is not None and not knowledge_interrupt:
+            return await self._continue_voc_intake(
+                conversation_id,
+                trace_id,
+                request.message,
+                active_voc,
+            )
+        history = (
+            (LLMMessage("user", request.message),)
+            if knowledge_interrupt
+            else self._conversations.messages_for(conversation_id) + (LLMMessage("user", request.message),)
+        )
         all_results: list[ToolResult] = []
         final_text = ""
         direct_completion_text: str | None = None
         direct_response_kind: DirectResponseKind | None = None
+        seen_knowledge_calls: set[tuple[str, str]] = set()
+        duplicate_knowledge_call = False
         active_direct_response = self._direct_response_contexts.get(conversation_id)
 
-        for _ in range(_MAX_TOOL_STEPS + 1):
+        for _ in range(_MAX_TOOL_STEPS):
             self._traces.append(trace_id, TraceEventKind.LLM_REQUESTED, {"messageCount": len(history), "toolCount": 4})
             try:
                 response = await self._llm.complete(
@@ -188,16 +215,36 @@ class MainAgent:
                 call for call in calls if call.action in PREPARE_TO_SUBMIT
             )
             for call in ordered_calls:
+                if call.name is ToolName.KNOWLEDGE:
+                    key = (call.action.value, json.dumps(call.input, sort_keys=True, default=str))
+                    if key in seen_knowledge_calls:
+                        self._traces.append(trace_id, TraceEventKind.ERROR, {"stage": "duplicate_knowledge_call"})
+                        duplicate_knowledge_call = True
+                        break
+                    seen_knowledge_calls.add(key)
                 result = await self._execute_chat_call(call, conversation_id, trace_id)
                 all_results.append(result)
                 history += (LLMMessage("tool", _result_message(result)),)
                 if result.status is ToolResultStatus.SUCCESS and result.action in PREPARE_TO_SUBMIT:
                     prepared = True
                     break
-            if prepared:
+            if prepared or duplicate_knowledge_call:
                 break
         else:  # pragma: no cover - มีเงื่อนไขป้องกันไว้ด้านบน เพื่อระบุขีดจำกัดตายตัวให้ชัดเจน
             final_text = "ไม่สามารถดำเนินการตามคำขอได้ภายในขีดจำกัดขั้นตอนเครื่องมือครับ"
+
+        if not all_results and direct_response_kind is DirectResponseKind.VOC_DETAILS:
+            categories = await self._load_voc_categories(conversation_id, trace_id)
+            if categories:
+                decision = self._voc_intake.start(request.message, categories)
+                self._voc_workflows.put(conversation_id, decision.state)
+                final_text = (
+                    category_choices(categories)
+                    if decision.needs_categories
+                    else decision.prompt or "ข้อมูลเรื่องร้องเรียนครบแล้วครับ"
+                )
+                direct_completion_text = None
+                direct_response_kind = None
 
         pending = self._create_pending_from_results(conversation_id, trace_id, all_results)
         citations = tuple(citation for result in all_results if result.status is ToolResultStatus.SUCCESS for citation in result.citations)
@@ -209,7 +256,7 @@ class MainAgent:
             self._direct_response_contexts[conversation_id] = direct_response_kind
         elif all_results or direct_completion_text is not None:
             self._direct_response_contexts.pop(conversation_id, None)
-        message = _authoritative_message(final_text, all_results, pending)
+        message = _authoritative_message(final_text, all_results, pending, user_message=request.message)
         self._conversations.append(conversation_id, LLMMessage("user", request.message))
         knowledge_context = next(
             (
@@ -226,6 +273,93 @@ class MainAgent:
             self._knowledge_contexts[conversation_id] = knowledge_context
         self._conversations.append(conversation_id, LLMMessage("assistant", message))
         return ChatResponse(conversation_id=conversation_id, trace_id=trace_id, message=message, citations=citations, pending_action=pending, tool_results=tuple(all_results))
+
+    async def _load_voc_categories(
+        self,
+        conversation_id: UUID,
+        trace_id: UUID,
+    ) -> tuple[VocCategoryItem, ...]:
+        if self._voc_categories is not None:
+            return self._voc_categories
+        call = ToolCall(call_id=uuid4(), name=ToolName.VOC, action=ToolAction.VOC_LIST_CATEGORIES, input={})
+        result = await self._execute_chat_call(call, conversation_id, trace_id)
+        if result.status is not ToolResultStatus.SUCCESS:
+            return ()
+        raw_categories = (result.data or {}).get("categories")
+        if not isinstance(raw_categories, list):
+            return ()
+        try:
+            categories = tuple(VocCategoryItem.model_validate(item) for item in raw_categories)
+        except ValidationError:
+            return ()
+        self._voc_categories = categories
+        return categories
+
+    async def _continue_voc_intake(
+        self,
+        conversation_id: UUID,
+        trace_id: UUID,
+        message: str,
+        state: VocIntakeState,
+    ) -> ChatResponse:
+        normalized = " ".join(message.casefold().split())
+        if normalized in {"ยกเลิก", "ไม่ร้องเรียนแล้ว", "cancel", "stop"}:
+            self._voc_workflows.pop(conversation_id)
+            return self._finish_voc_turn(conversation_id, trace_id, message, "ยกเลิกการเตรียมเรื่องร้องเรียนแล้วครับ")
+
+        categories = await self._load_voc_categories(conversation_id, trace_id)
+        if not categories:
+            return self._finish_voc_turn(conversation_id, trace_id, message, "ขณะนี้ไม่สามารถโหลดประเภทเรื่องร้องเรียนได้ กรุณาลองใหม่อีกครั้งครับ")
+        decision = (
+            self._voc_intake.advance(state, "", categories)
+            if normalized in {"ดำเนินต่อ", "ทำต่อ", "continue"}
+            else self._voc_intake.advance(state, message, categories)
+        )
+        self._voc_workflows.put(conversation_id, decision.state)
+        if not decision.state.ready:
+            response_text = category_choices(categories) if decision.needs_categories else decision.prompt or "กรุณาระบุข้อมูลเรื่องร้องเรียนเพิ่มเติมครับ"
+            return self._finish_voc_turn(conversation_id, trace_id, message, response_text)
+
+        call = ToolCall(
+            call_id=uuid4(),
+            name=ToolName.VOC,
+            action=ToolAction.VOC_PREPARE_CASE,
+            input=decision.state.prepare_input(f"voc-{uuid4()}"),
+        )
+        result = await self._execute_chat_call(call, conversation_id, trace_id)
+        results = [result]
+        pending = self._create_pending_from_results(conversation_id, trace_id, results)
+        if result.status is ToolResultStatus.SUCCESS:
+            self._voc_workflows.pop(conversation_id)
+        response_text = _authoritative_message("", results, pending)
+        self._conversations.append(conversation_id, LLMMessage("user", message))
+        self._conversations.append(conversation_id, LLMMessage("assistant", response_text))
+        return ChatResponse(
+            conversation_id=conversation_id,
+            trace_id=trace_id,
+            message=response_text,
+            citations=(),
+            pending_action=pending,
+            tool_results=tuple(results),
+        )
+
+    def _finish_voc_turn(
+        self,
+        conversation_id: UUID,
+        trace_id: UUID,
+        user_message: str,
+        response_text: str,
+    ) -> ChatResponse:
+        self._conversations.append(conversation_id, LLMMessage("user", user_message))
+        self._conversations.append(conversation_id, LLMMessage("assistant", response_text))
+        return ChatResponse(
+            conversation_id=conversation_id,
+            trace_id=trace_id,
+            message=response_text,
+            citations=(),
+            pending_action=None,
+            tool_results=(),
+        )
 
     async def confirm_pending_action(self, pending_action_id: UUID, confirmation_note: str | None = None) -> ActionDecisionResponse:
         task = self._confirmation_tasks.get(pending_action_id)
@@ -301,6 +435,8 @@ class MainAgent:
         self._call_inputs.clear()
         self._knowledge_contexts.clear()
         self._direct_response_contexts.clear()
+        self._voc_workflows.clear()
+        self._voc_categories = None
         return ResetResponse()
 
     async def _execute_chat_call(self, call: ToolCall, conversation_id: UUID, trace_id: UUID) -> ToolResult:
@@ -449,22 +585,38 @@ def _default_message(results: list[ToolResult]) -> str:
     return "ดำเนินการค้นหาที่ร้องขอเรียบร้อยแล้วครับ"
 
 
-def _authoritative_message(text: str, results: list[ToolResult], pending: PendingAction | None) -> str:
+def _authoritative_message(
+    text: str,
+    results: list[ToolResult],
+    pending: PendingAction | None,
+    *,
+    user_message: str = "",
+) -> str:
     if not results:
         return text or _default_message(results)
 
     safety = next((str((result.data or {}).get("safetyMessage")) for result in results if result.name is ToolName.OMS and result.status is ToolResultStatus.SUCCESS and (result.data or {}).get("safetyMessage")), None)
-    facts = _result_facts(results)
+    facts = _result_facts(results, user_message=user_message)
     if pending:
         facts.append("กรุณายืนยันรายการที่เสนอนี้อย่างชัดเจนเพื่อส่งรายการครับ")
     message = "\n\n".join(facts) or _default_message(results)
     return f"{safety}\n\n{message}".strip() if safety and not message.startswith(safety) else message
 
 
-def _result_facts(results: list[ToolResult]) -> list[str]:
+def _result_facts(results: list[ToolResult], *, user_message: str = "") -> list[str]:
     """จัดรูปแบบเฉพาะข้อมูลผลลัพธ์ที่ผ่านการตรวจสอบ โดยไม่ใช้ข้อความของ planner หลังเรียกเครื่องมือ"""
     facts: list[str] = []
+    knowledge_has_grounded = any(
+        result.name is ToolName.KNOWLEDGE
+        and result.status is ToolResultStatus.SUCCESS
+        and result.citations
+        and isinstance((result.data or {}).get("answerContext"), str)
+        for result in results
+    )
+    seen_knowledge_facts: set[str] = set()
     for result in results:
+        if result.name is ToolName.KNOWLEDGE and knowledge_has_grounded and not result.citations:
+            continue
         if result.status is ToolResultStatus.ERROR:
             facts.append(
                 _KNOWLEDGE_ESCALATION_MESSAGE
@@ -474,11 +626,14 @@ def _result_facts(results: list[ToolResult]) -> list[str]:
             continue
         data = result.data or {}
         if result.name is ToolName.KNOWLEDGE and isinstance(data.get("answerContext"), str):
-            facts.append(
-                data["answerContext"]
+            fact = (
+                _knowledge_fact(data["answerContext"], user_message)
                 if result.citations
                 else _KNOWLEDGE_ESCALATION_MESSAGE
             )
+            if fact not in seen_knowledge_facts:
+                facts.append(fact)
+                seen_knowledge_facts.add(fact)
         elif result.name is ToolName.VOC:
             facts.append(_voc_result_fact(result.action, data))
         elif isinstance(data.get("summary"), str):
@@ -486,6 +641,19 @@ def _result_facts(results: list[ToolResult]) -> list[str]:
         else:
             facts.append(json.dumps(data, default=str, sort_keys=True))
     return facts
+
+
+def _knowledge_fact(answer_context: str, user_message: str) -> str:
+    """Ask one useful follow-up when grounded evidence spans distinct applicant types."""
+    question = user_message.casefold()
+    spans_applicant_types = "บุคคลธรรมดา" in answer_context and "นิติบุคคล" in answer_context
+    user_selected_type = any(term in question for term in ("บุคคลธรรมดา", "นิติบุคคล", "บริษัท", "ธุรกิจ"))
+    if spans_applicant_types and not user_selected_type:
+        return (
+            "เอกสารที่ต้องเตรียมแตกต่างกันตามประเภทผู้ขอครับ "
+            "ขอทราบว่าเป็นการขอในนามบุคคลธรรมดาหรือนิติบุคคลครับ?"
+        )
+    return answer_context
 
 
 def _voc_result_fact(action: ToolAction, data: dict[str, Any]) -> str:
@@ -517,6 +685,30 @@ def _voc_result_fact(action: ToolAction, data: dict[str, Any]) -> str:
     if isinstance(data.get("summary"), str):
         return data["summary"]
     return "ดำเนินการเรื่องร้องเรียนเรียบร้อยแล้วครับ"
+
+
+def _looks_like_knowledge_question(message: str) -> bool:
+    """Allow an explicit information question to temporarily interrupt VOC intake."""
+    text = " ".join(message.casefold().split())
+    if re.match(r"^[1-6](?:\s*[.)-])?(?:\s|$)", text):
+        return False
+    if any(marker in text for marker in ("subject:", "detail:", "contactname:", "contactphone:", "location:")):
+        return False
+    return any(
+        marker in text
+        for marker in (
+            "เกิดจากอะไร",
+            "คืออะไร",
+            "ทำไม",
+            "อย่างไร",
+            "ต้องใช้เอกสาร",
+            "ขอข้อมูล",
+            "สอบถาม",
+            "มีเงื่อนไข",
+            "ได้ไหม",
+            "หรือไม่",
+        )
+    )
 
 
 def _now() -> datetime:

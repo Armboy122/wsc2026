@@ -1,0 +1,613 @@
+openapi: 3.1.0
+
+info:
+  title: OMS Outage Integration API
+  version: 1.0.0
+  description: |
+    API contract สำหรับเชื่อม PEA One Agent กับระบบ OMS (Outage Management System)
+
+    ขอบเขตของ API ชุดนี้มี 3 operations:
+      1. ตรวจสอบเหตุไฟฟ้าขัดข้องจากหมายเลขผู้ใช้ไฟ (CA) 12 หลัก
+      2. สร้างเหตุไฟฟ้าขัดข้องเมื่อทราบ CA
+      3. รับแจ้งเหตุไฟฟ้าขัดข้องเมื่อผู้ใช้ไม่ทราบ CA
+
+    หลักการสำคัญ:
+      - OMS เป็นผู้รับผิดชอบการ resolve ความสัมพันธ์ CA → Meter → Transformer → Feeder
+      - Agent ไม่ต้อง query โครงข่ายทีละระดับเอง
+      - ถ้ามีเหตุการณ์ระดับ Meter / Transformer / Feeder อยู่แล้ว OMS ต้องตอบเหตุการณ์ที่เกี่ยวข้องกลับมา
+      - การไม่พบ active event ถือเป็นผลลัพธ์ปกติ (HTTP 200) ไม่ใช่ 404
+      - HTTP 404 ใช้เมื่อไม่พบ CA ในระบบ OMS
+      - endpoint POST เป็นการเปลี่ยนแปลงข้อมูล และฝั่ง Agent ควรใช้ flow prepare → confirm → submit ก่อนเรียกจริง
+
+servers:
+  - url: http://localhost:8101
+    description: Local OMS service
+  - url: https://oms.example.internal
+    description: Example production/staging OMS service
+
+tags:
+  - name: Outages
+    description: ตรวจสอบและรับแจ้งเหตุไฟฟ้าขัดข้อง
+
+paths:
+  /api/v1/outages/by-ca/{caNumber}:
+    get:
+      tags:
+        - Outages
+      operationId: getOutageByCa
+      summary: ตรวจสอบเหตุไฟฟ้าขัดข้องจากหมายเลขผู้ใช้ไฟ
+      description: |
+        ตรวจสอบว่าหมายเลขผู้ใช้ไฟ (CA) 12 หลักได้รับผลกระทบจากเหตุการณ์ไฟฟ้าขัดข้องที่มีอยู่แล้วหรือไม่
+
+        OMS ต้องเป็นผู้ resolve ความสัมพันธ์:
+        CA → Meter → Transformer → Feeder
+
+        หากพบเหตุที่เกี่ยวข้อง ให้คืน activeEvent ที่เหมาะสมกลับมา
+        หากไม่พบเหตุที่เกี่ยวข้อง ให้คืน activeEvent = null และ recommendedAction = CREATE_METER_EVENT
+      parameters:
+        - name: caNumber
+          in: path
+          required: true
+          description: หมายเลขผู้ใช้ไฟ 12 หลัก
+          schema:
+            $ref: '#/components/schemas/CaNumber'
+          examples:
+            transformerEvent:
+              value: "100000000001"
+            feederEvent:
+              value: "100000000002"
+            noEvent:
+              value: "100000000003"
+      responses:
+        '200':
+          description: ตรวจสอบ CA สำเร็จ
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/OutageCheckResponse'
+              examples:
+                transformerEvent:
+                  summary: พบเหตุระดับหม้อแปลง
+                  value:
+                    caNumber: "100000000001"
+                    customerFound: true
+                    network:
+                      meterId: "MTR-001"
+                      transformerId: "TR-001"
+                      feederId: "FDR-01"
+                    activeEvent:
+                      eventId: "OMS-TR-0001"
+                      level: "TRANSFORMER"
+                      status: "IN_PROGRESS"
+                      message: "พบเหตุไฟฟ้าขัดข้องที่หม้อแปลงซึ่งจ่ายไฟให้ผู้ใช้ไฟรายนี้"
+                      startedAt: "2026-09-01T07:30:00+07:00"
+                      estimatedRestoreAt: null
+                    recommendedAction: "INFORM_EXISTING_EVENT"
+
+                feederEvent:
+                  summary: พบเหตุระดับฟีดเดอร์
+                  value:
+                    caNumber: "100000000002"
+                    customerFound: true
+                    network:
+                      meterId: "MTR-002"
+                      transformerId: "TR-002"
+                      feederId: "FDR-02"
+                    activeEvent:
+                      eventId: "OMS-FDR-0001"
+                      level: "FEEDER"
+                      status: "IN_PROGRESS"
+                      message: "พบเหตุไฟฟ้าขัดข้องระดับฟีดเดอร์ที่ครอบคลุมพื้นที่ของผู้ใช้ไฟรายนี้"
+                      startedAt: "2026-09-01T07:00:00+07:00"
+                      estimatedRestoreAt: null
+                    recommendedAction: "INFORM_EXISTING_EVENT"
+
+                noEvent:
+                  summary: ไม่พบเหตุที่เกี่ยวข้อง
+                  value:
+                    caNumber: "100000000003"
+                    customerFound: true
+                    network:
+                      meterId: "MTR-003"
+                      transformerId: "TR-003"
+                      feederId: "FDR-03"
+                    activeEvent: null
+                    recommendedAction: "CREATE_METER_EVENT"
+
+        '400':
+          description: CA ไม่ถูกต้อง
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+              example:
+                error:
+                  code: "INVALID_CA"
+                  message: "หมายเลขผู้ใช้ไฟต้องเป็นตัวเลข 12 หลัก"
+
+        '404':
+          description: ไม่พบ CA ในระบบ OMS
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+              example:
+                error:
+                  code: "CA_NOT_FOUND"
+                  message: "ไม่พบหมายเลขผู้ใช้ไฟในระบบ OMS"
+
+        '500':
+          $ref: '#/components/responses/InternalServerError'
+
+        '503':
+          $ref: '#/components/responses/ServiceUnavailable'
+
+  /api/v1/outages:
+    post:
+      tags:
+        - Outages
+      operationId: createOutageWithCa
+      summary: สร้างเหตุไฟฟ้าขัดข้องเมื่อทราบ CA
+      description: |
+        ใช้เมื่อผู้ใช้ทราบหมายเลขผู้ใช้ไฟ และ OMS ตรวจแล้วว่าไม่มี active event
+        ที่เกี่ยวข้องกับผู้ใช้ไฟรายนี้
+
+        OMS ต้องจัดการการเชื่อมโยงเหตุการณ์กับ Meter / Transformer / Feeder ภายในเอง
+
+        ฝั่ง Agent ควรเรียก endpoint นี้หลังจากผู้ใช้ยืนยันการแจ้งเหตุแล้วเท่านั้น
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CreateOutageRequest'
+            example:
+              caNumber: "100000000003"
+              description: "ไฟดับทั้งบ้านตั้งแต่ประมาณ 08:00 น."
+              contactPhone: "0812345678"
+              locationNote: "บ้านเลขที่ 99 ตำบลตัวอย่าง"
+      responses:
+        '201':
+          description: สร้างเหตุไฟฟ้าขัดข้องสำเร็จ
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/CreateOutageResponse'
+              example:
+                eventId: "OMS-METER-0001"
+                caNumber: "100000000003"
+                level: "METER"
+                status: "RECEIVED"
+                message: "OMS รับแจ้งเหตุไฟฟ้าขัดข้องของผู้ใช้ไฟแล้ว"
+
+        '400':
+          description: Request ไม่ถูกต้อง
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+              examples:
+                invalidCa:
+                  value:
+                    error:
+                      code: "INVALID_CA"
+                      message: "หมายเลขผู้ใช้ไฟต้องเป็นตัวเลข 12 หลัก"
+                invalidInput:
+                  value:
+                    error:
+                      code: "INVALID_INPUT"
+                      message: "ข้อมูลแจ้งเหตุไม่ครบถ้วนหรือไม่ถูกต้อง"
+
+        '404':
+          description: ไม่พบ CA ในระบบ OMS
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+              example:
+                error:
+                  code: "CA_NOT_FOUND"
+                  message: "ไม่พบหมายเลขผู้ใช้ไฟในระบบ OMS"
+
+        '409':
+          description: พบ active event ที่เกี่ยวข้องแล้ว
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ConflictErrorResponse'
+              example:
+                error:
+                  code: "ACTIVE_EVENT_EXISTS"
+                  message: "พบเหตุการณ์ที่เกี่ยวข้องใน OMS แล้ว"
+                  existingEventId: "OMS-TR-0099"
+
+        '500':
+          $ref: '#/components/responses/InternalServerError'
+
+        '503':
+          $ref: '#/components/responses/ServiceUnavailable'
+
+  /api/v1/outages/anonymous:
+    post:
+      tags:
+        - Outages
+      operationId: createAnonymousOutage
+      summary: รับแจ้งเหตุไฟฟ้าขัดข้องเมื่อไม่ทราบ CA
+      description: |
+        ใช้เมื่อผู้ใช้ไม่ทราบหมายเลขผู้ใช้ไฟ 12 หลัก
+
+        ต้องมีอย่างน้อย:
+          - description
+          - location
+          - contactPhone
+
+        OMS สามารถนำข้อมูลนี้ไปทำ correlation / enrichment ภายในภายหลังได้
+
+        ฝั่ง Agent ควรเรียก endpoint นี้หลังจากผู้ใช้ยืนยันการแจ้งเหตุแล้วเท่านั้น
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CreateAnonymousOutageRequest'
+            example:
+              description: "ไฟดับบริเวณบ้านและบ้านข้างเคียง"
+              location: "หมู่ 3 ตำบลตัวอย่าง อำเภอหาดใหญ่ จังหวัดสงขลา"
+              contactPhone: "0812345678"
+      responses:
+        '201':
+          description: รับแจ้งเหตุแบบไม่มี CA สำเร็จ
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/CreateAnonymousOutageResponse'
+              example:
+                reportId: "OMS-ANON-0001"
+                status: "RECEIVED"
+                message: "OMS รับแจ้งเหตุโดยไม่มีหมายเลขผู้ใช้ไฟแล้ว"
+
+        '400':
+          description: Request ไม่ถูกต้อง
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+              example:
+                error:
+                  code: "INVALID_INPUT"
+                  message: "กรุณาระบุรายละเอียดเหตุ สถานที่ และเบอร์โทรติดต่อกลับ"
+
+        '500':
+          $ref: '#/components/responses/InternalServerError'
+
+        '503':
+          $ref: '#/components/responses/ServiceUnavailable'
+
+components:
+  schemas:
+    CaNumber:
+      type: string
+      description: หมายเลขผู้ใช้ไฟ 12 หลัก
+      pattern: '^[0-9]{12}$'
+      minLength: 12
+      maxLength: 12
+      examples:
+        - "100000000001"
+
+    EventLevel:
+      type: string
+      enum:
+        - METER
+        - TRANSFORMER
+        - FEEDER
+      description: ระดับของเหตุไฟฟ้าขัดข้องในโครงข่าย
+
+    OutageStatus:
+      type: string
+      enum:
+        - RECEIVED
+        - ACKNOWLEDGED
+        - IN_PROGRESS
+        - RESTORED
+      description: สถานะเหตุการณ์ OMS
+
+    RecommendedAction:
+      type: string
+      enum:
+        - INFORM_EXISTING_EVENT
+        - CREATE_METER_EVENT
+      description: |
+        คำแนะนำจาก OMS ให้ Agent ใช้ตัดสิน flow ถัดไป
+
+        INFORM_EXISTING_EVENT:
+          พบเหตุการณ์ที่เกี่ยวข้องอยู่แล้ว ให้แจ้งผู้ใช้และไม่สร้างเหตุซ้ำ
+
+        CREATE_METER_EVENT:
+          ไม่พบเหตุการณ์ที่เกี่ยวข้อง สามารถเข้าสู่ flow เตรียมสร้างเหตุระดับผู้ใช้ไฟได้
+
+    NetworkReference:
+      type: object
+      additionalProperties: false
+      required:
+        - meterId
+        - transformerId
+        - feederId
+      properties:
+        meterId:
+          type: string
+          minLength: 1
+          examples:
+            - "MTR-001"
+        transformerId:
+          type: string
+          minLength: 1
+          examples:
+            - "TR-001"
+        feederId:
+          type: string
+          minLength: 1
+          examples:
+            - "FDR-01"
+
+    ActiveOutageEvent:
+      type: object
+      additionalProperties: false
+      required:
+        - eventId
+        - level
+        - status
+        - message
+        - startedAt
+        - estimatedRestoreAt
+      properties:
+        eventId:
+          type: string
+          minLength: 1
+          examples:
+            - "OMS-TR-0001"
+
+        level:
+          $ref: '#/components/schemas/EventLevel'
+
+        status:
+          $ref: '#/components/schemas/OutageStatus'
+
+        message:
+          type: string
+          minLength: 1
+          maxLength: 1000
+
+        startedAt:
+          type: string
+          format: date-time
+
+        estimatedRestoreAt:
+          anyOf:
+            - type: string
+              format: date-time
+            - type: 'null'
+          description: เวลาคาดว่าจะจ่ายไฟกลับ หาก OMS มีข้อมูล
+
+    OutageCheckResponse:
+      type: object
+      additionalProperties: false
+      required:
+        - caNumber
+        - customerFound
+        - network
+        - activeEvent
+        - recommendedAction
+      properties:
+        caNumber:
+          $ref: '#/components/schemas/CaNumber'
+
+        customerFound:
+          type: boolean
+          const: true
+          description: |
+            Response 200 ของ endpoint นี้หมายถึงพบผู้ใช้ไฟใน OMS แล้ว
+            กรณีไม่พบ CA ให้ใช้ HTTP 404
+
+        network:
+          $ref: '#/components/schemas/NetworkReference'
+
+        activeEvent:
+          anyOf:
+            - $ref: '#/components/schemas/ActiveOutageEvent'
+            - type: 'null'
+
+        recommendedAction:
+          $ref: '#/components/schemas/RecommendedAction'
+
+    CreateOutageRequest:
+      type: object
+      additionalProperties: false
+      required:
+        - caNumber
+        - description
+      properties:
+        caNumber:
+          $ref: '#/components/schemas/CaNumber'
+
+        description:
+          type: string
+          minLength: 1
+          maxLength: 2000
+          description: รายละเอียดอาการหรือเหตุไฟฟ้าขัดข้องที่ผู้ใช้แจ้ง
+
+        contactPhone:
+          anyOf:
+            - type: string
+              minLength: 8
+              maxLength: 32
+            - type: 'null'
+          description: เบอร์โทรติดต่อกลับ ถ้ามี
+
+        locationNote:
+          anyOf:
+            - type: string
+              minLength: 1
+              maxLength: 500
+            - type: 'null'
+          description: ข้อมูลสถานที่เพิ่มเติม ถ้ามี
+
+    CreateOutageResponse:
+      type: object
+      additionalProperties: false
+      required:
+        - eventId
+        - caNumber
+        - level
+        - status
+        - message
+      properties:
+        eventId:
+          type: string
+          minLength: 1
+
+        caNumber:
+          $ref: '#/components/schemas/CaNumber'
+
+        level:
+          type: string
+          const: METER
+
+        status:
+          $ref: '#/components/schemas/OutageStatus'
+
+        message:
+          type: string
+          minLength: 1
+          maxLength: 1000
+
+    CreateAnonymousOutageRequest:
+      type: object
+      additionalProperties: false
+      required:
+        - description
+        - location
+        - contactPhone
+      properties:
+        description:
+          type: string
+          minLength: 1
+          maxLength: 2000
+          description: รายละเอียดอาการหรือเหตุไฟฟ้าขัดข้อง
+
+        location:
+          type: string
+          minLength: 1
+          maxLength: 1000
+          description: สถานที่เกิดเหตุแบบข้อความ
+
+        contactPhone:
+          type: string
+          minLength: 8
+          maxLength: 32
+          description: เบอร์โทรติดต่อกลับ
+
+    CreateAnonymousOutageResponse:
+      type: object
+      additionalProperties: false
+      required:
+        - reportId
+        - status
+        - message
+      properties:
+        reportId:
+          type: string
+          minLength: 1
+
+        status:
+          $ref: '#/components/schemas/OutageStatus'
+
+        message:
+          type: string
+          minLength: 1
+          maxLength: 1000
+
+    ErrorDetail:
+      type: object
+      additionalProperties: false
+      required:
+        - code
+        - message
+      properties:
+        code:
+          type: string
+          enum:
+            - INVALID_CA
+            - CA_NOT_FOUND
+            - INVALID_INPUT
+            - ACTIVE_EVENT_EXISTS
+            - OMS_UNAVAILABLE
+            - OMS_TIMEOUT
+            - INVALID_RESPONSE
+            - INTERNAL_ERROR
+
+        message:
+          type: string
+          minLength: 1
+          maxLength: 1000
+
+    ErrorResponse:
+      type: object
+      additionalProperties: false
+      required:
+        - error
+      properties:
+        error:
+          $ref: '#/components/schemas/ErrorDetail'
+
+    ConflictErrorDetail:
+      type: object
+      additionalProperties: false
+      required:
+        - code
+        - message
+        - existingEventId
+      properties:
+        code:
+          type: string
+          const: ACTIVE_EVENT_EXISTS
+
+        message:
+          type: string
+          minLength: 1
+          maxLength: 1000
+
+        existingEventId:
+          type: string
+          minLength: 1
+
+    ConflictErrorResponse:
+      type: object
+      additionalProperties: false
+      required:
+        - error
+      properties:
+        error:
+          $ref: '#/components/schemas/ConflictErrorDetail'
+
+  responses:
+    InternalServerError:
+      description: เกิดข้อผิดพลาดภายใน OMS
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ErrorResponse'
+          example:
+            error:
+              code: "INTERNAL_ERROR"
+              message: "เกิดข้อผิดพลาดภายในระบบ OMS"
+
+    ServiceUnavailable:
+      description: ระบบ OMS ไม่พร้อมใช้งานชั่วคราว
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ErrorResponse'
+          example:
+            error:
+              code: "OMS_UNAVAILABLE"
+              message: "ระบบ OMS ไม่พร้อมใช้งานชั่วคราว"

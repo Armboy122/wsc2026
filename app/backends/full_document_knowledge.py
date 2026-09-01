@@ -363,15 +363,10 @@ def _json_response(client: Any, model: str, prompt: str) -> Any:
     generate_json = getattr(client, "generate_json", None)
     if callable(generate_json):
         return generate_json(model, prompt)
-    from google.genai import types
-
     response = client.models.generate_content(
         model=model,
         contents=prompt,
-        config={
-            "response_mime_type": "application/json",
-            "thinking_config": types.ThinkingConfig(thinking_budget=0),
-        },
+        config={"response_mime_type": "application/json"},
     )
     text = getattr(response, "text", None)
     if not isinstance(text, str):

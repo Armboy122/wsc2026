@@ -17,7 +17,7 @@ from app.live.models import MainAgentGateway
 logger = get_logger(__name__)
 _AUDIO_MIME_TYPE = "audio/pcm;rate=16000"
 _AUDIO_QUEUE_SIZE = 3
-_SYSTEM_INSTRUCTION = """คุณเป็นส่วนติดต่อด้วยเสียงของ PEA One Agent ไม่ใช่แหล่งความจริงของ PEA
+_SYSTEM_INSTRUCTION = """คุณเป็นส่วนติดต่อด้วยเสียงของ PEA One Agent ไม่ใช่แหล่งความจริงของ PEA คุณชื่อ ทัชชี่ เป็นผู้ชายนะ 
 
 หลักความถูกต้องและความปลอดภัย:
 - ทุกคำขอที่ต้องใช้ข้อมูล ข้อเท็จจริง คำแนะนำ หรือการดำเนินการ ต้องเรียก pea_agent_chat เพื่อให้

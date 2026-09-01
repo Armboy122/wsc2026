@@ -2,12 +2,22 @@
 
 from __future__ import annotations
 
+from uuid import uuid4
+
 import pytest
 
 from app.agent.main_agent import MainAgent
 from app.agent.registry import ToolRegistry
 from app.backends.full_document_knowledge import GroundedEvidence, KnowledgeBackendError
-from app.contracts import ChatRequest, Citation, ToolErrorCode, ToolResultStatus
+from app.contracts import (
+    ChatRequest,
+    Citation,
+    ToolAction,
+    ToolCall,
+    ToolErrorCode,
+    ToolName,
+    ToolResultStatus,
+)
 from app.llm import DemoLLMAdapter, LLMClient
 from app.tools.knowledge_tool import KnowledgeTool
 from app.tools.oms_tool import OmsTool
@@ -55,44 +65,37 @@ async def test_incomplete_voc_intent_asks_for_case_details_without_tool_call() -
     assert response.tool_results == ()
     assert response.pending_action is None
     assert "หัวข้อ" in response.message
-    assert "รายละเอียด" in response.message
+    assert "เลือกประเภทเรื่อง" not in response.message
 
 
 @pytest.mark.asyncio
-async def test_voc_intake_uses_plain_language_and_shows_category_choices() -> None:
+async def test_voc_intake_uses_plain_language_and_recognises_service_category() -> None:
     response = await _agent().handle_chat(
         ChatRequest(message="อยากร้องเรียนการให้บริการหน่อยครับ")
     )
 
     assert response.tool_results == ()
     assert response.pending_action is None
-    assert "เลือกประเภทเรื่อง" in response.message
-    assert "แจ้งปัญหาด้านบริการ" in response.message
     assert "หัวข้อ" in response.message
-    assert "รายละเอียด" in response.message
+    assert "เลือกประเภทเรื่อง" not in response.message
     assert "`" not in response.message
 
 
 @pytest.mark.asyncio
-async def test_voc_category_follow_up_is_human_readable_not_json() -> None:
+async def test_voc_category_selection_advances_without_repeating_choices() -> None:
     agent = _agent()
-    first = await agent.handle_chat(
-        ChatRequest(message="อยากร้องเรียนการให้บริการหน่อยครับ")
-    )
+    first = await agent.handle_chat(ChatRequest(message="อยากร้องเรียนครับ"))
     response = await agent.handle_chat(
-        ChatRequest(
-            conversationId=first.conversation_id,
-            message="มีหัวจ้ออะไรบ้างครับ",
-        )
+        ChatRequest(conversationId=first.conversation_id, message="1. แจ้งปัญหาคุณภาพไฟฟ้า")
     )
 
-    assert [result.action.value for result in response.tool_results] == ["list_categories"]
-    assert "ประเภทเรื่องที่เลือกได้" in response.message
-    assert "1. แจ้งปัญหาคุณภาพไฟฟ้า" in response.message
-    assert "6. ชื่นชม เสนอแนะ ข้อคิดเห็น" in response.message
+    assert "1. แจ้งปัญหาคุณภาพไฟฟ้า" in first.message
+    assert "6. ชื่นชม เสนอแนะ ข้อคิดเห็น" in first.message
+    assert response.tool_results == ()
+    assert "หัวข้อ" in response.message
+    assert "เลือกประเภทเรื่อง" not in response.message
     assert "power_quality" not in response.message
     assert "{" not in response.message
-    assert "\\u0e" not in response.message
 
 
 @pytest.mark.asyncio
@@ -131,7 +134,7 @@ async def test_incomplete_outage_report_intent_asks_for_report_inputs() -> None:
 @pytest.mark.parametrize(
     ("message", "expected_text"),
     [
-        ("ร้องเรียน", "หัวข้อ"),
+        ("ร้องเรียน", "เลือกประเภทเรื่อง"),
         ("I want to make a payment", "paymentMethod"),
         ("report an outage", "location"),
     ],
@@ -498,7 +501,7 @@ async def test_json_planner_can_request_a_static_clarification() -> None:
     response = await agent.handle_chat(ChatRequest(message="ต้องการร้องเรียน"))
 
     assert "ignored freeform" not in response.message
-    assert "หัวข้อ" in response.message
+    assert "เลือกประเภทเรื่อง" in response.message
 
 
 @pytest.mark.asyncio
@@ -519,7 +522,6 @@ async def test_provider_failure_during_voc_intake_keeps_the_clarification_flow()
     )
 
     assert "บริการผู้ช่วยไม่พร้อมใช้งาน" not in second.message
-    assert "หัวข้อ" in second.message
     assert "รายละเอียด" in second.message
     assert "`" not in second.message
     assert second.tool_results == ()
@@ -551,8 +553,7 @@ async def test_structured_direct_response_never_forwards_freeform_model_text() -
     response = await agent.handle_chat(ChatRequest(message="ต้องการร้องเรียน"))
 
     assert fabricated not in response.message
-    assert "หัวข้อ" in response.message
-    assert "รายละเอียด" in response.message
+    assert "เลือกประเภทเรื่อง" in response.message
 
 
 @pytest.mark.asyncio
@@ -562,3 +563,148 @@ async def test_unsupported_intent_does_not_call_unrelated_knowledge_tool() -> No
     assert response.tool_results == ()
     assert response.pending_action is None
     assert "ไม่รองรับ" in response.message
+
+
+@pytest.mark.asyncio
+async def test_agent_loop_is_bounded_to_twelve_tool_calls() -> None:
+    from app.llm import LLMResponse, ScriptedLLMAdapter
+
+    citation = Citation(
+        sourceId="LOOP_BOUNDARY",
+        title="ขอบเขตลูป",
+        uri="knowledge://source/loop-boundary.docx",
+        snippet="ข้อมูลที่ตรวจสอบแล้ว",
+    )
+    backend = FakeKnowledgeBackend(
+        [GroundedEvidence(f"คำตอบ {index}", 1, (citation,)) for index in range(12)]
+    )
+    responses = [
+        LLMResponse(
+            tool_calls=(
+                ToolCall(
+                    call_id=uuid4(),
+                    name=ToolName.KNOWLEDGE,
+                    action=ToolAction.KNOWLEDGE_SEARCH,
+                    input={"query": f"คำถาม {index}", "maxResults": 1},
+                ),
+            )
+        )
+        for index in range(13)
+    ]
+    agent = MainAgent(LLMClient(ScriptedLLMAdapter(responses)), _registry(backend))
+
+    response = await agent.handle_chat(ChatRequest(message="ทดสอบขอบเขตลูป"))
+
+    assert len(backend.calls) == 12
+    assert len(response.tool_results) == 12
+
+
+@pytest.mark.asyncio
+async def test_repeated_identical_knowledge_call_uses_first_grounded_result_only() -> None:
+    from app.llm import LLMResponse, ScriptedLLMAdapter
+
+    citation = Citation(
+        sourceId="PEA_NEW_SERVICE",
+        title="เอกสารขอใช้ไฟฟ้าใหม่",
+        uri="knowledge://source/new-service.docx",
+        snippet="ใช้สำเนาบัตรประชาชนและทะเบียนบ้าน",
+    )
+    backend = FakeKnowledgeBackend(
+        [GroundedEvidence("ใช้สำเนาบัตรประชาชนและทะเบียนบ้าน", 1, (citation,))]
+    )
+    first_call = ToolCall(
+        call_id=uuid4(),
+        name=ToolName.KNOWLEDGE,
+        action=ToolAction.KNOWLEDGE_SEARCH,
+        input={"query": "ขอใช้ไฟใหม่ใช้เอกสารอะไร", "maxResults": 3},
+    )
+    repeated_call = first_call.model_copy(update={"call_id": uuid4()})
+    adapter = ScriptedLLMAdapter(
+        [
+            LLMResponse(tool_calls=(first_call,)),
+            LLMResponse(tool_calls=(repeated_call,)),
+        ]
+    )
+    agent = MainAgent(LLMClient(adapter), _registry(backend))
+
+    response = await agent.handle_chat(
+        ChatRequest(message="ขอใช้ไฟใหม่ใช้เอกสารอะไร")
+    )
+
+    assert len(backend.calls) == 1
+    assert len(response.tool_results) == 1
+    assert response.message == "ใช้สำเนาบัตรประชาชนและทะเบียนบ้าน"
+    assert response.citations == (citation,)
+    assert "ยังไม่พบคำตอบ" not in response.message
+
+
+@pytest.mark.asyncio
+async def test_grounded_multi_applicant_answer_asks_useful_clarification() -> None:
+    citation = Citation(
+        sourceId="NEW_SERVICE",
+        title="เอกสารขอใช้ไฟฟ้าใหม่",
+        uri="knowledge://source/new-service.docx",
+        snippet="เอกสารแตกต่างกันสำหรับบุคคลธรรมดาและนิติบุคคล",
+    )
+    backend = FakeKnowledgeBackend(
+        [
+            GroundedEvidence(
+                "บุคคลธรรมดาใช้บัตรประชาชน ส่วนนิติบุคคลใช้หนังสือรับรองบริษัท",
+                1,
+                (citation,),
+            )
+        ]
+    )
+
+    response = await _agent(backend).handle_chat(
+        ChatRequest(message="ขอใช้ไฟใหม่ต้องเตรียมเอกสารอะไรบ้าง")
+    )
+
+    assert "บุคคลธรรมดาหรือนิติบุคคล" in response.message
+    assert response.citations == (citation,)
+    assert "หนังสือรับรองบริษัท" not in response.message
+
+
+@pytest.mark.asyncio
+async def test_explicit_voc_category_advances_without_repeating_category_choices() -> None:
+    response = await _agent().handle_chat(
+        ChatRequest(message="อยากร้องเรียนเรื่องคุณภาพของไฟฟ้า")
+    )
+
+    assert response.pending_action is None
+    assert "หัวข้อ" in response.message
+    assert "เลือกประเภทเรื่อง" not in response.message
+    assert "1. แจ้งปัญหาคุณภาพไฟฟ้า" not in response.message
+
+
+@pytest.mark.asyncio
+async def test_knowledge_question_interrupts_and_then_resumes_voc_intake() -> None:
+    citation = Citation(
+        sourceId="POWER_QUALITY",
+        title="คุณภาพไฟฟ้า",
+        uri="knowledge://source/power-quality.docx",
+        snippet="ไฟตกอาจเกี่ยวข้องกับแรงดันไฟฟ้าไม่คงที่",
+    )
+    backend = FakeKnowledgeBackend(
+        [GroundedEvidence("ไฟตกอาจเกี่ยวข้องกับแรงดันไฟฟ้าไม่คงที่", 1, (citation,))]
+    )
+    agent = _agent(backend)
+    started = await agent.handle_chat(
+        ChatRequest(message="อยากร้องเรียนเรื่องคุณภาพของไฟฟ้า")
+    )
+
+    knowledge = await agent.handle_chat(
+        ChatRequest(
+            conversationId=started.conversation_id,
+            message="ไฟตกเกิดจากอะไร",
+        )
+    )
+    resumed = await agent.handle_chat(
+        ChatRequest(conversationId=started.conversation_id, message="ดำเนินต่อ")
+    )
+
+    assert [result.action.value for result in knowledge.tool_results] == ["search"]
+    assert knowledge.citations == (citation,)
+    assert "แรงดันไฟฟ้าไม่คงที่" in knowledge.message
+    assert "หัวข้อ" in resumed.message
+    assert "เลือกประเภทเรื่อง" not in resumed.message
