@@ -1,0 +1,1531 @@
+openapi: 3.1.0
+
+info:
+  title: VOC Demo Integration API
+  version: 1.0.0
+  description: |
+    สัญญา REST สำหรับเชื่อม PEA One Agent กับแอปพลิเคชัน VOC แบบสาธิต
+    ซึ่งจำลอง user journey หลักจาก PEA VOC แต่ไม่เชื่อมระบบ production และไม่เขียนข้อมูลจริง
+
+    API นี้ตั้งใจเป็นสัญญาคงที่ระหว่าง VOC Plugin กับแอปพลิเคชัน VOC ภายนอก
+    ไม่ใช่สัญญาระหว่าง LLM กับ MainAgent โดยตรง
+
+    ขอบเขต MVP มี 3 operations:
+      1. โหลด catalog สำหรับ 6 เส้นทางรับเรื่อง พร้อม taxonomy และ master data ที่จำเป็น
+      2. สร้างเคส VOC หลังผู้ใช้ตรวจทานและยืนยันอย่างชัดเจนแล้ว
+      3. ติดตามเคสเดียวด้วย VOC Number และ Key Code
+
+    หลักการสำคัญ:
+      - 6 journeys เป็นเมนูที่ผู้ใช้เห็น ไม่ใช่รายการเคส
+      - ไม่มี endpoint สำหรับ list all cases ใน public Agent flow
+      - taxonomy ภายในมี 7 request types และแยกจาก 6 journeys
+      - Agent ต้องทำ prepare → explicit confirm → submit ก่อนเรียก POST สร้างเคส
+      - prepare_case เป็นสถานะภายใน MainAgent/VOC Plugin และไม่เรียก HTTP
+      - การ lookup เป็น read operation แม้ใช้ POST เพื่อไม่ใส่ Key Code ใน URL หรือ query string
+      - Idempotency-Key บังคับสำหรับการสร้างเคส และ key เดิมกับ payload เดิมต้องคืนผลเดิม
+      - ทุกผลลัพธ์ระบุ simulation=true เพราะเป็นระบบสาธิต
+      - ข้อมูลส่วนบุคคล, Key Code และรายละเอียดเรื่องต้องไม่ปรากฏใน log หรือ trace แบบดิบ
+      - API นี้ไม่รองรับ production authentication, admin case list, file upload, CAPTCHA,
+        satisfaction survey, cancellation หรือการแก้ไขเคสหลังส่งใน MVP
+
+    การ map กับ semantic actions ของ VOC Plugin:
+      - get_catalog  → GET /api/v1/voc/catalog
+      - prepare_case → local validation/draft only; no outbound HTTP
+      - submit_case  → POST /api/v1/voc/cases after explicit confirmation only
+      - get_case     → POST /api/v1/voc/cases/lookup
+
+servers:
+  - url: http://localhost:8102
+    description: Local VOC demo application
+  - url: https://voc-demo.example.internal
+    description: Example controlled demo/staging application
+
+tags:
+  - name: Catalog
+    description: เส้นทางรับเรื่อง, taxonomy และ master data สำหรับ VOC intake
+  - name: Cases
+    description: สร้างและติดตามเคส VOC แบบสาธิต
+
+paths:
+  /api/v1/voc/catalog:
+    get:
+      tags:
+        - Catalog
+      operationId: getVocCatalog
+      x-agent-action: get_catalog
+      summary: โหลด catalog สำหรับ VOC intake
+      description: |
+        คืนข้อมูลที่ MainAgent ต้องใช้สำหรับเริ่มและดำเนิน VOC intake:
+          - 6 user-facing journeys
+          - 7 internal request types พร้อม topic, issue และ sub-issue
+          - ความถี่และระดับความรุนแรง
+          - คำนำหน้าชื่อ
+          - service areas และสำนักงาน PEA สำหรับ demo
+
+        ข้อมูล catalog เป็น authoritative สำหรับตัวเลือกที่ Agent แสดง
+        MainAgent ห้ามสร้าง code, label หรือความสัมพันธ์ taxonomy เอง
+      responses:
+        '200':
+          description: โหลด catalog สำเร็จ
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/VocCatalogResponse'
+              example:
+                simulation: true
+                catalogVersion: "2026-09-01"
+                journeys:
+                  - code: POWER_QUALITY
+                    label: แจ้งปัญหาคุณภาพไฟฟ้า
+                    audience: PUBLIC
+                    description: ไฟตก ไฟดับ แรงดันไฟฟ้าไม่คงที่ หรือเหตุขัดข้องด้านคุณภาพไฟฟ้า
+                    reporterMode: REQUIRED
+                    classificationRootCodes: [REQUEST_6]
+                    requiresFrequency: true
+                    requiresSeverity: true
+                    requiresSubIssue: true
+                    supportsCaNumber: true
+                    requiresIncidentLocation: true
+                  - code: SERVICE_ISSUE
+                    label: แจ้งปัญหาด้านบริการ
+                    audience: PUBLIC
+                    description: ปัญหาที่สาขา การติดต่อเจ้าหน้าที่ หรือบริการดิจิทัล
+                    reporterMode: REQUIRED
+                    classificationRootCodes: [REQUEST_1, REQUEST_2]
+                    requiresFrequency: true
+                    requiresSeverity: true
+                    requiresSubIssue: true
+                    supportsCaNumber: true
+                    requiresIncidentLocation: true
+                  - code: PRAISE
+                    label: ชื่นชม
+                    audience: PUBLIC
+                    description: แบ่งปันประสบการณ์ที่ดีและคำชม
+                    reporterMode: REQUIRED
+                    classificationRootCodes: [REQUEST_3]
+                    requiresFrequency: false
+                    requiresSeverity: false
+                    requiresSubIssue: true
+                    supportsCaNumber: true
+                    requiresIncidentLocation: true
+                  - code: TIP_OFF
+                    label: แจ้งเบาะแส
+                    audience: PUBLIC
+                    description: แจ้งความผิดปกติหรือความเสี่ยงด้านความปลอดภัย
+                    reporterMode: OPTIONAL
+                    classificationRootCodes: [REQUEST_4]
+                    requiresFrequency: false
+                    requiresSeverity: false
+                    requiresSubIssue: false
+                    supportsCaNumber: true
+                    requiresIncidentLocation: true
+                  - code: STAKEHOLDER_ISSUE
+                    label: แจ้งปัญหาการดำเนินงาน
+                    audience: STAKEHOLDER
+                    description: คู่ค้าหรือผู้มีส่วนได้ส่วนเสียแจ้งปัญหาการดำเนินงาน
+                    reporterMode: REQUIRED
+                    classificationRootCodes: [REQUEST_7]
+                    requiresFrequency: false
+                    requiresSeverity: false
+                    requiresSubIssue: false
+                    supportsCaNumber: false
+                    requiresIncidentLocation: true
+                  - code: STAKEHOLDER_FEEDBACK
+                    label: ชื่นชม เสนอแนะ ข้อคิดเห็น
+                    audience: STAKEHOLDER
+                    description: คู่ค้าหรือผู้มีส่วนได้ส่วนเสียส่งคำชม ข้อเสนอแนะ หรือข้อคิดเห็น
+                    reporterMode: REQUIRED
+                    classificationRootCodes: [REQUEST_8]
+                    requiresFrequency: false
+                    requiresSeverity: false
+                    requiresSubIssue: false
+                    supportsCaNumber: false
+                    requiresIncidentLocation: true
+                requestTypes:
+                  - code: REQUEST_1
+                    name: ร้องเรียน
+                    topics:
+                      - code: SERVICE
+                        name: การให้บริการ
+                        issues:
+                          - code: SERVICE_DELAY
+                            name: บริการล่าช้า
+                            subIssues:
+                              - code: CONTACT_DELAY
+                                name: ติดต่อกลับล่าช้า
+                  - code: REQUEST_2
+                    name: ข้อเสนอแนะ/ข้อคิดเห็น
+                    topics:
+                      - code: SERVICE_FEEDBACK
+                        name: ข้อเสนอแนะด้านบริการ
+                        issues:
+                          - code: DIGITAL_SERVICE_SUGGESTION
+                            name: ข้อเสนอแนะบริการดิจิทัล
+                            subIssues:
+                              - code: APPLICATION_IMPROVEMENT
+                                name: ปรับปรุงแอปพลิเคชัน
+                  - code: REQUEST_3
+                    name: ชื่นชม
+                    topics:
+                      - code: STAFF_PRAISE
+                        name: ชื่นชมบุคลากร
+                        issues:
+                          - code: GOOD_SERVICE
+                            name: ให้บริการดี
+                            subIssues:
+                              - code: SERVICE_MIND
+                                name: มีจิตบริการ
+                  - code: REQUEST_4
+                    name: แจ้งเบาะแส
+                    topics:
+                      - code: SAFETY
+                        name: ความปลอดภัย
+                        issues:
+                          - code: SUSPICIOUS_ACTIVITY
+                            name: พบความผิดปกติหรือความเสี่ยง
+                            subIssues: []
+                  - code: REQUEST_6
+                    name: แจ้งเหตุ
+                    topics:
+                      - code: POWER_QUALITY
+                        name: คุณภาพไฟฟ้า
+                        issues:
+                          - code: VOLTAGE_ISSUE
+                            name: แรงดันไฟฟ้าไม่คงที่
+                            subIssues:
+                              - code: FREQUENT_VOLTAGE_DROP
+                                name: ไฟตกบ่อย
+                  - code: REQUEST_7
+                    name: เสียงของผู้มีส่วนได้ส่วนเสีย - แจ้งปัญหา
+                    topics:
+                      - code: STAKEHOLDER_OPERATIONS
+                        name: การดำเนินงานกับผู้มีส่วนได้ส่วนเสีย
+                        issues:
+                          - code: PROCUREMENT_PROCESS
+                            name: กระบวนการจัดซื้อจัดจ้าง
+                            subIssues: []
+                  - code: REQUEST_8
+                    name: เสียงของผู้มีส่วนได้ส่วนเสีย - ชื่นชม/ข้อเสนอแนะ/ข้อคิดเห็น
+                    topics:
+                      - code: STAKEHOLDER_FEEDBACK
+                        name: ข้อเสนอแนะจากผู้มีส่วนได้ส่วนเสีย
+                        issues:
+                          - code: PROCESS_IMPROVEMENT
+                            name: ข้อเสนอแนะปรับปรุงกระบวนการ
+                            subIssues: []
+                incidentFrequencies:
+                  - code: IIT01
+                    name: เกิดเหตุการณ์เป็นครั้งแรก
+                    rank: 1
+                  - code: IIT02
+                    name: เดือนละ 1 ครั้ง
+                    rank: 2
+                  - code: IIT03
+                    name: มากกว่าเดือนละ 1 ครั้ง
+                    rank: 3
+                  - code: IIT04
+                    name: มากกว่าสัปดาห์ละ 1 ครั้ง
+                    rank: 4
+                  - code: IIT05
+                    name: มากกว่าวันละ 1 ครั้ง
+                    rank: 5
+                severityLevels:
+                  - level: 1
+                    name: ผลกระทบต่ำ
+                  - level: 2
+                    name: ผลกระทบเล็กน้อย
+                  - level: 3
+                    name: ผลกระทบปานกลาง
+                  - level: 4
+                    name: ผลกระทบสูง
+                  - level: 5
+                    name: ผลกระทบรุนแรง
+                titlePrefixes:
+                  - code: MR
+                    label: นาย
+                  - code: MRS
+                    label: นาง
+                  - code: MS
+                    label: นางสาว
+                  - code: OTHER
+                    label: อื่น ๆ
+                serviceAreas:
+                  - provinceCode: "10"
+                    provinceName: กรุงเทพมหานคร
+                    districtCode: "1001"
+                    districtName: เขตพระนคร
+                    subdistrictCode: "100101"
+                    subdistrictName: พระบรมมหาราชวัง
+                    peaOfficeCode: PEA-BKK-01
+                    peaOfficeName: การไฟฟ้าที่รับผิดชอบพื้นที่ตัวอย่างกรุงเทพมหานคร
+                generatedAt: "2026-09-01T09:00:00+07:00"
+        '500':
+          $ref: '#/components/responses/InternalServerError'
+        '503':
+          $ref: '#/components/responses/ServiceUnavailable'
+
+  /api/v1/voc/cases:
+    post:
+      tags:
+        - Cases
+      operationId: createVocCase
+      x-agent-action: submit_case
+      summary: สร้างเคส VOC หลังผู้ใช้ยืนยัน
+      description: |
+        สร้างเคส VOC แบบสาธิตหนึ่งรายการ
+
+        endpoint นี้เป็น write operation และห้ามเรียกจาก LLM/chat โดยตรง
+        MainAgent ต้องมี local prepared draft, pending action และ explicit confirmation ก่อนเสมอ
+
+        Idempotency behavior:
+          - key เดิม + payload เดิม: คืน response เดิมโดยไม่สร้างเคสซ้ำ
+          - key เดิม + payload ต่างกัน: HTTP 409 IDEMPOTENCY_CONFLICT
+          - reset ของ Agent ต้องไม่เรียก endpoint ใดเพื่อลบเคสที่สร้างแล้ว
+      parameters:
+        - $ref: '#/components/parameters/IdempotencyKey'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CreateVocCaseRequest'
+            examples:
+              serviceIssue:
+                summary: แจ้งปัญหาด้านบริการ
+                value:
+                  journeyCode: SERVICE_ISSUE
+                  reporter:
+                    prefixCode: MR
+                    firstName: สมชาย
+                    lastName: ใจดี
+                    phone: "0812345678"
+                    email: somchai@example.com
+                    caNumber: "100000000001"
+                  incident:
+                    provinceCode: "10"
+                    districtCode: "1001"
+                    subdistrictCode: "100101"
+                    peaOfficeCode: PEA-BKK-01
+                    locationText: บริเวณสำนักงานบริการตัวอย่าง
+                  classification:
+                    requestTypeCode: REQUEST_1
+                    topicCode: SERVICE
+                    issueCode: SERVICE_DELAY
+                    subIssueCode: CONTACT_DELAY
+                  frequencyCode: IIT03
+                  severityLevel: 3
+                  detail: ติดต่อเจ้าหน้าที่หลายครั้งแต่ยังไม่ได้รับการติดต่อกลับ
+                  consent:
+                    accepted: true
+                    noticeVersion: VOC-PDPA-DEMO-1.0
+                    acceptedAt: "2026-09-01T09:30:00+07:00"
+                    channel: CHAT
+              anonymousTipOff:
+                summary: แจ้งเบาะแสโดยไม่เปิดเผยตัวตน
+                value:
+                  journeyCode: TIP_OFF
+                  incident:
+                    provinceCode: "10"
+                    districtCode: "1001"
+                    subdistrictCode: "100101"
+                    peaOfficeCode: PEA-BKK-01
+                    locationText: บริเวณเสาไฟฟ้าหน้าตลาดตัวอย่าง
+                  classification:
+                    requestTypeCode: REQUEST_4
+                    topicCode: SAFETY
+                    issueCode: SUSPICIOUS_ACTIVITY
+                  detail: พบการดำเนินการที่อาจก่อให้เกิดความเสี่ยงด้านความปลอดภัย
+                  consent:
+                    accepted: true
+                    noticeVersion: VOC-PDPA-DEMO-1.0
+                    acceptedAt: "2026-09-01T09:35:00+07:00"
+                    channel: CHAT
+      responses:
+        '201':
+          description: สร้างเคสสำเร็จ
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/CaseSubmissionResponse'
+              example:
+                simulation: true
+                caseId: "9f6df02b-5018-40d4-8a78-e6318610cb75"
+                vocNumber: I-68100011
+                keyCode: "123456"
+                status: SUBMITTED
+                journeyCode: SERVICE_ISSUE
+                createdAt: "2026-09-01T09:30:01+07:00"
+                message: รับเรื่อง VOC แบบสาธิตเรียบร้อยแล้ว
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '409':
+          $ref: '#/components/responses/IdempotencyConflict'
+        '500':
+          $ref: '#/components/responses/InternalServerError'
+        '503':
+          $ref: '#/components/responses/ServiceUnavailable'
+
+  /api/v1/voc/cases/lookup:
+    post:
+      tags:
+        - Cases
+      operationId: lookupVocCase
+      x-agent-action: get_case
+      summary: ติดตามเคสเดียวด้วย VOC Number และ Key Code
+      description: |
+        คืนรายละเอียดเคสเดียวเมื่อ VOC Number และ Key Code ตรงกัน
+        operation นี้ไม่เปลี่ยนแปลงข้อมูล แม้ใช้ HTTP POST เพื่อป้องกัน Key Code ปรากฏใน URL
+
+        เพื่อป้องกันการค้นหาว่าหมายเลขใดมีอยู่จริง:
+          - ไม่พบ VOC Number
+          - Key Code ไม่ถูกต้อง
+          - รูปแบบข้อมูลติดตามไม่ตรงกับเคส
+        ต้องคืน HTTP 404 และ error code/message เดียวกัน
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CaseLookupRequest'
+            example:
+              vocNumber: I-68100011
+              keyCode: "123456"
+      responses:
+        '200':
+          description: พบเคสและข้อมูลติดตามถูกต้อง
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/VocCaseDetailResponse'
+              example:
+                simulation: true
+                case:
+                  caseId: "9f6df02b-5018-40d4-8a78-e6318610cb75"
+                  vocNumber: I-68100011
+                  status: IN_PROGRESS
+                  statusLabel: อยู่ระหว่างดำเนินการ
+                  journeyCode: SERVICE_ISSUE
+                  journeyLabel: แจ้งปัญหาด้านบริการ
+                  classification:
+                    requestTypeCode: REQUEST_1
+                    requestTypeName: ร้องเรียน
+                    topicCode: SERVICE
+                    topicName: การให้บริการ
+                    issueCode: SERVICE_DELAY
+                    issueName: บริการล่าช้า
+                    subIssueCode: CONTACT_DELAY
+                    subIssueName: ติดต่อกลับล่าช้า
+                  incident:
+                    provinceName: กรุงเทพมหานคร
+                    districtName: เขตพระนคร
+                    subdistrictName: พระบรมมหาราชวัง
+                    peaOfficeName: การไฟฟ้าที่รับผิดชอบพื้นที่ตัวอย่างกรุงเทพมหานคร
+                    locationText: บริเวณสำนักงานบริการตัวอย่าง
+                  createdAt: "2026-09-01T09:30:01+07:00"
+                  updatedAt: "2026-09-01T10:05:00+07:00"
+                  timeline:
+                    - status: SUBMITTED
+                      label: รับเรื่องแล้ว
+                      occurredAt: "2026-09-01T09:30:01+07:00"
+                      message: ระบบได้รับเรื่อง VOC แล้ว
+                    - status: IN_PROGRESS
+                      label: อยู่ระหว่างดำเนินการ
+                      occurredAt: "2026-09-01T10:05:00+07:00"
+                      message: ส่งเรื่องให้หน่วยงานที่รับผิดชอบแล้ว
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '404':
+          $ref: '#/components/responses/TrackingNotFound'
+        '500':
+          $ref: '#/components/responses/InternalServerError'
+        '503':
+          $ref: '#/components/responses/ServiceUnavailable'
+
+components:
+  parameters:
+    IdempotencyKey:
+      name: Idempotency-Key
+      in: header
+      required: true
+      description: คีย์ป้องกันการสร้างเคสซ้ำ สร้างโดย Agent และคงเดิมตลอด prepare/confirm/submit หนึ่งรายการ
+      schema:
+        type: string
+        minLength: 1
+        maxLength: 128
+      example: voc-7f5f9138-c173-4f80-9f2c-a854aa8b3fd8
+
+  schemas:
+    SimulationFlag:
+      type: boolean
+      const: true
+      description: ระบบนี้เป็น demo และผลลัพธ์ทั้งหมดเป็นข้อมูลจำลอง
+
+    JourneyCode:
+      type: string
+      enum:
+        - POWER_QUALITY
+        - SERVICE_ISSUE
+        - PRAISE
+        - TIP_OFF
+        - STAKEHOLDER_ISSUE
+        - STAKEHOLDER_FEEDBACK
+
+    Audience:
+      type: string
+      enum:
+        - PUBLIC
+        - STAKEHOLDER
+
+    ReporterMode:
+      type: string
+      enum:
+        - REQUIRED
+        - OPTIONAL
+
+    RequestTypeCode:
+      type: string
+      enum:
+        - REQUEST_1
+        - REQUEST_2
+        - REQUEST_3
+        - REQUEST_4
+        - REQUEST_6
+        - REQUEST_7
+        - REQUEST_8
+
+    JourneyDefinition:
+      type: object
+      additionalProperties: false
+      required:
+        - code
+        - label
+        - audience
+        - description
+        - reporterMode
+        - classificationRootCodes
+        - requiresFrequency
+        - requiresSeverity
+        - requiresSubIssue
+        - supportsCaNumber
+        - requiresIncidentLocation
+      properties:
+        code:
+          $ref: '#/components/schemas/JourneyCode'
+        label:
+          type: string
+          minLength: 1
+          maxLength: 120
+        audience:
+          $ref: '#/components/schemas/Audience'
+        description:
+          type: string
+          minLength: 1
+          maxLength: 500
+        reporterMode:
+          $ref: '#/components/schemas/ReporterMode'
+        classificationRootCodes:
+          type: array
+          minItems: 1
+          uniqueItems: true
+          items:
+            $ref: '#/components/schemas/RequestTypeCode'
+        requiresFrequency:
+          type: boolean
+        requiresSeverity:
+          type: boolean
+        requiresSubIssue:
+          type: boolean
+        supportsCaNumber:
+          type: boolean
+        requiresIncidentLocation:
+          type: boolean
+
+    RequestTypeDefinition:
+      type: object
+      additionalProperties: false
+      required:
+        - code
+        - name
+        - topics
+      properties:
+        code:
+          $ref: '#/components/schemas/RequestTypeCode'
+        name:
+          type: string
+          minLength: 1
+          maxLength: 160
+        topics:
+          type: array
+          minItems: 1
+          items:
+            $ref: '#/components/schemas/TopicDefinition'
+
+    TopicDefinition:
+      type: object
+      additionalProperties: false
+      required:
+        - code
+        - name
+        - issues
+      properties:
+        code:
+          $ref: '#/components/schemas/TaxonomyCode'
+        name:
+          type: string
+          minLength: 1
+          maxLength: 200
+        issues:
+          type: array
+          minItems: 1
+          items:
+            $ref: '#/components/schemas/IssueDefinition'
+
+    IssueDefinition:
+      type: object
+      additionalProperties: false
+      required:
+        - code
+        - name
+        - subIssues
+      properties:
+        code:
+          $ref: '#/components/schemas/TaxonomyCode'
+        name:
+          type: string
+          minLength: 1
+          maxLength: 200
+        subIssues:
+          type: array
+          items:
+            $ref: '#/components/schemas/SubIssueDefinition'
+
+    SubIssueDefinition:
+      type: object
+      additionalProperties: false
+      required:
+        - code
+        - name
+      properties:
+        code:
+          $ref: '#/components/schemas/TaxonomyCode'
+        name:
+          type: string
+          minLength: 1
+          maxLength: 200
+
+    TaxonomyCode:
+      type: string
+      pattern: '^[A-Z0-9_\-]{1,64}$'
+
+    IncidentFrequency:
+      type: object
+      additionalProperties: false
+      required:
+        - code
+        - name
+        - rank
+      properties:
+        code:
+          type: string
+          pattern: '^IIT[0-9]{2}$'
+        name:
+          type: string
+          minLength: 1
+          maxLength: 160
+        rank:
+          type: integer
+          minimum: 1
+          maximum: 5
+
+    SeverityLevel:
+      type: object
+      additionalProperties: false
+      required:
+        - level
+        - name
+      properties:
+        level:
+          type: integer
+          minimum: 1
+          maximum: 5
+        name:
+          type: string
+          minLength: 1
+          maxLength: 120
+
+    TitlePrefix:
+      type: object
+      additionalProperties: false
+      required:
+        - code
+        - label
+      properties:
+        code:
+          type: string
+          pattern: '^[A-Z0-9_\-]{1,32}$'
+        label:
+          type: string
+          minLength: 1
+          maxLength: 80
+
+    ServiceArea:
+      type: object
+      additionalProperties: false
+      required:
+        - provinceCode
+        - provinceName
+        - districtCode
+        - districtName
+        - subdistrictCode
+        - subdistrictName
+        - peaOfficeCode
+        - peaOfficeName
+      properties:
+        provinceCode:
+          $ref: '#/components/schemas/LocationCode'
+        provinceName:
+          type: string
+          minLength: 1
+          maxLength: 120
+        districtCode:
+          $ref: '#/components/schemas/LocationCode'
+        districtName:
+          type: string
+          minLength: 1
+          maxLength: 120
+        subdistrictCode:
+          $ref: '#/components/schemas/LocationCode'
+        subdistrictName:
+          type: string
+          minLength: 1
+          maxLength: 120
+        peaOfficeCode:
+          type: string
+          pattern: '^[A-Z0-9_\-]{1,64}$'
+        peaOfficeName:
+          type: string
+          minLength: 1
+          maxLength: 200
+
+    LocationCode:
+      type: string
+      pattern: '^[0-9A-Z_\-]{1,32}$'
+
+    VocCatalogResponse:
+      type: object
+      additionalProperties: false
+      required:
+        - simulation
+        - catalogVersion
+        - journeys
+        - requestTypes
+        - incidentFrequencies
+        - severityLevels
+        - titlePrefixes
+        - serviceAreas
+        - generatedAt
+      properties:
+        simulation:
+          $ref: '#/components/schemas/SimulationFlag'
+        catalogVersion:
+          type: string
+          minLength: 1
+          maxLength: 64
+        journeys:
+          type: array
+          description: ต้องมี JourneyCode ทั้งหกค่าครบและแต่ละ code ปรากฏครั้งเดียว โดย server และ plugin ต้องตรวจ application-level uniqueness เพิ่มเติม
+          minItems: 6
+          maxItems: 6
+          uniqueItems: true
+          items:
+            $ref: '#/components/schemas/JourneyDefinition'
+        requestTypes:
+          type: array
+          description: ต้องมี RequestTypeCode ทั้งเจ็ดค่าครบและแต่ละ code ปรากฏครั้งเดียว โดย server และ plugin ต้องตรวจ application-level uniqueness เพิ่มเติม
+          minItems: 7
+          maxItems: 7
+          uniqueItems: true
+          items:
+            $ref: '#/components/schemas/RequestTypeDefinition'
+        incidentFrequencies:
+          type: array
+          minItems: 1
+          items:
+            $ref: '#/components/schemas/IncidentFrequency'
+        severityLevels:
+          type: array
+          minItems: 1
+          items:
+            $ref: '#/components/schemas/SeverityLevel'
+        titlePrefixes:
+          type: array
+          minItems: 1
+          items:
+            $ref: '#/components/schemas/TitlePrefix'
+        serviceAreas:
+          type: array
+          minItems: 1
+          items:
+            $ref: '#/components/schemas/ServiceArea'
+        generatedAt:
+          type: string
+          format: date-time
+
+    PhoneNumber:
+      type: string
+      pattern: '^[0-9]{9,10}$'
+      description: หมายเลขโทรศัพท์ที่ normalize แล้ว ไม่มีขีดหรือช่องว่าง
+
+    CaNumber:
+      type: string
+      pattern: '^[0-9]{12}$'
+
+    PostalCode:
+      type: string
+      pattern: '^[0-9]{5}$'
+
+    ContactAddress:
+      type: object
+      additionalProperties: false
+      properties:
+        houseNumber:
+          type: string
+          minLength: 1
+          maxLength: 40
+        moo:
+          type: string
+          minLength: 1
+          maxLength: 40
+        villageOrBuilding:
+          type: string
+          minLength: 1
+          maxLength: 200
+        road:
+          type: string
+          minLength: 1
+          maxLength: 120
+        soi:
+          type: string
+          minLength: 1
+          maxLength: 120
+        provinceCode:
+          $ref: '#/components/schemas/LocationCode'
+        districtCode:
+          $ref: '#/components/schemas/LocationCode'
+        subdistrictCode:
+          $ref: '#/components/schemas/LocationCode'
+        postalCode:
+          $ref: '#/components/schemas/PostalCode'
+
+    IdentifiedReporter:
+      type: object
+      additionalProperties: false
+      required:
+        - prefixCode
+        - firstName
+        - lastName
+        - phone
+      properties:
+        prefixCode:
+          type: string
+          pattern: '^[A-Z0-9_\-]{1,32}$'
+        firstName:
+          type: string
+          minLength: 1
+          maxLength: 100
+        lastName:
+          type: string
+          minLength: 1
+          maxLength: 100
+        phone:
+          $ref: '#/components/schemas/PhoneNumber'
+        email:
+          type: string
+          format: email
+          maxLength: 254
+        nationalId:
+          type: string
+          pattern: '^[0-9]{13}$'
+          description: ข้อมูลละเอียดอ่อน ต้อง redact จาก log และ trace
+        caNumber:
+          $ref: '#/components/schemas/CaNumber'
+        meterNumber:
+          type: string
+          minLength: 1
+          maxLength: 32
+        contactAddress:
+          $ref: '#/components/schemas/ContactAddress'
+
+    OptionalReporter:
+      type: object
+      additionalProperties: false
+      properties:
+        prefixCode:
+          type: string
+          pattern: '^[A-Z0-9_\-]{1,32}$'
+        firstName:
+          type: string
+          minLength: 1
+          maxLength: 100
+        lastName:
+          type: string
+          minLength: 1
+          maxLength: 100
+        phone:
+          $ref: '#/components/schemas/PhoneNumber'
+        email:
+          type: string
+          format: email
+          maxLength: 254
+        nationalId:
+          type: string
+          pattern: '^[0-9]{13}$'
+        caNumber:
+          $ref: '#/components/schemas/CaNumber'
+        meterNumber:
+          type: string
+          minLength: 1
+          maxLength: 32
+        contactAddress:
+          $ref: '#/components/schemas/ContactAddress'
+
+    IncidentLocation:
+      type: object
+      additionalProperties: false
+      required:
+        - provinceCode
+        - districtCode
+        - subdistrictCode
+        - peaOfficeCode
+        - locationText
+      properties:
+        provinceCode:
+          $ref: '#/components/schemas/LocationCode'
+        districtCode:
+          $ref: '#/components/schemas/LocationCode'
+        subdistrictCode:
+          $ref: '#/components/schemas/LocationCode'
+        peaOfficeCode:
+          type: string
+          pattern: '^[A-Z0-9_\-]{1,64}$'
+        locationText:
+          type: string
+          minLength: 1
+          maxLength: 1000
+        houseNumber:
+          type: string
+          minLength: 1
+          maxLength: 40
+        moo:
+          type: string
+          minLength: 1
+          maxLength: 40
+        villageOrBuilding:
+          type: string
+          minLength: 1
+          maxLength: 200
+        road:
+          type: string
+          minLength: 1
+          maxLength: 120
+        soi:
+          type: string
+          minLength: 1
+          maxLength: 120
+        latitude:
+          type: number
+          minimum: -90
+          maximum: 90
+        longitude:
+          type: number
+          minimum: -180
+          maximum: 180
+
+    ProductImportance:
+      type: string
+      enum:
+        - NEED
+        - EXPECTATION
+
+    ClassificationSelection:
+      type: object
+      additionalProperties: false
+      required:
+        - requestTypeCode
+        - topicCode
+        - issueCode
+      properties:
+        requestTypeCode:
+          $ref: '#/components/schemas/RequestTypeCode'
+        topicCode:
+          $ref: '#/components/schemas/TaxonomyCode'
+        issueCode:
+          $ref: '#/components/schemas/TaxonomyCode'
+        subIssueCode:
+          $ref: '#/components/schemas/TaxonomyCode'
+        productImportance:
+          $ref: '#/components/schemas/ProductImportance'
+
+    ConsentChannel:
+      type: string
+      enum:
+        - CHAT
+        - VOICE
+
+    ConsentRecord:
+      type: object
+      additionalProperties: false
+      required:
+        - accepted
+        - noticeVersion
+        - acceptedAt
+        - channel
+      properties:
+        accepted:
+          type: boolean
+          const: true
+        noticeVersion:
+          type: string
+          minLength: 1
+          maxLength: 64
+        acceptedAt:
+          type: string
+          format: date-time
+        channel:
+          $ref: '#/components/schemas/ConsentChannel'
+
+    PowerQualityCaseRequest:
+      type: object
+      additionalProperties: false
+      required:
+        - journeyCode
+        - reporter
+        - incident
+        - classification
+        - frequencyCode
+        - severityLevel
+        - detail
+        - consent
+      properties:
+        journeyCode:
+          type: string
+          const: POWER_QUALITY
+        reporter:
+          $ref: '#/components/schemas/IdentifiedReporter'
+        incident:
+          $ref: '#/components/schemas/IncidentLocation'
+        classification:
+          $ref: '#/components/schemas/ClassificationSelection'
+        frequencyCode:
+          type: string
+          pattern: '^IIT[0-9]{2}$'
+        severityLevel:
+          type: integer
+          minimum: 1
+          maximum: 5
+        detail:
+          type: string
+          minLength: 1
+          maxLength: 2000
+        consent:
+          $ref: '#/components/schemas/ConsentRecord'
+
+    ServiceIssueCaseRequest:
+      type: object
+      additionalProperties: false
+      required:
+        - journeyCode
+        - reporter
+        - incident
+        - classification
+        - frequencyCode
+        - severityLevel
+        - detail
+        - consent
+      properties:
+        journeyCode:
+          type: string
+          const: SERVICE_ISSUE
+        reporter:
+          $ref: '#/components/schemas/IdentifiedReporter'
+        incident:
+          $ref: '#/components/schemas/IncidentLocation'
+        classification:
+          $ref: '#/components/schemas/ClassificationSelection'
+        frequencyCode:
+          type: string
+          pattern: '^IIT[0-9]{2}$'
+        severityLevel:
+          type: integer
+          minimum: 1
+          maximum: 5
+        detail:
+          type: string
+          minLength: 1
+          maxLength: 2000
+        consent:
+          $ref: '#/components/schemas/ConsentRecord'
+
+    PraiseCaseRequest:
+      type: object
+      additionalProperties: false
+      required:
+        - journeyCode
+        - reporter
+        - incident
+        - classification
+        - detail
+        - consent
+      properties:
+        journeyCode:
+          type: string
+          const: PRAISE
+        reporter:
+          $ref: '#/components/schemas/IdentifiedReporter'
+        incident:
+          $ref: '#/components/schemas/IncidentLocation'
+        classification:
+          $ref: '#/components/schemas/ClassificationSelection'
+        detail:
+          type: string
+          minLength: 1
+          maxLength: 2000
+        consent:
+          $ref: '#/components/schemas/ConsentRecord'
+
+    TipOffCaseRequest:
+      type: object
+      additionalProperties: false
+      required:
+        - journeyCode
+        - incident
+        - classification
+        - detail
+        - consent
+      properties:
+        journeyCode:
+          type: string
+          const: TIP_OFF
+        reporter:
+          $ref: '#/components/schemas/OptionalReporter'
+        incident:
+          $ref: '#/components/schemas/IncidentLocation'
+        classification:
+          $ref: '#/components/schemas/ClassificationSelection'
+        detail:
+          type: string
+          minLength: 1
+          maxLength: 2000
+        consent:
+          $ref: '#/components/schemas/ConsentRecord'
+
+    StakeholderIssueCaseRequest:
+      type: object
+      additionalProperties: false
+      required:
+        - journeyCode
+        - reporter
+        - incident
+        - classification
+        - detail
+        - consent
+      properties:
+        journeyCode:
+          type: string
+          const: STAKEHOLDER_ISSUE
+        reporter:
+          $ref: '#/components/schemas/IdentifiedReporter'
+        incident:
+          $ref: '#/components/schemas/IncidentLocation'
+        classification:
+          $ref: '#/components/schemas/ClassificationSelection'
+        detail:
+          type: string
+          minLength: 1
+          maxLength: 2000
+        consent:
+          $ref: '#/components/schemas/ConsentRecord'
+
+    StakeholderFeedbackCaseRequest:
+      type: object
+      additionalProperties: false
+      required:
+        - journeyCode
+        - reporter
+        - incident
+        - classification
+        - detail
+        - consent
+      properties:
+        journeyCode:
+          type: string
+          const: STAKEHOLDER_FEEDBACK
+        reporter:
+          $ref: '#/components/schemas/IdentifiedReporter'
+        incident:
+          $ref: '#/components/schemas/IncidentLocation'
+        classification:
+          $ref: '#/components/schemas/ClassificationSelection'
+        detail:
+          type: string
+          minLength: 1
+          maxLength: 2000
+        consent:
+          $ref: '#/components/schemas/ConsentRecord'
+
+    CreateVocCaseRequest:
+      oneOf:
+        - $ref: '#/components/schemas/PowerQualityCaseRequest'
+        - $ref: '#/components/schemas/ServiceIssueCaseRequest'
+        - $ref: '#/components/schemas/PraiseCaseRequest'
+        - $ref: '#/components/schemas/TipOffCaseRequest'
+        - $ref: '#/components/schemas/StakeholderIssueCaseRequest'
+        - $ref: '#/components/schemas/StakeholderFeedbackCaseRequest'
+      discriminator:
+        propertyName: journeyCode
+        mapping:
+          POWER_QUALITY: '#/components/schemas/PowerQualityCaseRequest'
+          SERVICE_ISSUE: '#/components/schemas/ServiceIssueCaseRequest'
+          PRAISE: '#/components/schemas/PraiseCaseRequest'
+          TIP_OFF: '#/components/schemas/TipOffCaseRequest'
+          STAKEHOLDER_ISSUE: '#/components/schemas/StakeholderIssueCaseRequest'
+          STAKEHOLDER_FEEDBACK: '#/components/schemas/StakeholderFeedbackCaseRequest'
+
+    VocNumber:
+      type: string
+      pattern: '^I-[0-9]{8}$'
+      examples:
+        - I-68100011
+
+    KeyCode:
+      type: string
+      pattern: '^[0-9]{6}$'
+      description: รหัสติดตาม 6 หลัก ห้าม log หรือแสดงซ้ำโดยไม่จำเป็น
+
+    CaseStatus:
+      type: string
+      enum:
+        - SUBMITTED
+        - ACKNOWLEDGED
+        - IN_PROGRESS
+        - WAITING_CUSTOMER
+        - RESOLVED
+        - REJECTED
+        - CANCELLED
+
+    CaseSubmissionResponse:
+      type: object
+      additionalProperties: false
+      required:
+        - simulation
+        - caseId
+        - vocNumber
+        - keyCode
+        - status
+        - journeyCode
+        - createdAt
+        - message
+      properties:
+        simulation:
+          $ref: '#/components/schemas/SimulationFlag'
+        caseId:
+          type: string
+          format: uuid
+        vocNumber:
+          $ref: '#/components/schemas/VocNumber'
+        keyCode:
+          $ref: '#/components/schemas/KeyCode'
+        status:
+          type: string
+          const: SUBMITTED
+        journeyCode:
+          $ref: '#/components/schemas/JourneyCode'
+        createdAt:
+          type: string
+          format: date-time
+        message:
+          type: string
+          minLength: 1
+          maxLength: 500
+
+    CaseLookupRequest:
+      type: object
+      additionalProperties: false
+      required:
+        - vocNumber
+        - keyCode
+      properties:
+        vocNumber:
+          $ref: '#/components/schemas/VocNumber'
+        keyCode:
+          $ref: '#/components/schemas/KeyCode'
+
+    ResolvedClassification:
+      type: object
+      additionalProperties: false
+      required:
+        - requestTypeCode
+        - requestTypeName
+        - topicCode
+        - topicName
+        - issueCode
+        - issueName
+      properties:
+        requestTypeCode:
+          $ref: '#/components/schemas/RequestTypeCode'
+        requestTypeName:
+          type: string
+          minLength: 1
+          maxLength: 160
+        topicCode:
+          $ref: '#/components/schemas/TaxonomyCode'
+        topicName:
+          type: string
+          minLength: 1
+          maxLength: 200
+        issueCode:
+          $ref: '#/components/schemas/TaxonomyCode'
+        issueName:
+          type: string
+          minLength: 1
+          maxLength: 200
+        subIssueCode:
+          $ref: '#/components/schemas/TaxonomyCode'
+        subIssueName:
+          type: string
+          minLength: 1
+          maxLength: 200
+        productImportance:
+          $ref: '#/components/schemas/ProductImportance'
+
+    IncidentSummary:
+      type: object
+      additionalProperties: false
+      required:
+        - provinceName
+        - districtName
+        - subdistrictName
+        - peaOfficeName
+        - locationText
+      properties:
+        provinceName:
+          type: string
+          minLength: 1
+          maxLength: 120
+        districtName:
+          type: string
+          minLength: 1
+          maxLength: 120
+        subdistrictName:
+          type: string
+          minLength: 1
+          maxLength: 120
+        peaOfficeName:
+          type: string
+          minLength: 1
+          maxLength: 200
+        locationText:
+          type: string
+          minLength: 1
+          maxLength: 1000
+
+    TimelineEntry:
+      type: object
+      additionalProperties: false
+      required:
+        - status
+        - label
+        - occurredAt
+        - message
+      properties:
+        status:
+          $ref: '#/components/schemas/CaseStatus'
+        label:
+          type: string
+          minLength: 1
+          maxLength: 160
+        occurredAt:
+          type: string
+          format: date-time
+        message:
+          type: string
+          minLength: 1
+          maxLength: 500
+
+    VocCaseDetail:
+      type: object
+      additionalProperties: false
+      required:
+        - caseId
+        - vocNumber
+        - status
+        - statusLabel
+        - journeyCode
+        - journeyLabel
+        - classification
+        - incident
+        - createdAt
+        - updatedAt
+        - timeline
+      properties:
+        caseId:
+          type: string
+          format: uuid
+        vocNumber:
+          $ref: '#/components/schemas/VocNumber'
+        status:
+          $ref: '#/components/schemas/CaseStatus'
+        statusLabel:
+          type: string
+          minLength: 1
+          maxLength: 160
+        journeyCode:
+          $ref: '#/components/schemas/JourneyCode'
+        journeyLabel:
+          type: string
+          minLength: 1
+          maxLength: 120
+        classification:
+          $ref: '#/components/schemas/ResolvedClassification'
+        incident:
+          $ref: '#/components/schemas/IncidentSummary'
+        createdAt:
+          type: string
+          format: date-time
+        updatedAt:
+          type: string
+          format: date-time
+        timeline:
+          type: array
+          minItems: 1
+          items:
+            $ref: '#/components/schemas/TimelineEntry'
+
+    VocCaseDetailResponse:
+      type: object
+      additionalProperties: false
+      required:
+        - simulation
+        - case
+      properties:
+        simulation:
+          $ref: '#/components/schemas/SimulationFlag'
+        case:
+          $ref: '#/components/schemas/VocCaseDetail'
+
+    ErrorCode:
+      type: string
+      enum:
+        - INVALID_INPUT
+        - INVALID_JOURNEY
+        - INVALID_CLASSIFICATION
+        - INVALID_LOCATION
+        - CONSENT_REQUIRED
+        - TRACKING_NOT_FOUND
+        - IDEMPOTENCY_CONFLICT
+        - INTERNAL_ERROR
+        - VOC_UNAVAILABLE
+
+    ErrorDetail:
+      type: object
+      additionalProperties: false
+      required:
+        - code
+        - message
+      properties:
+        code:
+          $ref: '#/components/schemas/ErrorCode'
+        message:
+          type: string
+          minLength: 1
+          maxLength: 500
+        fields:
+          type: array
+          maxItems: 20
+          items:
+            type: string
+            minLength: 1
+            maxLength: 120
+
+    ErrorResponse:
+      type: object
+      additionalProperties: false
+      required:
+        - simulation
+        - error
+      properties:
+        simulation:
+          $ref: '#/components/schemas/SimulationFlag'
+        error:
+          $ref: '#/components/schemas/ErrorDetail'
+
+  responses:
+    BadRequest:
+      description: ข้อมูลไม่ถูกต้อง, ไม่ครบ, ไม่อยู่ใน catalog หรือไม่มี consent ที่จำเป็น
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ErrorResponse'
+          examples:
+            invalidClassification:
+              value:
+                simulation: true
+                error:
+                  code: INVALID_CLASSIFICATION
+                  message: ประเภทเรื่องไม่สัมพันธ์กับ journey หรือ taxonomy ที่เลือก
+                  fields: [classification]
+            consentRequired:
+              value:
+                simulation: true
+                error:
+                  code: CONSENT_REQUIRED
+                  message: ต้องได้รับความยินยอมก่อนส่งเรื่อง
+                  fields: [consent]
+
+    TrackingNotFound:
+      description: ไม่พบเคสหรือข้อมูลติดตามไม่ตรงกัน โดยไม่เปิดเผยว่า VOC Number มีอยู่จริงหรือไม่
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ErrorResponse'
+          example:
+            simulation: true
+            error:
+              code: TRACKING_NOT_FOUND
+              message: ไม่พบเคสสำหรับข้อมูลติดตามที่ระบุ
+
+    IdempotencyConflict:
+      description: Idempotency-Key เดิมถูกใช้กับ payload ที่ต่างออกไป
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ErrorResponse'
+          example:
+            simulation: true
+            error:
+              code: IDEMPOTENCY_CONFLICT
+              message: คีย์รายการนี้ถูกใช้กับข้อมูลอื่นแล้ว
+
+    InternalServerError:
+      description: เกิดข้อผิดพลาดภายใน VOC demo โดยไม่เปิดเผยรายละเอียดระบบ
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ErrorResponse'
+          example:
+            simulation: true
+            error:
+              code: INTERNAL_ERROR
+              message: เกิดข้อผิดพลาดภายในระบบ VOC แบบสาธิต
+
+    ServiceUnavailable:
+      description: VOC demo ไม่พร้อมใช้งานชั่วคราว
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ErrorResponse'
+          example:
+            simulation: true
+            error:
+              code: VOC_UNAVAILABLE
+              message: ระบบ VOC แบบสาธิตไม่พร้อมใช้งานชั่วคราว
