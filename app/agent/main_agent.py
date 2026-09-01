@@ -90,9 +90,20 @@ _VOC_CATEGORY_CHOICES = "\n".join(
 _DIRECT_RESPONSE_MESSAGES = {
     DirectResponseKind.GREETING: _GREETING_MESSAGE,
     DirectResponseKind.UNSUPPORTED: "ขออภัยครับ คำขอนี้ยังไม่รองรับด้วยความสามารถและเครื่องมือของ PEA One Agent ในขณะนี้",
-    DirectResponseKind.OMS_CA_NUMBER: "ได้ครับ กรุณาระบุหมายเลขผู้ใช้ไฟ (CA) 12 หลักเพื่อตรวจสอบเหตุไฟฟ้าขัดข้องครับ",
-    DirectResponseKind.OMS_WITH_CA_INPUTS: "ได้ครับ กรุณาระบุ `caNumber:` 12 หลัก และ `description:` ของเหตุ; ระบุ `contactPhone:` หรือ `locationNote:` เพิ่มเติมได้ครับ",
-    DirectResponseKind.OMS_ANONYMOUS_INPUTS: "ได้ครับ หากไม่ทราบหมายเลขผู้ใช้ไฟ กรุณาระบุ `description:`, `location:` และ `contactPhone:` เพื่อเตรียมแจ้งเหตุครับ",
+    DirectResponseKind.OMS_CA_NUMBER: "ได้ครับ กรุณาแจ้งหมายเลขผู้ใช้ไฟ 12 หลัก (ดูได้จากบิลค่าไฟ) เพื่อตรวจสอบเหตุไฟฟ้าขัดข้องครับ",
+    DirectResponseKind.OMS_WITH_CA_INPUTS: (
+        "ได้ครับ กรุณาแจ้ง 2 อย่างนี้ครับ\n"
+        "1. หมายเลขผู้ใช้ไฟ 12 หลัก (ดูได้จากบิลค่าไฟ)\n"
+        "2. อาการที่เกิดขึ้น เช่น ไฟดับทั้งบ้าน หรือไฟกะพริบ\n"
+        "ถ้าสะดวก แนบเบอร์โทรติดต่อกลับ หรือที่อยู่เพิ่มเติม ก็ช่วยให้เจ้าหน้าที่ติดตามได้เร็วขึ้นครับ"
+    ),
+    DirectResponseKind.OMS_ANONYMOUS_INPUTS: (
+        "ได้ครับ กรุณาแจ้ง 3 อย่างนี้ครับ\n"
+        "1. อาการที่เกิดขึ้น เช่น ไฟดับทั้งบ้าน\n"
+        "2. สถานที่หรือที่อยู่ที่เกิดเหตุ เช่น บ้านเลขที่ 123 หมู่ 4 ตำบลใด\n"
+        "3. เบอร์โทรที่ติดต่อกลับได้\n"
+        'พิมพ์เป็นภาษาพูดได้เลยครับ เช่น "ไฟดับทั้งบ้าน อยู่บ้านเลขที่ 123 หมู่ 4 โทร 0812345678"'
+    ),
 }
 _EXACT_GREETINGS = frozenset({"hi", "hello", "hey"})
 _OUTPUT_POLICY_PATTERNS = (
@@ -589,7 +600,17 @@ def _operational_error_fact(result: ToolResult) -> str:
             "โดยคีย์ติดตามมีการแยกตัวพิมพ์เล็ก-ใหญ่ครับ"
         )
     if result.name is ToolName.OMS and result.action is ToolAction.OMS_GET_OUTAGE_BY_CA and code is ToolErrorCode.NOT_FOUND:
-        return "ไม่พบหมายเลขผู้ใช้ไฟใน OMS ครับ หากไม่ทราบหมายเลขผู้ใช้ไฟ สามารถแจ้งเหตุโดยระบุ description, location และ contactPhone ได้ครับ"
+        return "ไม่พบหมายเลขผู้ใช้ไฟนี้ในระบบครับ กรุณาตรวจสอบหมายเลขอีกครั้ง หรือถ้าไม่ทราบหมายเลขผู้ใช้ไฟ แจ้งอาการที่เกิดขึ้น สถานที่ และเบอร์โทร เพื่อแจ้งเหตุแทนได้ครับ"
+    if (
+        result.name is ToolName.OMS
+        and result.action in (ToolAction.OMS_GET_OUTAGE_BY_CA, ToolAction.OMS_PREPARE_OUTAGE_WITH_CA)
+        and code is ToolErrorCode.INVALID_INPUT
+    ):
+        return (
+            "หมายเลขผู้ใช้ไฟต้องเป็นตัวเลข 12 หลักเท่านั้นครับ (ดูได้จากบิลค่าไฟ) "
+            "กรุณาตรวจสอบหมายเลขแล้วส่งใหม่อีกครั้ง "
+            "หรือถ้าไม่ทราบหมายเลขผู้ใช้ไฟ แจ้งอาการที่เกิดขึ้น สถานที่ และเบอร์โทรแทนได้ครับ"
+        )
     if result.name is ToolName.OMS and code is ToolErrorCode.CONFLICT:
         return "OMS พบเหตุการณ์ที่เกี่ยวข้องอยู่แล้ว จึงไม่สามารถสร้างเหตุซ้ำได้ครับ"
     if code is ToolErrorCode.NOT_FOUND:

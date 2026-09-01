@@ -145,6 +145,9 @@ def _latest_user_index(messages: tuple[LLMMessage, ...]) -> int | None:
     return next((index for index in range(len(messages) - 1, -1, -1) if messages[index].role == "user"), None)
 
 
+_CLARIFICATION_MARKERS = ("กรุณาระบุ", "กรุณาแจ้ง")
+
+
 def _planning_message(
     messages: tuple[LLMMessage, ...],
     user_index: int,
@@ -156,7 +159,8 @@ def _planning_message(
     cursor = user_index - 1
     while cursor >= 1:
         assistant = messages[cursor]
-        if assistant.role != "assistant" or "กรุณาระบุ" not in assistant.content:
+        # ข้อความขอให้ผู้ใช้เก็บข้อมูลเพิ่มอาจถูกเรียบเรียงใหม่ได้ จึงไม่ผูกกับวลีใดวลีเดียว
+        if assistant.role != "assistant" or not any(marker in assistant.content for marker in _CLARIFICATION_MARKERS):
             break
         previous_user_index = next(
             (index for index in range(cursor - 1, -1, -1) if messages[index].role == "user"),

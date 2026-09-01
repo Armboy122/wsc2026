@@ -125,6 +125,8 @@ import { linkifySafeHtml } from './linkify.js';
     category: 'ประเภทเรื่อง',
     subject: 'หัวข้อ',
     detail: 'รายละเอียด',
+    description: 'อาการที่เกิดขึ้น',
+    caNumber: 'หมายเลขผู้ใช้ไฟ',
     contactName: 'ชื่อผู้แจ้ง',
     contactPhone: 'เบอร์โทร',
     location: 'พื้นที่/สถานที่',

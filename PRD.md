@@ -102,7 +102,7 @@ Contract เป้าหมายกำหนด Main Agent หนึ่งต�
 | Capability | Tool | MVP behavior | Data status |
 |---|---|---|---|
 | ความรู้ PEA | `knowledge_tool` | เลือกเอกสารและตอบจากข้อความเต็มพร้อม citation | เอกสารจริงที่ต้องผ่านการอนุมัติ |
-| ไฟฟ้าขัดข้อง | `oms_tool` | ตรวจ CA และเตรียม/ส่งรายงานผ่าน external REST ตาม `oms.openapi.yaml` | ToolResult simulation=true |
+| ไฟฟ้าขัดข้อง | `oms_tool` | ตรวจ CA และเตรียม/ส่งรายงานผ่าน external REST ของ gateway OMS จริง (endpoint เป็น source of truth) | ToolResult simulation=true |
 
 Sabuy และ VOC ไม่ลงทะเบียนใน runtime catalogue; โค้ด สัญญา และ isolated tests ที่มีอยู่คงไว้แบบ dormant เพื่อ compatibility เท่านั้น
 
@@ -323,7 +323,7 @@ MVP ยังไม่พร้อม production จนกว่า:
 Known gaps ณ baseline นี้:
 
 - Runtime tool catalogue เปิด Knowledge และ OMS แบบ typed เท่านั้น; Sabuy และ VOC ไม่ลงทะเบียนและคงเฉพาะ implementation/contracts/isolated tests แบบ dormant
-- OMS ใช้ external REST connector ตาม immutable `oms.openapi.yaml` และ gateway ที่กำหนด แต่ผล ToolResult ยังคง `simulation=true`
+- OMS ใช้ external REST connector ไปยัง gateway ที่กำหนดโดยถือ endpoint จริงเป็น source of truth แต่ผล ToolResult ยังคง `simulation=true`
 - Knowledge live verification ที่บันทึกไว้เป็นเพียงบางกรณี ไม่ใช่ full live evaluation
 - จำนวน DOCX และจำนวน tests ที่ระบุใน `README.md` กับ `docs/integration_report.md` ไม่ตรงกันและอาจล้าสมัย
 - ข้อมูลใน process สูญหายเมื่อ restart

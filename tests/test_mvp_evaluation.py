@@ -57,6 +57,7 @@ def _registry() -> ToolRegistry:
                 "reportId": "OMS-ANON-DEMO",
                 "status": "RECEIVED",
                 "message": "รับแจ้งแล้ว",
+                "location": None,
             },
         )
 

@@ -66,6 +66,7 @@ def _isolated_registry(post_counter: list[int] | None = None) -> ToolRegistry:
                     "reportId": "OMS-ANON-DEMO",
                     "status": "RECEIVED",
                     "message": "รับแจ้งแล้ว",
+                    "location": None,
                 },
             )
         return httpx.Response(
@@ -76,6 +77,7 @@ def _isolated_registry(post_counter: list[int] | None = None) -> ToolRegistry:
                 "level": "METER",
                 "status": "RECEIVED",
                 "message": "รับแจ้งแล้ว",
+                "location": {"lat": 6.42, "lon": 101.8, "gisType": "POINT"},
             },
         )
 

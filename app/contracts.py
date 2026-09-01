@@ -415,6 +415,14 @@ class OmsNetworkReference(FrozenModel):
     feeder_id: str = Field(min_length=1, serialization_alias="feederId")
 
 
+class OmsGeoPoint(FrozenModel):
+    """พิกัดโดยประมาณจาก GIS ของ OMS โดยแต่ละค่าเป็น null ได้เมื่อไม่พบข้อมูล"""
+
+    lat: float | None
+    lon: float | None
+    gis_type: Literal["POINT", "AREA"] | None
+
+
 class OmsActiveOutageEvent(FrozenModel):
     event_id: str = Field(min_length=1, serialization_alias="eventId")
     level: OmsEventLevel
@@ -422,6 +430,7 @@ class OmsActiveOutageEvent(FrozenModel):
     message: str = Field(min_length=1, max_length=1000)
     started_at: datetime = Field(serialization_alias="startedAt")
     estimated_restore_at: datetime | None = Field(serialization_alias="estimatedRestoreAt")
+    location: OmsGeoPoint | None
 
 
 class OmsGetOutageByCaOutput(FrozenModel):
@@ -442,12 +451,14 @@ class OmsCreateOutageWithCaOutput(FrozenModel):
     level: Literal[OmsEventLevel.METER]
     status: OmsOutageStatus
     message: str = Field(min_length=1, max_length=1000)
+    location: OmsGeoPoint | None
 
 
 class OmsCreateAnonymousOutageOutput(FrozenModel):
     report_id: str = Field(min_length=1, serialization_alias="reportId")
     status: OmsOutageStatus
     message: str = Field(min_length=1, max_length=1000)
+    location: OmsGeoPoint | None
 
 
 INPUT_MODELS: ClassVar[dict[ToolAction, type[FrozenModel]]] = {

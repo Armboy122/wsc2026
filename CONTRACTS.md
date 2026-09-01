@@ -279,17 +279,17 @@ Main Agent เรียกใช้ `submit_payment` ได้หลังกา
 
 ### 4. `oms_tool`
 
-**ระบบเบื้องหลัง:** Agent-side `httpx` connector ตาม immutable `oms.openapi.yaml`; ผลลัพธ์ operational ทุกตัวประกาศ `simulation: true`
+**ระบบเบื้องหลัง:** Agent-side `httpx` connector ไปยัง gateway OMS จริง (endpoint เป็น source of truth); ผลลัพธ์ operational ทุกตัวประกาศ `simulation: true`
 
 | การดำเนินการ | ข้อมูลนำเข้า | ข้อมูลเมื่อสำเร็จ |
 |---|---|---|
-| `get_outage_by_ca` | `{ "caNumber": string(12 ASCII digits) }` | `caNumber`, `customerFound: true`, `network`, `activeEvent` หรือ `null`, `recommendedAction` |
+| `get_outage_by_ca` | `{ "caNumber": string(12 ASCII digits) }` | `caNumber`, `customerFound: true`, `network`, `activeEvent` หรือ `null` (ภายในมี `location` เป็น `GeoPoint` หรือ `null`), `recommendedAction` |
 | `prepare_outage_with_ca` | `{ "caNumber": string(12 ASCII digits), "description": string, "contactPhone": string/null, "locationNote": string/null, "idempotencyKey": string }` | `{ "summary": string }` (local draft only) |
-| `submit_outage_with_ca` | internal `{ "pendingActionId": UUID, "idempotencyKey": string }` | exact 201: `eventId`, `caNumber`, `level: METER`, `status`, `message` |
+| `submit_outage_with_ca` | internal `{ "pendingActionId": UUID, "idempotencyKey": string }` | exact 201: `eventId`, `caNumber`, `level: METER`, `status`, `message`, `location` (`GeoPoint` หรือ `null`) |
 | `prepare_anonymous_outage` | `{ "description": string, "location": string, "contactPhone": string, "idempotencyKey": string }` | `{ "summary": string }` (local draft only) |
-| `submit_anonymous_outage` | internal `{ "pendingActionId": UUID, "idempotencyKey": string }` | exact 201: `reportId`, `status`, `message` |
+| `submit_anonymous_outage` | internal `{ "pendingActionId": UUID, "idempotencyKey": string }` | exact 201: `reportId`, `status`, `message`, `location` (`GeoPoint` หรือ `null`) |
 
-output เหตุไฟฟ้าขัดข้องของ OMS ต้องมี `safetyMessage` เสมอ และ Main Agent ต้องแสดงข้อความนี้ก่อนคำอธิบายเพิ่มเติมจากโมเดล
+`GeoPoint` คือ `{ "lat": number/null, "lon": number/null, "gisType": "POINT" \| "AREA" \| null }` — พิกัดโดยประมาณจาก GIS ของ OMS ซึ่งถูกเพิ่มเข้ามาใน gateway จริงภายหลัง (endpoint ของ gateway เป็น source of truth) หาก output ของ OMS มี `safetyMessage` Main Agent จะแสดงข้อความนี้ก่อนข้อความอื่น
 
 ## การตรวจสอบ model-to-action ที่จำเป็น
 

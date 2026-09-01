@@ -516,7 +516,7 @@ def _real_agent() -> object:
             return httpx.Response(404, json={})
         return httpx.Response(
             201,
-            json={"reportId": "OMS-ANON-VOICE-1", "status": "RECEIVED", "message": "รับแจ้งแล้ว"},
+            json={"reportId": "OMS-ANON-VOICE-1", "status": "RECEIVED", "message": "รับแจ้งแล้ว", "location": None},
         )
 
     registry = ToolRegistry(

@@ -37,17 +37,46 @@ def test_get_exact_200_and_prepare_does_not_post() -> None:
     tool.close()
 
 
+def test_get_accepts_real_gateway_active_event_with_location() -> None:
+    """Regression: gateway จริงส่ง activeEvent.location (GeoPoint) กลับมา ซึ่งเคยทำให้ output validation ล้มเหลว"""
+    def handler(request: httpx.Request) -> httpx.Response:
+        return httpx.Response(
+            200,
+            json={
+                "caNumber": "020027219860",
+                "customerFound": True,
+                "network": {"meterId": "6602846772", "transformerId": "LNTW0329", "feederId": "LNTW-FDR"},
+                "activeEvent": {
+                    "eventId": "OMS-TR-0001",
+                    "level": "TRANSFORMER",
+                    "status": "IN_PROGRESS",
+                    "message": "พบเหตุไฟฟ้าขัดข้องที่หม้อแปลงซึ่งจ่ายไฟให้ผู้ใช้ไฟรายนี้",
+                    "startedAt": "2026-09-01T12:04:36.969150+07:00",
+                    "estimatedRestoreAt": None,
+                    "location": {"lat": 6.41051256, "lon": 101.8209484, "gisType": "POINT"},
+                },
+                "recommendedAction": "INFORM_EXISTING_EVENT",
+            },
+        )
+    tool = _tool(httpx.MockTransport(handler))
+    result = asyncio.run(tool.execute(_call(ToolAction.OMS_GET_OUTAGE_BY_CA, {"caNumber": "020027219860"})))
+    assert result.status is ToolResultStatus.SUCCESS
+    assert result.data["activeEvent"]["location"] == {"lat": 6.41051256, "lon": 101.8209484, "gisType": "POINT"}
+    tool.close()
+
+
 def test_submit_maps_exact_201_and_reset_clears_local_draft() -> None:
     def handler(request: httpx.Request) -> httpx.Response:
         assert request.method == "POST" and request.url.path == "/api/v1/outages"
         assert json.loads(request.content) == {"caNumber": "100000000003", "description": "ไฟดับ", "contactPhone": None, "locationNote": None}
         assert "idempotencyKey" not in request.content.decode() and not any("idempotency" in name.casefold() for name in request.headers)
-        return httpx.Response(201, json={"eventId": "OMS-METER-1", "caNumber": "100000000003", "level": "METER", "status": "RECEIVED", "message": "รับแจ้งแล้ว"})
+        return httpx.Response(201, json={"eventId": "OMS-METER-1", "caNumber": "100000000003", "level": "METER", "status": "RECEIVED", "message": "รับแจ้งแล้ว", "location": {"lat": 6.42, "lon": 101.8, "gisType": "POINT"}})
     tool = _tool(httpx.MockTransport(handler))
     asyncio.run(tool.execute(_call(ToolAction.OMS_PREPARE_OUTAGE_WITH_CA, {"caNumber": "100000000003", "description": "ไฟดับ", "idempotencyKey": "k"})))
     submitted = asyncio.run(tool.execute(_call(ToolAction.OMS_SUBMIT_OUTAGE_WITH_CA, {"pendingActionId": str(uuid4()), "idempotencyKey": "k"})))
     assert submitted.status is ToolResultStatus.SUCCESS
     assert submitted.data["eventId"] == "OMS-METER-1"
+    assert submitted.data["location"] == {"lat": 6.42, "lon": 101.8, "gisType": "POINT"}
     tool.reset()
     missing = asyncio.run(tool.execute(_call(ToolAction.OMS_SUBMIT_OUTAGE_WITH_CA, {"pendingActionId": str(uuid4()), "idempotencyKey": "k"})))
     assert missing.error.code is ToolErrorCode.NOT_FOUND

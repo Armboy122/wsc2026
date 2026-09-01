@@ -24,7 +24,7 @@ FastAPI routes (/api/v1/*, /health)
         v
 Main Agent  <---->  LLMAdapter (judge-provided LLM implementation)
     |  |
-    |  +--------> oms_tool ------> httpx → External OMS REST (`oms.openapi.yaml`)
+    |  +--------> oms_tool ------> httpx → External OMS REST (gateway จริงเป็น source of truth)
     +-----------> knowledge_tool -> Document Router -> Full selected DOCX text -> Gemini Long Context
 
 Sabuy/VOC implementation + contracts + isolated tests: dormant, not registered
@@ -114,7 +114,7 @@ Tool Registry ถูกกำหนดตายตัวเมื่อเริ
 - หากคำถามเกี่ยวข้องหลายหัวข้อให้เลือกหลายไฟล์ฉบับเต็ม หากกำกวมหรือไม่มีไฟล์ที่ตรงต้องคืน no-evidence เพื่อให้ Main Agent ถามกลับหรือแจ้งว่าไม่มีข้อมูล ห้ามเดาคำตอบ
 - คำตอบต้องอ้างอิงเฉพาะไฟล์ที่ถูกเลือก และ citation ต้องใช้รหัสไฟล์/ชื่อไฟล์จริงพร้อมข้อความหลักฐานที่ตรวจสอบได้ว่าอยู่ในไฟล์นั้น
 - backend อาจ cache ข้อความฉบับเต็มที่แปลงแล้วใน memory ได้ แต่ห้ามใช้ cache เป็นดัชนีค้น chunk หากไฟล์ที่เลือกทั้งหมดเกิน context budget ต้องลดชุดผ่านการถามให้ชัดเจนหรือ fail closed ห้ามตัดท้ายไฟล์โดยเงียบ
-- `SimulatedVocBackend` ใช้ข้อมูล fixture ใน memory แบบ deterministic; OMS เป็น connector ภายนอกผ่าน httpx ตาม `oms.openapi.yaml` คำตอบของระบบเหล่านี้มี `simulation: true` และจะไม่มีการกล่าวอ้างว่า action ได้ส่งถึง PEA แล้ว
+- `SimulatedVocBackend` ใช้ข้อมูล fixture ใน memory แบบ deterministic; OMS เป็น connector ภายนอกผ่าน httpx โดยถือ endpoint จริงของ gateway เป็น source of truth คำตอบของระบบเหล่านี้มี `simulation: true` และจะไม่มีการกล่าวอ้างว่า action ได้ส่งถึง PEA แล้ว
 
 สำหรับเดโม 2 วัน store จะอยู่ภายใน process และ reset ได้ การสูญเสียสถานะหลัง restart เป็นสิ่งที่ยอมรับได้และมีการระบุไว้ใน UI/สคริปต์เดโม
 

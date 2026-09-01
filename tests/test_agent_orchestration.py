@@ -15,8 +15,11 @@ from app.contracts import (
     Citation,
     ToolAction,
     ToolCall,
+    ToolError,
     ToolErrorCode,
     ToolName,
+    ToolResult,
+    ToolResultStatus,
 )
 from app.llm import DemoLLMAdapter, LLMClient
 from app.tools.knowledge_tool import KnowledgeTool
@@ -47,8 +50,8 @@ def _registry(knowledge_backend: FakeKnowledgeBackend | None = None) -> ToolRegi
         if request.method == "GET":
             return httpx.Response(200, json={"caNumber": "100000000003", "customerFound": True, "network": {"meterId": "M", "transformerId": "T", "feederId": "F"}, "activeEvent": None, "recommendedAction": "CREATE_METER_EVENT"})
         if request.url.path == "/api/v1/outages/anonymous":
-            return httpx.Response(201, json={"reportId": "OMS-ANON-1", "status": "RECEIVED", "message": "รับแจ้งแล้ว"})
-        return httpx.Response(201, json={"eventId": "OMS-METER-1", "caNumber": "100000000003", "level": "METER", "status": "RECEIVED", "message": "รับแจ้งแล้ว"})
+            return httpx.Response(201, json={"reportId": "OMS-ANON-1", "status": "RECEIVED", "message": "รับแจ้งแล้ว", "location": None})
+        return httpx.Response(201, json={"eventId": "OMS-METER-1", "caNumber": "100000000003", "level": "METER", "status": "RECEIVED", "message": "รับแจ้งแล้ว", "location": {"lat": 6.42, "lon": 101.8, "gisType": "POINT"}})
     return ToolRegistry(
         [
             KnowledgeTool(knowledge_backend or FakeKnowledgeBackend()),
@@ -59,6 +62,33 @@ def _registry(knowledge_backend: FakeKnowledgeBackend | None = None) -> ToolRegi
 
 def _agent(knowledge_backend: FakeKnowledgeBackend | None = None) -> MainAgent:
     return MainAgent(LLMClient(DemoLLMAdapter()), _registry(knowledge_backend))
+
+
+def _error_result(action: ToolAction, code: ToolErrorCode) -> ToolResult:
+    return ToolResult(
+        call_id=uuid4(),
+        name=ToolName.OMS,
+        action=action,
+        status=ToolResultStatus.ERROR,
+        data=None,
+        error=ToolError(code=code, message="ข้อผิดพลาดจำลอง"),
+        citations=(),
+        simulation=True,
+    )
+
+
+def test_invalid_ca_error_tells_user_the_rule_and_how_to_retry() -> None:
+    """Regression: CA ผิดรูปแบบต้องบอกกติกา 12 หลักและทางเลือกแจ้งแบบไม่มี CA แทนข้อความกลาง ๆ"""
+    from app.agent.main_agent import _operational_error_fact
+
+    fact = _operational_error_fact(_error_result(ToolAction.OMS_GET_OUTAGE_BY_CA, ToolErrorCode.INVALID_INPUT))
+    assert "12 หลัก" in fact
+    assert "อาการที่เกิดขึ้น สถานที่ และเบอร์โทร" in fact
+    # ข้อความถึงผู้ใช้ต้องเป็นภาษาคน ไม่ใช่ชื่อฟิลด์ภาษาอังกฤษแบบ schema
+    assert "description" not in fact and "contactPhone" not in fact
+
+    prepare_fact = _operational_error_fact(_error_result(ToolAction.OMS_PREPARE_OUTAGE_WITH_CA, ToolErrorCode.INVALID_INPUT))
+    assert "12 หลัก" in prepare_fact
 
 
 @pytest.mark.asyncio
@@ -216,7 +246,7 @@ async def test_no_evidence_turn_is_not_reused_as_knowledge_context() -> None:
 @pytest.mark.parametrize(
     ("operational_message", "expected_text"),
     [
-        ("report an outage", "description:"),
+        ("report an outage", "อาการที่เกิดขึ้น"),
         ("check outage status", "12 หลัก"),
     ],
 )
