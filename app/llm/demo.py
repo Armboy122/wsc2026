@@ -66,6 +66,8 @@ class DemoLLMAdapter:
 
         if _is_greeting(text):
             return _direct_response(DirectResponseKind.GREETING)
+        if _is_thanks(text):
+            return _direct_response(DirectResponseKind.THANKS)
         if _is_unsafe_or_unknown_request(text):
             return _direct_response(DirectResponseKind.UNSUPPORTED)
 
@@ -369,6 +371,10 @@ def _append_plan(
 
 def _is_greeting(text: str) -> bool:
     return text.strip(" !,.?\n") in {"hello", "hi", "hey", "สวัสดี"}
+
+
+def _is_thanks(text: str) -> bool:
+    return text.strip(" !,.?\n").casefold() in {"ขอบคุณ", "ขอบคุณครับ", "ขอบคุณมาก", "ขอบคุณมากครับ", "thank you", "thanks"}
 
 
 def _is_unsafe_or_unknown_request(text: str) -> bool:

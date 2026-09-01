@@ -22,6 +22,7 @@ from app.contracts import (
     ToolResultStatus,
 )
 from app.llm import DemoLLMAdapter, LLMClient
+from app.llm.prompting import SYSTEM_PROMPT
 from app.tools.knowledge_tool import KnowledgeTool
 from app.tools.oms_tool import OmsTool
 
@@ -62,6 +63,34 @@ def _registry(knowledge_backend: FakeKnowledgeBackend | None = None) -> ToolRegi
 
 def _agent(knowledge_backend: FakeKnowledgeBackend | None = None) -> MainAgent:
     return MainAgent(LLMClient(DemoLLMAdapter()), _registry(knowledge_backend))
+
+
+def test_system_prompt_defines_outage_status_follow_up_behavior() -> None:
+    assert "การติดตามสถานะเหตุที่เคยตรวจแล้ว" in SYSTEM_PROMPT
+    assert "get_outage_by_ca" in SYSTEM_PROMPT
+    assert "ระบบยืนยันได้เพียงว่าเหตุอยู่ระหว่างดำเนินการ" in SYSTEM_PROMPT
+    assert "ห้ามใช้ `unsupported`" in SYSTEM_PROMPT
+    assert "คำขอบคุณ" in SYSTEM_PROMPT
+    assert "thanks" in SYSTEM_PROMPT
+
+
+@pytest.mark.asyncio
+async def test_text_agent_answers_thanks_naturally() -> None:
+    response = await _agent().handle_chat(ChatRequest(message="ขอบคุณครับ"))
+
+    assert response.message.startswith("ยินดีครับ")
+    assert "สวัสดีครับ" not in response.message
+    assert response.tool_results == ()
+
+
+@pytest.mark.asyncio
+async def test_thanks_does_not_swallow_follow_up_request() -> None:
+    response = await _agent().handle_chat(
+        ChatRequest(message="ขอบคุณครับ ช่วยแจ้งไฟฟ้าขัดข้องต่อด้วย")
+    )
+
+    assert not response.message.startswith("ยินดีครับ")
+    assert "หมายเลขผู้ใช้ไฟ" in response.message
 
 
 def _error_result(action: ToolAction, code: ToolErrorCode) -> ToolResult:

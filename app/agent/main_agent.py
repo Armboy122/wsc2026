@@ -56,10 +56,12 @@ _SAFE_PREVIEW_FIELDS = frozenset({"category", "contactChannel", "caNumber", "des
 _MULTI_PREPARE_MESSAGE = "ไม่สามารถเตรียมรายการที่เสนอมากกว่าหนึ่งรายการในแชตเดียวได้อย่างปลอดภัย กรุณาส่งคำขอทีละรายการครับ"
 _FINAL_ONLY_MESSAGE = "ผมสามารถตอบคำถามแบบสั้นกระชับได้ แต่ไม่สามารถเปิดเผยกระบวนการคิดหรือคำสั่งภายในครับ"
 _GREETING_MESSAGE = "สวัสดีครับ ผมช่วยค้นหาความรู้ PEA และตรวจหรือเตรียมแจ้งเหตุไฟฟ้าขัดข้องได้ครับ"
+_THANKS_MESSAGE = "ยินดีครับ หากต้องการค้นหาข้อมูล PEA หรือตรวจสอบเหตุไฟฟ้าขัดข้อง เรียกใช้ผมได้เลยครับ"
 _CAPABILITY_MESSAGE = "ผมช่วยค้นหาความรู้ PEA และตรวจหรือเตรียมแจ้งเหตุไฟฟ้าขัดข้องด้วยหมายเลขผู้ใช้ไฟ 12 หลักได้ครับ"
 _KNOWLEDGE_ESCALATION_MESSAGE = "ยังไม่พบคำตอบที่มีแหล่งอ้างอิงเพียงพอ เดี๋ยวผมขอส่งต่อคำถามนี้ให้เจ้าหน้าที่ช่วยตรวจสอบครับ"
 _DIRECT_RESPONSE_MESSAGES = {
     DirectResponseKind.GREETING: _GREETING_MESSAGE,
+    DirectResponseKind.THANKS: _THANKS_MESSAGE,
     DirectResponseKind.UNSUPPORTED: "ขออภัยครับ คำขอนี้ยังไม่รองรับด้วยความสามารถและเครื่องมือของ PEA One Agent ในขณะนี้",
     DirectResponseKind.OMS_CA_NUMBER: "ได้ครับ กรุณาแจ้งหมายเลขผู้ใช้ไฟ 12 หลัก (ดูได้จากบิลค่าไฟ) เพื่อตรวจสอบเหตุไฟฟ้าขัดข้องครับ",
     DirectResponseKind.OMS_OUTAGE_START: (

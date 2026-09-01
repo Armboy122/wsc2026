@@ -47,6 +47,7 @@ class DirectResponseKind(str, Enum):
     """ชนิดข้อความตรงที่ Main Agent สร้างจากแม่แบบที่เชื่อถือได้"""
 
     GREETING = "greeting"
+    THANKS = "thanks"
     UNSUPPORTED = "unsupported"
     OMS_CA_NUMBER = "oms_ca_number"
     OMS_OUTAGE_START = "oms_outage_start"
