@@ -921,6 +921,28 @@ import { GeminiLiveClient } from './gemini-live-client.js';
     }
     els.voiceToggle.disabled = true;
     setVoiceState('connecting');
+
+    // ขอ permission ไมโครโฟนทันทีใน user-gesture เพื่อให้ Chrome แสดง dialog
+    // (Chrome บล็อก getUserMedia ที่เรียกหลัง await ข้าม async boundary)
+    try {
+      if (!navigator.mediaDevices?.getUserMedia) {
+        throw new Error('เบราว์เซอร์นี้ไม่รองรับการใช้ไมโครโฟน หรือหน้าเว็บนี้ต้องใช้งานผ่าน HTTPS หรือ localhost');
+      }
+      const permStream = await navigator.mediaDevices.getUserMedia({ audio: true });
+      // หยุด track ทันที — จะเปิดใหม่ใน MediaHandler.startCapture()
+      permStream.getTracks().forEach((t) => t.stop());
+    } catch (permErr) {
+      liveClient = null;
+      setVoiceState('error');
+      const msg = permErr.name === 'NotAllowedError' || permErr.name === 'PermissionDeniedError'
+        ? 'ไม่ได้รับอนุญาตให้ใช้ไมโครโฟน — กรุณาคลิก 🔒 ที่ address bar แล้วเลือก Allow ไมโครโฟน'
+        : permErr.message || 'ไม่สามารถเข้าถึงไมโครโฟนได้';
+      addSystemNotice(`<strong>เปิดโหมดเสียงไม่สำเร็จ</strong><br>${escapeHtml(msg)}`, 'notice-error');
+      announce('เปิดโหมดเสียงไม่สำเร็จ');
+      els.voiceToggle.disabled = false;
+      return;
+    }
+
     try {
       liveClient = new GeminiLiveClient({
         onTranscript: renderVoiceTranscript,
