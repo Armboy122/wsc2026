@@ -193,8 +193,8 @@ MAXPLUS_MODEL=deepseek-v4-flash-0731
 - **แชตข้อความ** — ถาม-ตอบ พร้อม citation ของเอกสารความรู้ (DOCX ที่ Document Router เลือก)
 - **ความรู้ (Knowledge)** — ตอบจากข้อความฉบับเต็มของ DOCX ที่เลือก + ตรวจ citation แบบ fail-closed
 - **OMS จำลอง** — ตรวจ/เตรียมแจ้งเหตุไฟฟ้าขัดข้อง (แสดงผลเป็น SIMULATED) โดยต้องกด **ยืนยัน** ก่อนเขียนเสมอ
-- **VOC plugin** — อ่าน catalog และเชื่อม VOC REST gateway แบบ simulation โดยต้องกด **ยืนยัน** ก่อนส่งเคสเสมอ
-- **ระบบปลั๊กอิน** — เพิ่มเครื่องมือใหม่ด้วยการเพิ่มโฟลเดอร์ + `plugin.yaml` โดยไม่ต้องแก้ Main Agent
+- **VOC plugin** — เชื่อม VOC REST gateway แบบ simulation (catalog/สร้างเคส/ติดตามเคส) โดยต้องกด **ยืนยัน** ก่อนส่งเคสเสมอ; logic เฉพาะของ VOC อยู่ใน `app/plugins/voc/` และ `app/tools/voc_tool.py` เท่านั้น — MainAgent ไม่มี code เฉพาะ VOC
+- **ระบบปลั๊กอิน** — เพิ่มเครื่องมือใหม่ด้วยการเพิ่มโฟลเดอร์ + `plugin.yaml` โดยไม่ต้องแก้ Main Agent; MainAgent ถือ policy กลางเท่านั้น (prepare→confirm→submit, redaction, trace) และไม่ฝัง logic/ข้อความเฉพาะ plugin ใหม่ ๆ
 - **Trace (การตรวจสอบ)** — ดูเหตุการณ์ที่เรียงตามลำดับและปกปิดข้อมูลแล้ว
 - **โหมดเสียง (Voice)** — พูดคุยด้วย Gemini Live (ต้องอนุญาตไมโครโฟนก่อน)
 - **รีเซ็ต** — ล้างบทสนทนาและสถานะจำลอง

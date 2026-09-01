@@ -110,7 +110,7 @@ Key Code ไม่ตรง เพื่อไม่เปิดเผยข้�
 ### เปลี่ยน field/type/requiredness ของ request หรือ response
 1. แก้ `app/contracts.py` ก่อน — เป็น typed source of truth ของ Agent
 2. แก้ `app/tools/voc_tool.py` สำหรับ payload mapping และ error mapping
-3. แก้ `app/agent/voc_intake.py` สำหรับ slot/prompt/validation
+3. แก้ `app/plugins/voc/intake.py` สำหรับ slot/prompt/validation
 4. ตรวจ `app/plugins/voc/plugin.yaml` ให้ contract names และ actions ครบ
 5. เพิ่มหรือแก้ tests ใน `app/tools/tests/test_voc_tool.py` และ intake tests
 6. รัน `python3 -m pytest -q`
@@ -127,8 +127,9 @@ Key Code ไม่ตรง เพื่อไม่เปิดเผยข้�
 - ตรวจ MainAgent และ LLM catalogue ว่า submit ยังเป็น internal-only
 
 ### เปลี่ยนเฉพาะข้อความ UX
-- แก้ `app/agent/voc_intake.py` หรือ message formatter
+- แก้ `app/plugins/voc/intake.py` หรือ message formatter ในโฟลเดอร์ plugin
 - ไม่ควรแก้ API contract หาก schema ไม่เปลี่ยน
+- ห้ามย้ายข้อความเฉพาะ plugin ไปใส่ `app/agent/main_agent.py` — MainAgent ถือ policy กลางเท่านั้น
 
 ## Verification checklist
 

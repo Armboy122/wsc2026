@@ -4,7 +4,7 @@ from uuid import uuid4
 
 import pytest
 
-from app.agent.voc_intake import (
+from app.plugins.voc.intake import (
     VocIntakeCoordinator,
     VocStep,
     VocWorkflowStore,
@@ -131,7 +131,7 @@ def test_workflow_store_is_scoped_by_conversation_and_resettable() -> None:
 
 def test_spoken_answers_are_cleaned_without_losing_real_values() -> None:
     """ผู้ใช้เสียงตอบเป็นประโยคเต็ม ระบบต้องเก็บเฉพาะสาระ แต่ห้ามตัดข้อมูลจริงทิ้ง"""
-    from app.agent.voc_intake import VocStep, _spoken_value
+    from app.plugins.voc.intake import VocStep, _spoken_value
 
     # ตัดคำทวนชื่อฟิลด์และคำลงท้ายออก
     assert _spoken_value("ชื่อผู้ร้องเรียน นายอาร์ม ครับ", VocStep.CONTACT_NAME) == "นายอาร์ม"
@@ -149,7 +149,7 @@ def test_spoken_answers_are_cleaned_without_losing_real_values() -> None:
 
 def test_opening_sentence_supplies_both_category_and_subject() -> None:
     """ประโยคเปิดที่บอกทั้งประเภทและเรื่อง ต้องไม่ถามหัวข้อซ้ำอีก"""
-    from app.agent.voc_intake import _subject_from_opening
+    from app.plugins.voc.intake import _subject_from_opening
 
     categories = CATEGORIES
     assert _subject_from_opening("ร้องเรียนการบริการของเจ้าหน้าที่หน่อยครับ", categories) == "บริการของเจ้าหน้าที่"
@@ -162,7 +162,7 @@ def test_opening_sentence_supplies_both_category_and_subject() -> None:
 
 def test_rejected_case_reopens_form_for_the_wrong_field_only() -> None:
     """ปฏิเสธเพราะกรอกผิด ต้องแก้เฉพาะฟิลด์สุดท้าย ไม่ต้องกรอกใหม่ทั้งหมด"""
-    from app.agent.voc_intake import VocIntakeState, VocStep
+    from app.plugins.voc.intake import VocIntakeState, VocStep
     from app.contracts import VocCategory
 
     ready = VocIntakeState(

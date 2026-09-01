@@ -322,3 +322,79 @@ def _labelled_value(text: str, labels: tuple[str, ...]) -> str | None:
         return None
     value = " ".join(match.group(1).split()).strip()
     return value or None
+
+
+# New API-backed intake. The legacy coordinator above remains available for
+# compatibility while callers migrate to the structured VOC gateway contract.
+from dataclasses import field as dataclass_field
+from typing import Any
+
+from app.contracts import VocExternalCasePayload
+
+
+@dataclass(frozen=True, slots=True)
+class CatalogVocIntakeState:
+    """Collects only user-provided gateway fields; never invents defaults."""
+
+    values: dict[str, Any] = dataclass_field(default_factory=dict)
+    next_field: str = "journeyCode"
+
+    FIELD_ORDER = (
+        "journeyCode", "requestTypeCode", "topicCode", "issueCode", "subIssueCode",
+        "provinceCode", "districtCode", "subdistrictCode", "peaOfficeCode", "locationText",
+        "frequencyCode", "severityLevel", "detail", "prefixCode", "firstName",
+        "lastName", "phone", "consent",
+    )
+
+    def advance(self, message: str) -> "CatalogVocIntakeState":
+        """Accept explicit ``field: value`` pairs and return the next missing field."""
+        values = dict(self.values)
+        for part in message.split(";"):
+            if ":" not in part:
+                continue
+            key, value = (piece.strip() for piece in part.split(":", 1))
+            if key in self.FIELD_ORDER and value:
+                values[key] = value
+        next_field = next((field for field in self.FIELD_ORDER if field not in values), "ready")
+        return CatalogVocIntakeState(values, next_field)
+
+    def prompt(self) -> str | None:
+        if self.next_field == "ready":
+            return None
+        labels = {
+            "journeyCode": "ประเภทเรื่อง",
+            "requestTypeCode": "ประเภทคำร้องจาก catalog",
+            "topicCode": "หัวข้อจาก catalog",
+            "issueCode": "ประเด็นจาก catalog",
+            "subIssueCode": "ประเด็นย่อยจาก catalog (ถ้ามี)",
+            "provinceCode": "รหัสจังหวัด",
+            "districtCode": "รหัสอำเภอ",
+            "subdistrictCode": "รหัสตำบล",
+            "peaOfficeCode": "รหัสสำนักงาน PEA",
+            "locationText": "รายละเอียดสถานที่",
+            "frequencyCode": "ความถี่เหตุการณ์ (ถ้าจำเป็น)",
+            "severityLevel": "ระดับผลกระทบ 1-5 (ถ้าจำเป็น)",
+            "detail": "รายละเอียดเรื่อง",
+            "prefixCode": "คำนำหน้าชื่อ",
+            "firstName": "ชื่อ",
+            "lastName": "นามสกุล",
+            "phone": "เบอร์โทร",
+            "consent": "การยินยอม PDPA",
+        }
+        return f"กรุณาระบุ{labels[self.next_field]} โดยใช้รูปแบบ {self.next_field}: ค่า ครับ"
+
+    def to_payload(self) -> VocExternalCasePayload:
+        """Validate the complete collected values; missing data fails closed."""
+        raw = dict(self.values)
+        reporter_keys = {"prefixCode", "firstName", "lastName", "phone"}
+        reporter = {key: raw.pop(key) for key in reporter_keys if key in raw}
+        consent = raw.pop("consent", None)
+        if not isinstance(consent, dict):
+            raise ValueError("consent must be supplied as a complete object")
+        raw["consent"] = consent
+        if reporter:
+            raw["reporter"] = reporter
+        incident_keys = ("provinceCode", "districtCode", "subdistrictCode", "peaOfficeCode", "locationText")
+        raw["incident"] = {key: raw.pop(key) for key in incident_keys if key in raw}
+        raw["classification"] = {key: raw.pop(key) for key in ("requestTypeCode", "topicCode", "issueCode", "subIssueCode") if key in raw}
+        return VocExternalCasePayload.model_validate(raw)

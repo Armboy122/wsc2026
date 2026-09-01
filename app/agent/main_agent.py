@@ -13,12 +13,6 @@ from pydantic import ValidationError
 
 from app.agent.registry import ToolContext, ToolRegistry, _error_result
 from app.agent.stores import ConversationStore, PendingActionStore, TraceStore
-from app.agent.voc_intake import (
-    VocIntakeCoordinator,
-    VocIntakeState,
-    VocWorkflowStore,
-    category_choices,
-)
 from app.contracts import (
     PREPARE_TO_SUBMIT,
     ActionDecisionResponse,
@@ -34,7 +28,6 @@ from app.contracts import (
     ToolName,
     ToolResult,
     ToolResultStatus,
-    VocCategoryItem,
     TraceEventKind,
     TraceResponse,
     validate_tool_input,
@@ -55,14 +48,6 @@ _SUBMIT_ACTIONS = frozenset({
     ToolAction.OMS_SUBMIT_OUTAGE_WITH_CA,
     ToolAction.OMS_SUBMIT_ANONYMOUS_OUTAGE,
 })
-# ค่า legacy เหล่านี้คงไว้เป็น denylist เท่านั้น เพื่อให้ provider ที่ส่ง VOC มาถูกปฏิเสธแบบ fail closed
-_DORMANT_VOC_DIRECT_RESPONSES = frozenset({
-    DirectResponseKind.VOC_DETAILS,
-    DirectResponseKind.VOC_CONTACT_NAME,
-    DirectResponseKind.VOC_CONTACT_PHONE,
-    DirectResponseKind.VOC_LOCATION,
-    DirectResponseKind.VOC_TRACKING_INPUTS,
-})
 # แค็ตตาล็อกที่ LLM เห็นมาจาก registry (Knowledge built-in + ปลั๊กอินที่โหลดได้)
 # เพิ่มเครื่องมือใหม่จึงไม่ต้องแก้ Main Agent อีก
 # ผู้ใช้ต้องตรวจทานสิ่งที่ตนเองกรอกก่อนยืนยัน จึงเปิดเผยเฉพาะฟิลด์ที่ผู้ใช้เป็นผู้ให้มาเอง
@@ -73,22 +58,18 @@ _FINAL_ONLY_MESSAGE = "ผมสามารถตอบคำถามแบบ
 _GREETING_MESSAGE = "สวัสดีครับ ผมช่วยค้นหาความรู้ PEA และตรวจหรือเตรียมแจ้งเหตุไฟฟ้าขัดข้องได้ครับ"
 _CAPABILITY_MESSAGE = "ผมช่วยค้นหาความรู้ PEA และตรวจหรือเตรียมแจ้งเหตุไฟฟ้าขัดข้องด้วยหมายเลขผู้ใช้ไฟ 12 หลักได้ครับ"
 _KNOWLEDGE_ESCALATION_MESSAGE = "ยังไม่พบคำตอบที่มีแหล่งอ้างอิงเพียงพอ เดี๋ยวผมขอส่งต่อคำถามนี้ให้เจ้าหน้าที่ช่วยตรวจสอบครับ"
-_VOC_CATEGORY_LABELS = {
-    "power_quality": "แจ้งปัญหาคุณภาพไฟฟ้า",
-    "service": "แจ้งปัญหาด้านบริการ",
-    "compliment": "ชื่นชม",
-    "tip_off": "แจ้งเบาะแส",
-    "operations": "แจ้งปัญหาการดำเนินงาน",
-    "stakeholder_feedback": "ชื่นชม เสนอแนะ ข้อคิดเห็น",
-}
-_VOC_CATEGORY_CHOICES = "\n".join(
-    f"{index}. {label}"
-    for index, label in enumerate(_VOC_CATEGORY_LABELS.values(), start=1)
-)
 _DIRECT_RESPONSE_MESSAGES = {
     DirectResponseKind.GREETING: _GREETING_MESSAGE,
     DirectResponseKind.UNSUPPORTED: "ขออภัยครับ คำขอนี้ยังไม่รองรับด้วยความสามารถและเครื่องมือของ PEA One Agent ในขณะนี้",
     DirectResponseKind.OMS_CA_NUMBER: "ได้ครับ กรุณาแจ้งหมายเลขผู้ใช้ไฟ 12 หลัก (ดูได้จากบิลค่าไฟ) เพื่อตรวจสอบเหตุไฟฟ้าขัดข้องครับ",
+    DirectResponseKind.OMS_OUTAGE_START: (
+        "ได้ครับ กรุณาแจ้งก่อนว่าคุณมีหมายเลขผู้ใช้ไฟ (CA) 12 หลัก หรือไม่ครับ\n"
+        "- ถ้ามี: กรุณาแจ้งหมายเลข 12 หลัก (ดูได้จากบิลค่าไฟ) พร้อมอาการที่เกิดขึ้นครับ\n"
+        "- ถ้าไม่มี: กรุณาแจ้ง 3 อย่างนี้ครับ\n"
+        "1. ไฟดับทุกหลังหรือหลังเดียว (เช่น ทั้งซอย / เฉพาะบ้าน)\n"
+        "2. สถานที่หรือที่อยู่คร่าว ๆ\n"
+        "3. เบอร์โทรที่ติดต่อกลับได้"
+    ),
     DirectResponseKind.OMS_WITH_CA_INPUTS: (
         "ได้ครับ กรุณาแจ้ง 2 อย่างนี้ครับ\n"
         "1. หมายเลขผู้ใช้ไฟ 12 หลัก (ดูได้จากบิลค่าไฟ)\n"
@@ -97,10 +78,10 @@ _DIRECT_RESPONSE_MESSAGES = {
     ),
     DirectResponseKind.OMS_ANONYMOUS_INPUTS: (
         "ได้ครับ กรุณาแจ้ง 3 อย่างนี้ครับ\n"
-        "1. อาการที่เกิดขึ้น เช่น ไฟดับทั้งบ้าน\n"
-        "2. สถานที่หรือที่อยู่ที่เกิดเหตุ เช่น บ้านเลขที่ 123 หมู่ 4 ตำบลใด\n"
+        "1. ไฟดับทุกหลังหรือหลังเดียว (เช่น ทั้งซอย / เฉพาะบ้าน)\n"
+        "2. สถานที่หรือที่อยู่คร่าว ๆ เช่น บ้านเลขที่ 123 หมู่ 4 ตำบลใด\n"
         "3. เบอร์โทรที่ติดต่อกลับได้\n"
-        'พิมพ์เป็นภาษาพูดได้เลยครับ เช่น "ไฟดับทั้งบ้าน อยู่บ้านเลขที่ 123 หมู่ 4 โทร 0812345678"'
+        'พิมพ์เป็นภาษาพูดได้เลยครับ เช่น "ไฟดับทั้งซอย อยู่บ้านเลขที่ 123 หมู่ 4 โทร 0812345678"'
     ),
 }
 _EXACT_GREETINGS = frozenset({"hi", "hello", "hey"})
@@ -133,7 +114,6 @@ class MainAgent:
         conversations: ConversationStore | None = None,
         pending_actions: PendingActionStore | None = None,
         traces: TraceStore | None = None,
-        voc_workflows: VocWorkflowStore | None = None,
     ) -> None:
         self._llm = llm_client
         self._tools = tool_registry
@@ -147,11 +127,6 @@ class MainAgent:
         self._knowledge_contexts: dict[UUID, KnowledgeConversationContext] = {}
         # บทสนทนาที่มีผล OMS สำเร็จแล้ว ใช้อนุญาตคำตอบต่อเนื่องที่อ้างอิงผลนั้นได้
         self._oms_grounded_conversations: set[UUID] = set()
-        self._voc_workflows = voc_workflows or VocWorkflowStore()
-        self._voc_intake = VocIntakeCoordinator()
-        self._voc_categories: tuple[VocCategoryItem, ...] | None = None
-        # ข้อมูลที่กรอกไว้ของรายการที่ยังไม่สิ้นสุด ใช้คืนให้ผู้ใช้แก้ต่อเมื่อปฏิเสธ
-        self._rejectable_voc_states: dict[UUID, VocIntakeState] = {}
         self._reset_generation = 0
 
     async def handle_chat(self, request: ChatRequest) -> ChatResponse:
@@ -188,10 +163,6 @@ class MainAgent:
             if not calls:
                 direct_completion_text = final_text
                 direct_response_kind = response.direct_response or parsed_direct_response
-                if direct_response_kind in _DORMANT_VOC_DIRECT_RESPONSES:
-                    direct_response_kind = DirectResponseKind.UNSUPPORTED
-                    final_text = _DIRECT_RESPONSE_MESSAGES[DirectResponseKind.UNSUPPORTED]
-                    direct_completion_text = final_text
                 break
             if len(all_results) + len(calls) > _MAX_TOOL_STEPS:
                 self._traces.append(trace_id, TraceEventKind.ERROR, {"stage": "tool_limit", "maximum": _MAX_TOOL_STEPS})
@@ -264,96 +235,6 @@ class MainAgent:
         self._conversations.append(conversation_id, LLMMessage("assistant", message))
         return ChatResponse(conversation_id=conversation_id, trace_id=trace_id, message=message, citations=citations, pending_action=pending, tool_results=tuple(all_results))
 
-    async def _load_voc_categories(
-        self,
-        conversation_id: UUID,
-        trace_id: UUID,
-    ) -> tuple[VocCategoryItem, ...]:
-        if self._voc_categories is not None:
-            return self._voc_categories
-        call = ToolCall(call_id=uuid4(), name=ToolName.VOC, action=ToolAction.VOC_LIST_CATEGORIES, input={})
-        result = await self._execute_chat_call(call, conversation_id, trace_id)
-        if result.status is not ToolResultStatus.SUCCESS:
-            return ()
-        raw_categories = (result.data or {}).get("categories")
-        if not isinstance(raw_categories, list):
-            return ()
-        try:
-            categories = tuple(VocCategoryItem.model_validate(item) for item in raw_categories)
-        except ValidationError:
-            return ()
-        self._voc_categories = categories
-        return categories
-
-    async def _continue_voc_intake(
-        self,
-        conversation_id: UUID,
-        trace_id: UUID,
-        message: str,
-        state: VocIntakeState,
-    ) -> ChatResponse:
-        normalized = " ".join(message.casefold().split())
-        if normalized in {"ยกเลิก", "ไม่ร้องเรียนแล้ว", "cancel", "stop"}:
-            self._voc_workflows.pop(conversation_id)
-            return self._finish_voc_turn(conversation_id, trace_id, message, "ยกเลิกการเตรียมเรื่องร้องเรียนแล้วครับ")
-
-        categories = await self._load_voc_categories(conversation_id, trace_id)
-        if not categories:
-            return self._finish_voc_turn(conversation_id, trace_id, message, "ขณะนี้ไม่สามารถโหลดประเภทเรื่องร้องเรียนได้ กรุณาลองใหม่อีกครั้งครับ")
-        decision = (
-            self._voc_intake.advance(state, "", categories)
-            if normalized in {"ดำเนินต่อ", "ทำต่อ", "continue"}
-            else self._voc_intake.advance(state, message, categories)
-        )
-        self._voc_workflows.put(conversation_id, decision.state)
-        if not decision.state.ready:
-            response_text = category_choices(categories) if decision.needs_categories else decision.prompt or "กรุณาระบุข้อมูลเรื่องร้องเรียนเพิ่มเติมครับ"
-            return self._finish_voc_turn(conversation_id, trace_id, message, response_text)
-
-        call = ToolCall(
-            call_id=uuid4(),
-            name=ToolName.VOC,
-            action=ToolAction.VOC_PREPARE_CASE,
-            input=decision.state.prepare_input(f"voc-{uuid4()}"),
-        )
-        result = await self._execute_chat_call(call, conversation_id, trace_id)
-        results = [result]
-        pending = self._create_pending_from_results(conversation_id, trace_id, results)
-        if result.status is ToolResultStatus.SUCCESS and pending is not None:
-            # เก็บข้อมูลที่กรอกไว้จนกว่าจะส่งเรื่องจริง ผู้ใช้ที่ปฏิเสธเพราะพิมพ์ผิด
-            # จะได้แก้เฉพาะฟิลด์ที่ผิดต่อได้ โดยไม่ต้องกรอกใหม่ทั้งหมด
-            self._rejectable_voc_states[pending.pending_action_id] = decision.state
-            self._voc_workflows.pop(conversation_id)
-        response_text = _authoritative_message("", results, pending)
-        self._conversations.append(conversation_id, LLMMessage("user", message))
-        self._conversations.append(conversation_id, LLMMessage("assistant", response_text))
-        return ChatResponse(
-            conversation_id=conversation_id,
-            trace_id=trace_id,
-            message=response_text,
-            citations=(),
-            pending_action=pending,
-            tool_results=tuple(results),
-        )
-
-    def _finish_voc_turn(
-        self,
-        conversation_id: UUID,
-        trace_id: UUID,
-        user_message: str,
-        response_text: str,
-    ) -> ChatResponse:
-        self._conversations.append(conversation_id, LLMMessage("user", user_message))
-        self._conversations.append(conversation_id, LLMMessage("assistant", response_text))
-        return ChatResponse(
-            conversation_id=conversation_id,
-            trace_id=trace_id,
-            message=response_text,
-            citations=(),
-            pending_action=None,
-            tool_results=(),
-        )
-
     async def confirm_pending_action(self, pending_action_id: UUID, confirmation_note: str | None = None) -> ActionDecisionResponse:
         task = self._confirmation_tasks.get(pending_action_id)
         if task is not None:
@@ -395,8 +276,6 @@ class MainAgent:
         status = PendingActionStatus.SUBMITTED if result.status is ToolResultStatus.SUCCESS else PendingActionStatus.FAILED
         terminal = confirmed.model_copy(update={"status": status, "updated_at": _now(), "submission_result": result})
         self._pending_actions.update(terminal)
-        # ส่งเรื่องแล้วไม่ต้องคืนฟอร์มให้แก้อีก
-        self._rejectable_voc_states.pop(pending_action_id, None)
         return ActionDecisionResponse(pending_action=terminal, tool_result=result, trace_id=trace_id)
 
     async def reject_pending_action(self, pending_action_id: UUID, reason: str) -> ActionDecisionResponse:
@@ -409,11 +288,6 @@ class MainAgent:
         rejected = pending.model_copy(update={"status": PendingActionStatus.REJECTED, "updated_at": _now()})
         self._pending_actions.update(rejected)
         self._traces.append(trace_id, TraceEventKind.ACTION_REJECTED, {"pendingActionId": str(pending_action_id), "reason": "[redacted]"})
-        # ผู้ใช้มักปฏิเสธเพราะกรอกผิดบางฟิลด์ จึงคืนข้อมูลที่กรอกไว้ให้แก้ต่อได้
-        # แทนการทิ้งบทสนทนาจนต้องเริ่มกรอกใหม่ทั้งหมด
-        resumable = self._rejectable_voc_states.pop(pending_action_id, None)
-        if resumable is not None:
-            self._voc_workflows.put(pending.conversation_id, resumable.reopen())
         return ActionDecisionResponse(pending_action=rejected, tool_result=None, trace_id=trace_id)
 
     def get_trace(self, trace_id: UUID) -> TraceResponse:
@@ -435,9 +309,6 @@ class MainAgent:
         self._call_inputs.clear()
         self._knowledge_contexts.clear()
         self._oms_grounded_conversations.clear()
-        self._voc_workflows.clear()
-        self._rejectable_voc_states.clear()
-        self._voc_categories = None
         return ResetResponse()
 
     async def _execute_chat_call(self, call: ToolCall, conversation_id: UUID, trace_id: UUID) -> ToolResult:
@@ -553,11 +424,12 @@ def _safe_direct_message(
         isinstance(direct_response, DirectResponseKind)
         and direct_response is not DirectResponseKind.OMS_CA_NUMBER
     ):
-        return _DIRECT_RESPONSE_MESSAGES[direct_response]
+        # ชนิดที่ไม่มีแม่แบบ (เช่น เครื่องมือที่ยังไม่เปิดใช้) ต้อง fail closed ไม่ใช้ข้อความโมเดล
+        return _DIRECT_RESPONSE_MESSAGES.get(direct_response, _DIRECT_RESPONSE_MESSAGES[DirectResponseKind.UNSUPPORTED])
     if allow_grounded_followup and 0 < len(followup) <= _MAX_FOLLOWUP_LENGTH:
         return followup
     if isinstance(direct_response, DirectResponseKind):
-        return _DIRECT_RESPONSE_MESSAGES[direct_response]
+        return _DIRECT_RESPONSE_MESSAGES.get(direct_response, _DIRECT_RESPONSE_MESSAGES[DirectResponseKind.UNSUPPORTED])
     return _CAPABILITY_MESSAGE
 
 
@@ -622,18 +494,8 @@ def _authoritative_message(
 
 
 def _operational_error_fact(result: ToolResult) -> str:
-    """อธิบายสาเหตุที่ผู้ใช้แก้ไขเองได้ แทนการเหมารวมว่าบริการไม่พร้อมใช้งาน
-
-    ``not_found`` ของการติดตามเรื่องเกิดจาก ``vocId``/``trackingKey`` ไม่ตรงกัน
-    ซึ่งผู้ใช้แก้ไขเองได้ จึงต้องไม่สื่อสารเหมือนระบบขัดข้อง
-    """
+    """อธิบายสาเหตุที่ผู้ใช้แก้ไขเองได้ แทนการเหมารวมว่าบริการไม่พร้อมใช้งาน"""
     code = result.error.code if result.error else None
-    if result.action is ToolAction.VOC_GET_CASE and code is ToolErrorCode.NOT_FOUND:
-        return (
-            "ไม่พบเรื่องร้องเรียนที่ตรงกับเลขเรื่องและคีย์ติดตามที่ระบุครับ "
-            "กรุณาตรวจสอบว่าทั้งสองค่าตรงกับที่ได้รับตอนส่งเรื่อง "
-            "โดยคีย์ติดตามมีการแยกตัวพิมพ์เล็ก-ใหญ่ครับ"
-        )
     if result.name is ToolName.OMS and result.action is ToolAction.OMS_GET_OUTAGE_BY_CA and code is ToolErrorCode.NOT_FOUND:
         return "ไม่พบหมายเลขผู้ใช้ไฟนี้ในระบบครับ กรุณาตรวจสอบหมายเลขอีกครั้ง หรือถ้าไม่ทราบหมายเลขผู้ใช้ไฟ แจ้งอาการที่เกิดขึ้น สถานที่ และเบอร์โทร เพื่อแจ้งเหตุแทนได้ครับ"
     if (
@@ -689,8 +551,6 @@ def _result_facts(results: list[ToolResult], *, user_message: str = "") -> list[
             if fact not in seen_knowledge_facts:
                 facts.append(fact)
                 seen_knowledge_facts.add(fact)
-        elif result.name is ToolName.VOC:
-            facts.append(_voc_result_fact(result.action, data))
         elif result.name is ToolName.OMS:
             facts.append(_oms_result_fact(result.action, data))
         elif isinstance(data.get("summary"), str):
@@ -736,39 +596,8 @@ def _oms_result_fact(action: ToolAction, data: dict[str, Any]) -> str:
     return "ดำเนินการกับ OMS เรียบร้อยแล้วครับ"
 
 
-def _voc_result_fact(action: ToolAction, data: dict[str, Any]) -> str:
-    """แปลงผล VOC ที่เชื่อถือได้เป็นภาษาผู้ใช้ โดยไม่เปิดเผย payload ภายใน"""
-    if action is ToolAction.VOC_LIST_CATEGORIES:
-        categories = data.get("categories")
-        if isinstance(categories, list):
-            labels = [
-                item.get("label")
-                for item in categories
-                if isinstance(item, dict) and isinstance(item.get("label"), str)
-            ]
-            if labels:
-                choices = "\n".join(
-                    f"{index}. {label}" for index, label in enumerate(labels, start=1)
-                )
-                return (
-                    "ประเภทเรื่องที่เลือกได้มีดังนี้:\n"
-                    f"{choices}\n\n"
-                    "พิมพ์ชื่อประเภทเรื่องที่ต้องการได้เลยครับ"
-                )
-    if action is ToolAction.VOC_GET_CASE:
-        voc_id = data.get("vocId")
-        status = data.get("status")
-        category = _VOC_CATEGORY_LABELS.get(str(data.get("category")), "ไม่ระบุประเภท")
-        if isinstance(voc_id, str) and isinstance(status, str):
-            status_label = "ส่งเรื่องแล้ว" if status == "submitted" else status
-            return f"เรื่องร้องเรียนเลขที่ {voc_id} มีสถานะ {status_label} ประเภท {category} ครับ"
-    if isinstance(data.get("summary"), str):
-        return data["summary"]
-    return "ดำเนินการเรื่องร้องเรียนเรียบร้อยแล้วครับ"
-
-
 def _looks_like_knowledge_question(message: str) -> bool:
-    """Allow an explicit information question to temporarily interrupt VOC intake."""
+    """ตรวจว่าข้อความเป็นคำถามข้อมูลทั่วไปที่ควรส่งให้โมเดลตอบ"""
     text = " ".join(message.casefold().split())
     if re.match(r"^[1-6](?:\s*[.)-])?(?:\s|$)", text):
         return False
