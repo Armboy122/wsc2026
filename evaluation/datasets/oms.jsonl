@@ -1,10 +1,10 @@
-{"id":"O01","query":"outage status for BKK-01","expectedAction":"get_outage_status"}
-{"id":"O02","query":"is power normal in CNX-02","expectedAction":"get_outage_status"}
-{"id":"O03","query":"report a power outage in BKK-01; location: 12 Sukhumvit Road; symptoms: no power in the building","expectedAction":"prepare_outage_report"}
-{"id":"O04","query":"there is a fallen wire in HKT-03; location: 8 Nimman Road; symptoms: fallen wire across the sidewalk","expectedAction":"prepare_outage_report"}
-{"id":"O05","query":"planned outage status for HKT-03","expectedAction":"get_outage_status"}
-{"id":"O06","query":"check outage CNX-02","expectedAction":"get_outage_status"}
-{"id":"O07","query":"file an outage report for BKK-01; location: PEA service gate; symptoms: sparks and intermittent power","expectedAction":"prepare_outage_report"}
-{"id":"O08","query":"status of outage area HKT-03","expectedAction":"get_outage_status"}
-{"id":"O09","query":"report sparks at CNX-02; location: market entrance; symptoms: visible sparks from utility pole","expectedAction":"prepare_outage_report"}
-{"id":"O10","query":"outage near me in BKK-01","expectedAction":"get_outage_status"}
+{"id":"O01","query":"outage status for customer 123456789012","expectedAction":"get_outage_by_ca"}
+{"id":"O02","query":"check outage status for customer 123456789013","expectedAction":"get_outage_by_ca"}
+{"id":"O03","query":"report a power outage; location: 12 Sukhumvit Road; description: no power in the building; contactPhone: 0812345678","expectedAction":"prepare_anonymous_outage"}
+{"id":"O04","query":"report a power failure: fallen wire; location: 8 Nimman Road; description: fallen wire across the sidewalk; contactPhone: 0812345678","expectedAction":"prepare_anonymous_outage"}
+{"id":"O05","query":"planned outage status for customer 123456789014","expectedAction":"get_outage_by_ca"}
+{"id":"O06","query":"check outage for customer 123456789015","expectedAction":"get_outage_by_ca"}
+{"id":"O07","query":"file an outage report; location: PEA service gate; description: sparks and intermittent power; contactPhone: 0812345678","expectedAction":"prepare_anonymous_outage"}
+{"id":"O08","query":"outage status for customer 123456789016","expectedAction":"get_outage_by_ca"}
+{"id":"O09","query":"report a power failure: visible sparks; location: market entrance; description: visible sparks from utility pole; contactPhone: 0812345678","expectedAction":"prepare_anonymous_outage"}
+{"id":"O10","query":"report a power outage for customer 123456789017; description: fallen wire; contactPhone: 0812345678","expectedAction":"get_outage_by_ca"}

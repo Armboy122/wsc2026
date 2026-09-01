@@ -53,7 +53,7 @@
           ไม่มีการเข้าถึงข้อมูลลูกค้าจริง ระบบชำระเงินจริง หรือระบบการผลิตของ กฟภ. ไม่ว่ากรณีใด ๆ
         </p>
         <p>
-          การกระทำที่มีผลต่อข้อมูล (ชำระค่าไฟ แจ้งเรื่องร้องเรียน แจ้งไฟดับ)
+          การกระทำที่มีผลต่อข้อมูล (แจ้งไฟดับ)
           จะแสดงตัวอย่างให้ตรวจสอบก่อน และเกิดขึ้นได้เฉพาะเมื่อคุณกด <strong>ยืนยัน</strong> เท่านั้น
         </p>
         <p>เริ่มต้นด้วยปุ่มสถานการณ์สาธิตด้านล่าง หรือพิมพ์คำถามของคุณเอง</p>
@@ -61,31 +61,19 @@
     </main>
 
     <section class="composer" aria-label="ส่งข้อความ">
-      <div class="prompts" role="group" aria-label="สถานการณ์สาธิต 5 เรื่อง">
+      <div class="prompts" role="group" aria-label="สถานการณ์สาธิต 3 เรื่อง">
         <button class="prompt-chip" type="button" data-prompt="ค้นหาข้อมูลอัตราค่าไฟ On-Peak และช่วงเวลาที่ใช้" title="ค้นหาข้อมูลอัตราค่าไฟ On-Peak และช่วงเวลาที่ใช้">
           <span class="prompt-num" aria-hidden="true">01</span>
           <span class="prompt-label">ค้นหาอัตราค่าไฟ On-Peak</span>
         </button>
-        <button class="prompt-chip" type="button" data-prompt="ตรวจสอบยอดค่าไฟคงค้างของบัญชี PEA-1001" title="ตรวจสอบยอดค่าไฟคงค้างของบัญชี PEA-1001">
-          <span class="prompt-num" aria-hidden="true">02</span>
-          <span class="prompt-label">ตรวจยอดบัญชี PEA-1001</span>
-        </button>
-        <button class="prompt-chip" type="button" data-prompt="ฉันต้องการชำระค่าไฟ 350 บาท ด้วยบัตร สำหรับบัญชี PEA-1001" title="ฉันต้องการชำระค่าไฟ 350 บาท ด้วยบัตร สำหรับบัญชี PEA-1001">
-          <span class="prompt-num" aria-hidden="true">03</span>
-          <span class="prompt-label">ชำระค่าไฟ 350 บาท</span>
-        </button>
-        <button class="prompt-chip" type="button" data-prefill="true" data-prompt="ร้องเรียน; หัวข้อ: ...; รายละเอียด: ..." title="แทรกแบบฟอร์มร้องเรียน 'ร้องเรียน; หัวข้อ: ...; รายละเอียด: ...' ลงในช่องพิมพ์ ให้คุณระบุหัวเรื่องและรายละเอียดด้วยตนเองก่อนส่ง (ไม่ส่งอัตโนมัติ)">
-          <span class="prompt-num" aria-hidden="true">04</span>
-          <span class="prompt-label">แจ้งเรื่องร้องเรียน (แบบฟอร์ม)</span>
-        </button>
         <button class="prompt-chip" type="button" data-prompt="ตรวจสอบสถานะไฟฟ้าดับ BKK-01 และค้นหาข้อมูลนโยบายความปลอดภัย" title="ตรวจสอบสถานะไฟฟ้าดับ BKK-01 และค้นหาข้อมูลนโยบายความปลอดภัย">
-          <span class="prompt-num" aria-hidden="true">05</span>
+          <span class="prompt-num" aria-hidden="true">03</span>
           <span class="prompt-label">ไฟดับ BKK-01 + ความปลอดภัย</span>
         </button>
       </div>
       <form id="composer-form" class="composer-form" novalidate>
         <label class="visually-hidden" for="message-input">ข้อความถึงผู้ช่วย</label>
-        <textarea id="message-input" rows="1" maxlength="4000" placeholder="พิมพ์ข้อความ เช่น ตรวจสอบยอดค่าไฟคงค้าง…" autocomplete="off"></textarea>
+        <textarea id="message-input" rows="1" maxlength="4000" placeholder="พิมพ์ข้อความ เช่น ค้นหาข้อมูลอัตราค่าไฟ…" autocomplete="off"></textarea>
         <button type="button" id="voice-toggle" class="voice-btn" aria-pressed="false" aria-label="เริ่มโหมดเสียง" title="เริ่มโหมดเสียง">
           <span aria-hidden="true">🎙</span><span class="visually-hidden">โหมดเสียง</span>
         </button>

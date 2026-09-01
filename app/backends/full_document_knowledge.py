@@ -10,6 +10,7 @@ from __future__ import annotations
 import asyncio
 import json
 import os
+import re
 import stat
 import zipfile
 from dataclasses import dataclass
@@ -40,6 +41,11 @@ USER_SAFE_NOT_CONFIGURED = (
     "กรุณาติดต่อผู้ดูแลระบบเพื่อตรวจสอบการตั้งค่าบริการ"
 )
 USER_SAFE_UNAVAILABLE = "บริการความรู้ไม่พร้อมใช้งานชั่วคราว กรุณาลองใหม่อีกสักครู่"
+
+# URL ที่อนุญาตให้ปรากฏในคำตอบมีเฉพาะ http/https เท่านั้น และต้องถูกคัดลอก
+# ตรงตามตัวอักษร (verbatim) จากข้อความฉบับเต็มของเอกสารที่เลือก โดยไม่มีการ
+# ดัดแปลง แก้ไข หรือเติมอักขระใด ๆ เข้าไปใน token ของ URL
+_URL_PATTERN = re.compile(r"https?://[^\s<>\"']+")
 
 ClientFactory = Callable[[str], Any]
 
@@ -319,7 +325,10 @@ class FullDocumentKnowledgeBackend:
             "Answer the Thai user directly and completely using only the full documents below. "
             "If the query labels a current question and prior context, answer only the current "
             "question; use the prior context solely to identify what it refers to. "
-            "Do not provide links or a summary. Return JSON only exactly in this shape: "
+            "You may include relevant URLs only by copying them exactly (verbatim) from the "
+            "documents above; never invent, guess, shorten, or add punctuation to a URL, and "
+            "do not answer with a bare list of links or a summary. Return JSON only exactly "
+            "in this shape: "
             "{\"answer\":string,\"citations\":[{\"sourceId\":string,\"snippet\":string}]}. "
             "Every citation snippet must be one short contiguous passage copied verbatim "
             "from its cited source, at most 200 characters; preserve its whitespace exactly "
@@ -331,6 +340,10 @@ class FullDocumentKnowledgeBackend:
             return GroundedEvidence("", 0, ())
         answer, raw_citations = data.get("answer"), data.get("citations")
         if not isinstance(answer, str) or not answer.strip() or len(answer) > MAX_ANSWER_CONTEXT_CHARS:
+            return GroundedEvidence("", 0, ())
+        # ตรวจ URL แบบกำหนดผลแน่นอน: คำตอบที่มี http/https URL ต้องคัดลอก URL นั้น
+        # ตรงตามตัวอักษรจากข้อความฉบับเต็มของเอกสารที่เลือก มิฉะนั้น fail closed
+        if not _answer_urls_verified(answer, texts):
             return GroundedEvidence("", 0, ())
         if not isinstance(raw_citations, list) or not raw_citations:
             return GroundedEvidence("", 0, ())
@@ -357,6 +370,21 @@ class FullDocumentKnowledgeBackend:
                 snippet=snippet,
             ))
         return GroundedEvidence(answer, len({citation.source_id for citation in citations}), tuple(citations))
+
+
+def _answer_urls_verified(answer: str, texts: dict[str, str]) -> bool:
+    """คืน False เมื่อคำตอบมี http/https URL ที่ไม่อยู่ในเอกสารที่เลือกแบบ verbatim
+
+    ตรวจเฉพาะเอกสารที่ Document Router เลือก (``texts``) URL ที่โมเดลแต่งขึ้น
+    แก้ไข ดัดแปลง เติมอักขระ หรือนำมาจากเอกสารที่ไม่ได้เลือก จะถูกปฏิเสธแบบ
+    fail-closed — เทียบ candidate ที่ regex จับได้ตรงตัวโดยไม่มีการตัดทอน
+    เนื่องจากพรอมต์สั่งห้ามเติมวรรคตอนต่อท้าย URL แล้ว คำตอบที่ฝ่าฝืนต้องถูกปฏิเสธ
+    """
+    full_text = "\n".join(texts.values())
+    for candidate in _URL_PATTERN.findall(answer):
+        if candidate not in full_text:
+            return False
+    return True
 
 
 def _json_response(client: Any, model: str, prompt: str) -> Any:

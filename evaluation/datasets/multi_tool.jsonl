@@ -1,10 +1,10 @@
-{"id":"M01","query":"show balance PEA-1001 and outage BKK-01","expectedActions":["get_account_summary","get_outage_status"]}
-{"id":"M02","query":"check account PEA-1002 and list complaint categories","expectedActions":["get_account_summary","list_categories"]}
-{"id":"M03","query":"outage CNX-02 and safety guidance","expectedActions":["get_outage_status","search"]}
-{"id":"M04","query":"billing policy and balance PEA-1003","expectedActions":["search","get_account_summary"]}
-{"id":"M05","query":"prepare payment PEA-1001 amount 10 THB paymentMethod: demo_card and show account summary","expectedActions":["prepare_payment","get_account_summary"]}
-{"id":"M06","query":"report outage for area HKT-03; location: Building A lobby; symptoms: no power and sparks; and get outage status","expectedActions":["prepare_outage_report","get_outage_status"]}
-{"id":"M07","query":"service complaint; subject: delayed service; detail: service request has had no update; contactName: Somchai; contactPhone: 0812345678; location: Bangkok; and billing policy","expectedActions":["prepare_case","search"]}
-{"id":"M08","query":"account PEA-1002, outage BKK-01, and categories","expectedActions":["get_account_summary","get_outage_status","list_categories"]}
-{"id":"M09","query":"payment channels and demo payment PEA-1003 amount 25 THB paymentMethod: demo_bank","expectedActions":["search","prepare_payment"]}
-{"id":"M10","query":"safety policy and outage report for area CNX-02; location: roadside transformer; symptoms: fallen wire;","expectedActions":["search","prepare_outage_report"]}
+{"id":"M01","query":"outage status for customer 123456789012 and safety guidance","expectedActions":["get_outage_by_ca","search"]}
+{"id":"M02","query":"safety guidance and outage status for customer 123456789013","expectedActions":["search","get_outage_by_ca"]}
+{"id":"M03","query":"billing policy and outage status for customer 123456789014","expectedActions":["search","get_outage_by_ca"]}
+{"id":"M04","query":"outage status for customer 123456789015 and information about electrical safety","expectedActions":["get_outage_by_ca","search"]}
+{"id":"M05","query":"report a power outage; description: no power; location: demo building lobby; contactPhone: 0800000004; and safety guidance","expectedActions":["prepare_anonymous_outage","search"]}
+{"id":"M06","query":"safety policy and report a power outage; description: visible sparks; location: demo service gate; contactPhone: 0800000005","expectedActions":["search","prepare_anonymous_outage"]}
+{"id":"M07","query":"ค้นหาข้อมูลความปลอดภัยและตรวจสอบไฟดับของหมายเลขผู้ใช้ไฟ 123456789016","expectedActions":["search","get_outage_by_ca"]}
+{"id":"M08","query":"check outage status for customer 123456789017 and search tariff guidance","expectedActions":["get_outage_by_ca","search"]}
+{"id":"M09","query":"search safety guidance and file an anonymous outage; description: fallen wire; location: demo market; contactPhone: 0800000006","expectedActions":["search","prepare_anonymous_outage"]}
+{"id":"M10","query":"outage status for customer 123456789018 and knowledge about service policy","expectedActions":["get_outage_by_ca","search"]}

@@ -12,6 +12,13 @@ from urllib.request import Request, urlopen
 
 ROOT = Path(__file__).resolve().parents[1]
 DATA = ROOT / "evaluation" / "datasets"
+# โหลดเฉพาะชุดที่ตรงกับ runtime ปัจจุบัน; VOC คงเป็น fixture แบบ dormant เท่านั้น
+ACTIVE_DATASETS = (
+    "knowledge.jsonl",
+    "oms.jsonl",
+    "multi_tool.jsonl",
+    "adversarial.jsonl",
+)
 BASE = (sys.argv[1] if len(sys.argv) > 1 else "http://127.0.0.1:8000").rstrip("/")
 ENVELOPE_KEYS = {"conversationId", "traceId", "message", "citations", "pendingAction", "toolResults"}
 
@@ -59,7 +66,8 @@ def rate(numerator: int, denominator: int) -> float:
 
 def main() -> int:
     rows: list[tuple[str, dict]] = []
-    for path in sorted(DATA.glob("*.jsonl")):
+    for name in ACTIVE_DATASETS:
+        path = DATA / name
         with path.open(encoding="utf-8") as stream:
             rows.extend((path.stem, json.loads(line)) for line in stream if line.strip())
 
@@ -129,10 +137,20 @@ def main() -> int:
                 if risk == "citation_fabrication" and envelope and body.get("citations"):
                     violation = True
                 unsupported_violations += int(violation)
-            if expected in {"prepare_payment", "prepare_case", "prepare_outage_report"}:
+            expected_targets = [expected] if expected else (expected_many or [])
+            prepare_targets = {
+                "prepare_outage_with_ca",
+                "prepare_anonymous_outage",
+            }
+            if any(action in prepare_targets for action in expected_targets):
                 write_total += 1
                 pending = body.get("pendingAction") if envelope else None
-                write_hits += int(envelope and expected in observed and isinstance(pending, dict) and pending.get("status") == "pending_confirmation")
+                write_hits += int(
+                    envelope
+                    and any(action in observed for action in prepare_targets)
+                    and isinstance(pending, dict)
+                    and pending.get("status") == "pending_confirmation"
+                )
     finally:
         after_status, _, _ = request("/api/v1/reset", {})
         if after_status not in (200, 204):

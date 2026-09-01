@@ -270,3 +270,94 @@ def test_router_and_answer_each_receive_a_full_timeout_budget(tmp_path: Path) ->
 
     assert evidence.answer_context == "คำตอบ"
     assert evidence.result_count == 1
+
+
+def test_answer_url_verbatim_from_selected_document_is_accepted(tmp_path: Path) -> None:
+    url = "https://sabuyservice.pea.co.th/sub-menu/b3c04204-212c-418c-98a2-08dcb8233569"
+    write_docx(tmp_path / "service.docx", f"สมัครออนไลน์ได้ที่ {url}", title="ขอใช้ไฟฟ้าใหม่")
+    service, _ = backend(
+        tmp_path,
+        [
+            '{"sourceIds":["service.docx"]}',
+            f'{{"answer":"สมัครออนไลน์ได้ที่ {url}","citations":[{{"sourceId":"service.docx","snippet":"สมัครออนไลน์ได้ที่ {url}"}}]}}',
+        ],
+    )
+
+    evidence = asyncio.run(service.search("สมัครออนไลน์ที่ไหน", 1))
+
+    assert evidence.result_count == 1
+    assert url in evidence.answer_context
+
+
+def test_answer_url_with_appended_punctuation_fails_closed(tmp_path: Path) -> None:
+    """พรอมต์ห้ามเติมวรรคตอนต่อท้าย URL — คำตอบที่เติมแล้วต้อง fail closed"""
+    url = "https://cdp.pea.co.th/"
+    write_docx(tmp_path / "deposit.docx", f"ขอคืนเงินประกันได้ที่ {url}", title="คืนเงินประกัน")
+    service, _ = backend(
+        tmp_path,
+        [
+            '{"sourceIds":["deposit.docx"]}',
+            f'{{"answer":"ดูรายละเอียดที่ {url}.","citations":[{{"sourceId":"deposit.docx","snippet":"ขอคืนเงินประกันได้ที่ {url}"}}]}}',
+        ],
+    )
+
+    evidence = asyncio.run(service.search("คืนเงินประกัน", 1))
+
+    assert evidence.result_count == 0
+    assert evidence.answer_context == ""
+    assert evidence.citations == ()
+
+
+def test_answer_url_with_modified_token_fails_closed(tmp_path: Path) -> None:
+    """URL ที่ถูกดัดแปลง/เติมอักขระใน token (แม้มี prefix ตรง) ต้อง fail closed"""
+    url = "https://sabuyservice.pea.co.th/status/login"
+    write_docx(tmp_path / "service.docx", f"ติดตามสถานะได้ที่ {url}", title="ติดตามคำขอ")
+    service, _ = backend(
+        tmp_path,
+        [
+            '{"sourceIds":["service.docx"]}',
+            f'{{"answer":"ติดตามสถานะได้ที่ {url}.evil.com","citations":[{{"sourceId":"service.docx","snippet":"ติดตามสถานะได้ที่ {url}"}}]}}',
+        ],
+    )
+
+    evidence = asyncio.run(service.search("ติดตามสถานะ", 1))
+
+    assert evidence.result_count == 0
+    assert evidence.answer_context == ""
+    assert evidence.citations == ()
+
+
+def test_answer_with_invented_url_fails_closed(tmp_path: Path) -> None:
+    write_docx(tmp_path / "service.docx", "ไม่มีลิงก์ในเอกสารนี้", title="ขอใช้ไฟฟ้า")
+    service, _ = backend(
+        tmp_path,
+        [
+            '{"sourceIds":["service.docx"]}',
+            '{"answer":"ดูรายละเอียดที่ https://evil.example.net/steal","citations":[{"sourceId":"service.docx","snippet":"ไม่มีลิงก์ในเอกสารนี้"}]}',
+        ],
+    )
+
+    evidence = asyncio.run(service.search("สมัครที่ไหน", 1))
+
+    assert evidence.result_count == 0
+    assert evidence.answer_context == ""
+    assert evidence.citations == ()
+
+
+def test_answer_url_from_unselected_document_fails_closed(tmp_path: Path) -> None:
+    url = "https://installment.pea.co.th/Register"
+    write_docx(tmp_path / "selected.docx", "เอกสารที่เลือก", title="อัตราค่าไฟ")
+    write_docx(tmp_path / "unselected.docx", f"ผ่อนชำระได้ที่ {url}", title="ผ่อนชำระ")
+    service, _ = backend(
+        tmp_path,
+        [
+            '{"sourceIds":["selected.docx"]}',
+            f'{{"answer":"ผ่อนชำระได้ที่ {url}","citations":[{{"sourceId":"selected.docx","snippet":"เอกสารที่เลือก"}}]}}',
+        ],
+    )
+
+    evidence = asyncio.run(service.search("ผ่อนชำระ", 1))
+
+    assert evidence.result_count == 0
+    assert evidence.answer_context == ""
+    assert evidence.citations == ()

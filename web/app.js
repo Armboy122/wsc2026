@@ -16,6 +16,7 @@
  * ============================================================ */
 
 import { GeminiLiveClient } from './gemini-live-client.js';
+import { linkifySafeHtml } from './linkify.js';
 
 (() => {
   'use strict';
@@ -130,17 +131,12 @@ import { GeminiLiveClient } from './gemini-live-client.js';
     locationNote: 'พื้นที่/สถานที่',
     symptoms: 'อาการที่พบ',
     areaCode: 'รหัสพื้นที่',
-    accountRef: 'บัญชีผู้ใช้ไฟ',
-    amountThb: 'จำนวนเงิน (บาท)',
-    paymentMethod: 'ช่องทางชำระเงิน',
     vocId: 'เลขที่เรื่อง',
     trackingKey: 'คีย์ติดตาม',
     status: 'สถานะ',
     createdAt: 'แจ้งเมื่อ',
     updatedAt: 'อัปเดตล่าสุด',
-    receiptId: 'เลขที่ใบเสร็จ',
     reportId: 'เลขที่เรื่องแจ้งเหตุ',
-    paidAt: 'ชำระเมื่อ',
   };
 
   const VALUE_LABELS = {
@@ -157,10 +153,6 @@ import { GeminiLiveClient } from './gemini-live-client.js';
       received: 'รับเรื่องแล้ว',
       in_progress: 'กำลังดำเนินการ',
       resolved: 'ดำเนินการเสร็จสิ้น',
-    },
-    paymentMethod: {
-      demo_card: 'บัตรเครดิต/เดบิต (จำลอง)',
-      demo_bank: 'โอนผ่านธนาคาร (จำลอง)',
     },
   };
 
@@ -366,7 +358,7 @@ import { GeminiLiveClient } from './gemini-live-client.js';
       .join('');
     return `
       <section class="citations" aria-label="แหล่งอ้างอิงจากคลังความรู้">
-        <p class="citations-title">แหล่งอ้างอิง (Gemini File Search)</p>
+        <p class="citations-title">แหล่งอ้างอิง (คลังความรู้)</p>
         <ol class="citation-list">${items}</ol>
       </section>`;
   }
@@ -566,11 +558,13 @@ import { GeminiLiveClient } from './gemini-live-client.js';
   function addAgentMessage(resp, { silent = false } = {}) {
     const el = document.createElement('article');
     el.className = 'msg msg-agent';
+    // ข้อความตอบถูก escape ทั้งหมดก่อน แล้ว linkify เฉพาะ http/https ด้วย
+    // target=_blank + rel=noopener noreferrer เพื่อไม่ให้เกิด XSS
     // ในโหมดเสียง ผู้ช่วยพูดสรุปให้แล้ว การแสดงข้อความของโฟลว์ซ้ำอีกทำให้อ่านสับสน
     // จึงคงไว้เฉพาะการ์ดยืนยันและหลักฐานการเรียกเครื่องมือ
     const bubble = silent
       ? ''
-      : `<div class="bubble">${escapeHtml(resp.message || '(ไม่มีข้อความตอบกลับ)')}</div>`;
+      : `<div class="bubble">${linkifySafeHtml(escapeHtml(resp.message || '(ไม่มีข้อความตอบกลับ)'))}</div>`;
     el.innerHTML = `
       <span class="agent-avatar" aria-hidden="true">
         <svg viewBox="0 0 24 24" width="15" height="15" fill="currentColor"><path d="M13.6 1.6 4.9 13.9h4.9L8.6 22.4l9.1-12.7h-5l.9-8.1z"/></svg>
@@ -795,17 +789,6 @@ import { GeminiLiveClient } from './gemini-live-client.js';
   els.promptChips.forEach((chip) => {
     chip.addEventListener('click', () => {
       const prompt = chip.dataset.prompt || chip.textContent.trim();
-      if (chip.hasAttribute('data-prefill')) {
-        /* แทรกโครงแบบให้ผู้นำเสนอกรอกจนสมบูรณ์ โดยยังไม่ส่งข้อมูลใด ๆ และ UI
-         * จะไม่สร้างข้อเท็จจริงของเรื่องร้องเรียนขึ้นเอง */
-        els.input.value = prompt;
-        autosize();
-        els.input.focus();
-        const end = els.input.value.length;
-        els.input.setSelectionRange(end, end);
-        announce('แทรกแบบฟอร์มเรื่องร้องเรียนแล้ว กรุณากรอกหัวเรื่องและรายละเอียดของคุณ แล้วจึงกดส่ง');
-        return;
-      }
       sendMessage(prompt);
     });
   });
