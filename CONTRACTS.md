@@ -22,9 +22,14 @@
 {
   "conversationId": "optional UUID; server creates one when omitted",
   "message": "required non-empty text, max 4000 characters",
-  "requestId": "optional UUID for client correlation"
+  "requestId": "optional UUID for client correlation",
+  "selectedPromptId": "optional string(1..64); id ของ choicePrompt ที่ผู้ใช้กำลังตอบ",
+  "selectedValue": "optional string(1..64); ค่าตัวเลือกที่ผู้ใช้กด"
 }
 ```
+
+`selectedPromptId` และ `selectedValue` ต้องส่งคู่กันเสมอ ค่าที่ส่งมาถูกตรวจกับ catalog ต้นทางทุกครั้ง
+และคำตอบที่อ้าง prompt เก่าจะถูกปฏิเสธ โดยระบบตอบด้วยคำถามปัจจุบันแทน
 
 การตอบกลับ (`ChatResponse`):
 
@@ -35,11 +40,26 @@
   "message": "assistant text",
   "citations": [],
   "pendingAction": null,
-  "toolResults": []
+  "toolResults": [],
+  "choicePrompt": null
 }
 ```
 
 `pendingAction` จะไม่เป็น null เฉพาะหลังจากแอ็กชันเครื่องมือแบบ `prepare_*` สำเร็จเท่านั้น การสนทนาจะไม่ส่งคำสั่งเขียน
+
+`choicePrompt` จะไม่เป็น null เมื่อ flow ที่ปลั๊กอินขับเองกำลังถามข้อมูลหนึ่งขั้น:
+
+```json
+{
+  "promptId": "string(1..64)",
+  "question": "string(1..500)",
+  "options": [{ "value": "string(1..64)", "label": "string(1..200)", "description": "string|null" }],
+  "allowFreeText": false
+}
+```
+
+`options` ว่างได้เฉพาะเมื่อ `allowFreeText` เป็น true (ขั้นที่ต้องพิมพ์ตอบ เช่น รายละเอียดเรื่อง)
+ทุก `value` มาจาก catalog ของ backend ไม่ใช่ค่าที่โมเดลสร้างขึ้น
 
 ### `POST /api/v1/actions/{pending_action_id}/confirm`
 
@@ -303,9 +323,15 @@ Tool จะปฏิเสธการเรียกที่ `name` ไม่�
 
 Main Agent เรียกใช้ `submit_payment` ได้หลังการยืนยันเท่านั้น และต้องขจัดรายการซ้ำด้วย `idempotencyKey`
 
-### 3. VOC contracts (dormant, not registered)
+### 3. `voc_tool`
 
-**ระบบเบื้องหลังเดิม:** `SimulatedVocBackend` โดย output ทุกรายการประกาศ `simulation: true`; runtime ปัจจุบันไม่ลงทะเบียน `voc_tool` และไม่เปิด flow นี้ให้ผู้ใช้
+**ระบบเบื้องหลัง:** Agent-side `httpx` connector ไปยัง gateway VOC (endpoint เป็น source of truth) โดย output ทุกรายการประกาศ `simulation: true`; `SimulatedVocBackend` ยังใช้ได้เมื่อสร้าง tool โดยไม่ระบุ `base_url`
+
+**การเปิดเรื่องใหม่ขับด้วย catalog ไม่ผ่านโมเดล:** `externalPayload` ต้องมีรหัส taxonomy, พื้นที่ และ consent
+ที่โมเดลสร้างเองไม่ได้ ระบบจึงใช้ guided flow อ่าน `GET /catalog` แล้วถามทีละขั้นด้วย `choicePrompt`
+จำนวนและลำดับคำถามมาจาก flag ของ journey เอง (`requiresFrequency`, `requiresSeverity`,
+`requiresSubIssue`, `requiresIncidentLocation`, `reporterMode`) การเพิ่ม journey หรือ issue ใน catalog
+จึงเปลี่ยนบทสนทนาได้โดยไม่ต้องแก้โค้ด และ planner ต้องไม่เรียก `prepare_case` เอง
 
 | การดำเนินการ | ข้อมูลนำเข้า | ข้อมูลเมื่อสำเร็จ |
 |---|---|---|
@@ -314,7 +340,9 @@ Main Agent เรียกใช้ `submit_payment` ได้หลังกา
 | `submit_case` | สำหรับใช้ภายในเท่านั้น: `{ "pendingActionId": UUID, "idempotencyKey": string }` | `{ "caseId": string, "vocId": string, "trackingKey": string, "status": "submitted", "category": enum }` |
 | `get_case` | `{ "vocId": string(1..64), "trackingKey": string(1..64) }` | `{ "vocId": string, "status": "submitted", "category": enum, "createdAt": UTC datetime, "updatedAt": UTC datetime }` |
 
-กฎ prepare/submit/tracking ด้านล่างคงไว้เพื่อ isolated component compatibility เท่านั้น Main Agent และ active evaluation ต้องไม่วางแผนหรือเรียก action VOC
+เมื่อเชื่อม gateway `prepare_case` ต้องมี `externalPayload` (`VocExternalCasePayload`) ที่ประกอบจากคำตอบจริงของผู้ใช้
+ครบทั้ง `journeyCode`, `classification`, `incident`, `consent` และ `frequencyCode`/`severityLevel`/`reporter`
+ตามที่ journey นั้นกำหนด การส่งยังคงผ่าน `prepare_case → confirm → submit_case` เช่นเดิม
 
 ### 4. `oms_tool`
 

@@ -16,13 +16,14 @@ Sabuy คงเฉพาะ implementation/contracts แบบ dormant และ
 ```text
 app/plugins/
   manifest.py            สัญญาของ manifest (ตรวจกับ Pydantic contracts จริง)
-  runtime.py             bundle: Tool + response policy + deterministic demo behavior
+  runtime.py             bundle: Tool + response policy + demo behavior + guided flow
   loader.py              scan → validate → import factory → สร้าง runtime → compile catalogue
   oms/ และ voc/
     plugin.yaml          metadata + operations + ชื่อ env var ของ configuration
     factory.py           ประกอบ runtime contributions จาก settings
     demo.py              deterministic planning เฉพาะ plugin สำหรับ offline demo
     response.py          planner instructions + result/error presentation เฉพาะ plugin
+    intake.py/flow.py    guided flow ที่ derive ลำดับคำถามจาก catalog (เฉพาะ voc)
 ```
 
 การแบ่งความรับผิดชอบที่ต้องรักษาไว้:
@@ -33,8 +34,15 @@ app/plugins/
 | `factory.py` | ประกอบ `PluginRuntime` จาก settings | business logic |
 | `demo.py` | deterministic intent/tool planning สำหรับ provider `demo` | HTTP และ write policy กลาง |
 | `response.py` | planner instructions และแปลง typed result/error เป็นข้อความผู้ใช้ | ยิง HTTP |
+| `intake.py` / `flow.py` | ลำดับคำถามที่ derive จาก catalog และประกอบ payload จากคำตอบจริง | เดารหัส, ข้ามขั้นยืนยัน |
 | Python tool (`app/tools/*_tool.py`) | HTTP request, authentication, payload/error mapping, prepare-submit | planning/presentation |
 | `app/contracts.py` (Pydantic) | **source of truth เดียว** ของ input/output schema | — |
+
+**Guided flow (`app/agent/guided_flow.py`)** เป็น seam กลางสำหรับ write ที่ต้องใช้รหัสจาก catalog
+ซึ่งโมเดลสร้างเองไม่ได้ ปลั๊กอินที่ประกาศ `guided_flow` จะได้รับเทิร์นนั้นก่อน LLM แล้วคืน
+`GuidedTurn` ที่เป็นคำถามหนึ่งขั้น (`ChoicePrompt`) หรือคำสั่ง `prepare_*` เมื่อข้อมูลครบ
+Main Agent เพียง route เทิร์นและใช้ pending-action machinery เดิม จึงไม่ผูกกับปลั๊กอินใด
+และ `prepare_* → confirm → submit_*` ยังบังคับใช้เหมือนเดิม
 
 เส้นทาง error ใช้ `ToolError.code → plugin ErrorPresentation → safe LLM wording → deterministic fallback`:
 plugin กำหนด `explanation`, `nextStep` และ `retryable`; Main Agent ส่งให้ LLM เฉพาะ
@@ -53,8 +61,9 @@ LLM ไม่เคยเห็น YAML ดิบ: loader อ่าน manifest 
 `ToolDefinition` catalogue สั้น ๆ ซึ่ง **ตัด operation ที่ `exposure: internal` ออกทั้งหมด**
 ทำให้ `submit_*` ไม่ถูกโฆษณาให้โมเดลเลือกเอง และ write state machine
 (`prepare_* → explicit confirm endpoint → submit_*`) ยังบังคับใช้เหมือนเดิม
-VOC offline demo รองรับการอ่าน category/สถานะเท่านั้น; การเตรียมเคสใช้ provider ที่ส่ง `externalPayload`
-จากข้อมูล taxonomy, location และ consent ที่ผู้ใช้ให้จริง เพื่อไม่ให้ deterministic demo เดาข้อมูลเหล่านี้
+VOC offline demo รองรับการอ่าน category/สถานะเท่านั้น; การเตรียมเคสไม่ผ่านการวางแผนของโมเดลเลย
+แต่ใช้ guided flow ที่อ่าน catalog จาก gateway แล้วถามทีละขั้น จึงได้ `externalPayload` ที่มี taxonomy,
+location และ consent จากคำตอบจริงของผู้ใช้ ไม่มีรหัสใดถูกเดาขึ้น
 
 ความปลอดภัยของ loader: manifest เป็น trusted config ที่ commit ใน repo เท่านั้น,
 `runtime.factory` ต้องอยู่ใต้ `app.plugins.` เท่านั้น, ไม่มี `eval`/`exec`,

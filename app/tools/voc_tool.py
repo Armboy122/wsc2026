@@ -50,6 +50,17 @@ class VocTool(SimulatedTool):
         self.api_key = api_key
         self._client = httpx.Client(base_url=self.base_url, timeout=timeout_seconds, transport=transport) if self._api_mode else None
         self._drafts: dict[str, dict[str, Any]] = {}
+        # catalog เป็นข้อมูลอ้างอิงที่เปลี่ยนช้าและมี catalogVersion กำกับ
+        # cache ไว้ต่อ process เพื่อไม่ยิงซ้ำทุกขั้นของการถามตอบ
+        self._catalog_cache: dict[str, Any] | None = None
+
+    def get_catalog(self) -> dict[str, Any]:
+        """คืน catalog ดิบสำหรับขับลำดับคำถาม intake โดยไม่ให้โมเดลเดารหัสเอง"""
+        if not self._api_mode:
+            raise BackendError(ToolErrorCode.UNAVAILABLE, "ต้องเชื่อมต่อระบบ VOC เพื่ออ่าน catalog")
+        if self._catalog_cache is None:
+            self._catalog_cache = self._request("GET", "catalog")
+        return self._catalog_cache
 
     def _request(self, method: str, path: str, payload: dict[str, Any] | None = None, *, idempotency_key: str | None = None) -> dict[str, Any]:
         assert self._client is not None
@@ -140,6 +151,7 @@ class VocTool(SimulatedTool):
 
     def reset(self) -> None:
         self._drafts.clear()
+        self._catalog_cache = None
         if not self._api_mode:
             self.backend.reset()
 

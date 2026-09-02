@@ -6,6 +6,7 @@ from dataclasses import dataclass
 from typing import Any
 from uuid import UUID
 
+from app.agent.guided_flow import GuidedFlow
 from app.agent.response_policy import ResponsePolicy
 from app.contracts import ToolAction, ToolName
 from app.llm.demo_behavior import DemoBehavior, DemoPlan
@@ -17,6 +18,8 @@ class PluginRuntime:
     tool: Any
     response_policy: ResponsePolicy | None = None
     demo_behavior: DemoBehavior | None = None
+    # flow ถามตอบแบบกำหนดผลได้ ใช้เมื่อ write ต้องใช้รหัสจาก catalog ที่โมเดลเดาไม่ได้
+    guided_flow: GuidedFlow | None = None
 
 
 @dataclass(frozen=True, slots=True)

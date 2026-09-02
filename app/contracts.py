@@ -202,10 +202,49 @@ class TraceEvent(FrozenModel):
     data: dict[str, Any] = Field(max_length=20)
 
 
+class ChoiceOption(FrozenModel):
+    """ตัวเลือกเดียวที่ผู้ใช้กดได้ โดย ``value`` ต้องมาจาก catalog ต้นทางเสมอ"""
+
+    value: str = Field(min_length=1, max_length=64)
+    label: str = Field(min_length=1, max_length=200)
+    description: str | None = Field(default=None, max_length=500)
+
+
+class ChoicePrompt(FrozenModel):
+    """คำถามหนึ่งขั้นพร้อมตัวเลือกที่กำหนดไว้ล่วงหน้า
+
+    ใช้แทนการให้ผู้ใช้พิมพ์รหัส taxonomy เอง ``prompt_id`` ระบุขั้นตอนที่กำลังถาม
+    จึงปฏิเสธคำตอบที่ส่งกลับมาผิดขั้นได้
+    """
+
+    prompt_id: str = Field(min_length=1, max_length=64, serialization_alias="promptId")
+    question: str = Field(min_length=1, max_length=500)
+    options: tuple[ChoiceOption, ...] = Field(default=(), max_length=60)
+    allow_free_text: bool = Field(default=False, serialization_alias="allowFreeText")
+
+    @model_validator(mode="after")
+    def validate_answerable(self) -> "ChoicePrompt":
+        if not self.options and not self.allow_free_text:
+            raise ValueError("คำถามต้องมีตัวเลือกอย่างน้อยหนึ่งข้อ หรืออนุญาตให้พิมพ์ตอบ")
+        values = [option.value for option in self.options]
+        if len(values) != len(set(values)):
+            raise ValueError("ค่าตัวเลือกต้องไม่ซ้ำกัน")
+        return self
+
+
 class ChatRequest(FrozenModel):
     conversation_id: UUID | None = Field(default=None, serialization_alias="conversationId")
     message: str = Field(min_length=1, max_length=4000)
     request_id: UUID | None = Field(default=None, serialization_alias="requestId")
+    # ค่าที่ผู้ใช้กดเลือกจาก ChoicePrompt รอบก่อน ต้องตรวจกับ catalog เสมอ ห้ามเชื่อ client
+    selected_prompt_id: str | None = Field(default=None, max_length=64, serialization_alias="selectedPromptId")
+    selected_value: str | None = Field(default=None, max_length=64, serialization_alias="selectedValue")
+
+    @model_validator(mode="after")
+    def validate_selection_pair(self) -> "ChatRequest":
+        if (self.selected_prompt_id is None) != (self.selected_value is None):
+            raise ValueError("ต้องส่ง selectedPromptId และ selectedValue คู่กันเสมอ")
+        return self
 
 
 class ChatResponse(FrozenModel):
@@ -215,6 +254,7 @@ class ChatResponse(FrozenModel):
     citations: tuple[Citation, ...] = ()
     pending_action: PendingAction | None = Field(default=None, serialization_alias="pendingAction")
     tool_results: tuple[ToolResult, ...] = Field(default=(), serialization_alias="toolResults")
+    choice_prompt: ChoicePrompt | None = Field(default=None, serialization_alias="choicePrompt")
 
 
 class ConfirmActionRequest(FrozenModel):

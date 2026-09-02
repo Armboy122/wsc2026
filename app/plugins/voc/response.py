@@ -9,10 +9,10 @@ from app.contracts import ToolAction, ToolErrorCode, ToolName, ToolResult, ToolR
 class VocResponsePolicy:
     """Own VOC-specific planner guidance and trusted result presentation."""
 
-    planner_instructions = """สำหรับ VOC ใช้ voc_tool.list_categories เพื่อโหลด taxonomy ล่าสุดก่อนเตรียมเรื่อง
-voc_tool.prepare_case ต้องส่งข้อมูลตาม input schema ให้ครบ และเมื่อเชื่อม REST gateway ต้องมี externalPayload ที่ผู้ใช้ให้จริง รวม taxonomy, location และ consent; ห้ามเดารหัสหรือการยินยอม
+    planner_instructions = """การเปิดเรื่องร้องเรียน VOC ใหม่มีโฟลว์ถามตอบของระบบรับผิดชอบอยู่แล้ว ห้ามเรียก voc_tool.prepare_case เอง
+ใช้ voc_tool.list_categories เมื่อผู้ใช้ถามว่ามีประเภทเรื่องอะไรบ้างเท่านั้น ไม่ใช่เพื่อเริ่มเปิดเรื่อง
 ใช้ voc_tool.get_case เมื่อติดตามเรื่องด้วย vocId และ trackingKey ครบเท่านั้น
-ใช้ directResponse ได้เฉพาะ [voc_details, voc_contact_name, voc_contact_phone, voc_location, voc_tracking_inputs] เมื่อจำเป็นต้องถามข้อมูลเพิ่ม"""
+ใช้ directResponse ได้เฉพาะ [voc_tracking_inputs] เมื่อผู้ใช้ต้องการติดตามเรื่องแต่ยังให้ข้อมูลไม่ครบ"""
 
     _direct_messages = {
         "voc_details": "กรุณาระบุหัวข้อและรายละเอียดของเรื่องที่ต้องการแจ้งครับ",

@@ -1102,3 +1102,122 @@ async def test_disabled_plugin_cannot_render_its_direct_response() -> None:
 
     assert "หมายเลขผู้ใช้ไฟ" not in response.message
     assert "ความรู้ PEA" in response.message
+
+
+def _voc_registry() -> ToolRegistry:
+    """VOC ในโหมด backend จำลอง เพื่อให้ list_categories คืน catalog จริงโดยไม่ออกเน็ต"""
+    from app.plugins.voc.response import VocResponsePolicy
+    from app.tools.voc_tool import VocTool
+
+    return ToolRegistry(
+        [KnowledgeTool(FakeKnowledgeBackend()), VocTool()],
+        response_policies=(VocResponsePolicy(),),
+    )
+
+
+def _voc_list_categories_call() -> LLMResponse:
+    return LLMResponse(
+        tool_calls=(
+            ToolCall(
+                call_id=uuid4(),
+                name=ToolName.VOC,
+                action=ToolAction.VOC_LIST_CATEGORIES,
+                input={},
+            ),
+        )
+    )
+
+
+@pytest.mark.asyncio
+async def test_voc_category_choice_is_not_answered_with_the_same_category_list() -> None:
+    """Regression: เลือกประเภทเรื่องแล้วถูกตอบด้วยรายการประเภทเดิมซ้ำ
+
+    planner เห็น tool message เฉพาะภายในเทิร์นเดียว จึงสั่ง ``list_categories`` ซ้ำทุกเทิร์น
+    และ ``directResponse`` ที่ถามข้อมูลถัดไปถูกกลบ เพราะเดิมจะถูก render
+    ก็ต่อเมื่อไม่มี tool result เลย ผู้ใช้จึงเห็นรายการประเภทเรื่องวนไม่จบ
+    """
+    adapter = ScriptedLLMAdapter(
+        [
+            _voc_list_categories_call(),
+            LLMResponse(text='{"message": "", "toolCalls": [], "directResponse": null}'),
+            _voc_list_categories_call(),
+            LLMResponse(text='{"message": "", "toolCalls": [], "directResponse": "voc_details"}'),
+        ]
+    )
+    agent = MainAgent(LLMClient(adapter), _voc_registry())
+
+    first = await agent.handle_chat(ChatRequest(message="แจ้งเรื่องร้องเรียนหน่อย"))
+    second = await agent.handle_chat(
+        ChatRequest(message="ด้านการบริการครับ", conversation_id=first.conversation_id)
+    )
+
+    assert "ประเภทเรื่องที่เลือกได้" in first.message
+    assert second.message == "กรุณาระบุหัวข้อและรายละเอียดของเรื่องที่ต้องการแจ้งครับ"
+    assert "ประเภทเรื่องที่เลือกได้" not in second.message
+
+
+@pytest.mark.asyncio
+async def test_first_read_result_is_still_authoritative_over_direct_response() -> None:
+    """ผลอ่านที่ผู้ใช้ยังไม่เคยเห็น ต้องไม่ถูก directResponse กลบ"""
+    adapter = ScriptedLLMAdapter(
+        [
+            _voc_list_categories_call(),
+            LLMResponse(text='{"message": "", "toolCalls": [], "directResponse": "voc_details"}'),
+        ]
+    )
+    agent = MainAgent(LLMClient(adapter), _voc_registry())
+
+    response = await agent.handle_chat(ChatRequest(message="แจ้งเรื่องร้องเรียนหน่อย"))
+
+    assert "ประเภทเรื่องที่เลือกได้" in response.message
+
+
+@pytest.mark.asyncio
+async def test_repeated_read_suppression_requires_every_fact_already_delivered() -> None:
+    """ผลอ่านที่มีข้อเท็จจริงใหม่ปนอยู่ ต้องยังถูกนำเสนอ ไม่ถือเป็นการอ่านซ้ำ"""
+    from app.agent.main_agent import _repeats_delivered_facts
+    from app.agent.response_policy import ResponsePolicies
+    from app.plugins.voc.response import VocResponsePolicy
+
+    policies = ResponsePolicies((VocResponsePolicy(),))
+    tracked = ToolResult(
+        call_id=uuid4(),
+        name=ToolName.VOC,
+        action=ToolAction.VOC_GET_CASE,
+        status=ToolResultStatus.SUCCESS,
+        data={"vocId": "SIM-CASE-0001", "status": "IN_PROGRESS"},
+        simulation=True,
+    )
+
+    assert (
+        _repeats_delivered_facts(
+            [tracked],
+            None,
+            ("เรื่องร้องเรียนเลขที่ SIM-CASE-0001 มีสถานะ IN_PROGRESS ครับ",),
+            user_message="ติดตามเรื่อง",
+            response_policies=policies,
+        )
+        is True
+    )
+    assert (
+        _repeats_delivered_facts(
+            [tracked],
+            None,
+            ("ข้อความก่อนหน้าที่ไม่เกี่ยวข้อง",),
+            user_message="ติดตามเรื่อง",
+            response_policies=policies,
+        )
+        is False
+    )
+
+
+def test_voc_planner_leaves_case_intake_to_the_guided_flow() -> None:
+    """การเปิดเรื่องเป็นหน้าที่ของ flow ที่ขับด้วย catalog ไม่ใช่การเดารหัสของ planner"""
+    from app.plugins.voc.response import VocResponsePolicy
+
+    instructions = VocResponsePolicy.planner_instructions
+
+    assert "ห้ามเรียก voc_tool.prepare_case เอง" in instructions
+    # ป้ายถามข้อมูลรายเรื่องถูก flow เข้าแทนแล้ว จึงต้องไม่เหลือให้ planner เลือกใช้อีก
+    assert "voc_details" not in instructions
+    assert "voc_contact_name" not in instructions
