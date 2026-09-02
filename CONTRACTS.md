@@ -23,6 +23,7 @@
   "conversationId": "optional UUID; server creates one when omitted",
   "message": "required non-empty text, max 4000 characters",
   "requestId": "optional UUID for client correlation",
+  "clientLocation": "optional {lat, lon} — approximate location from IP geolocation (city/district level, not real GPS), fallback for OMS anonymous outage reports that have no CA (so no MST GIS lookup is possible); never read as conversation content, only auto-attached to OMS_PREPARE_ANONYMOUS_OUTAGE input server-side",
   "selectedPromptId": "optional string(1..64); id ของ choicePrompt ที่ผู้ใช้กำลังตอบ",
   "selectedValue": "optional string(1..64); ค่าตัวเลือกที่ผู้ใช้กด"
 }

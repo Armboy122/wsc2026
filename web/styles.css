@@ -215,6 +215,21 @@ button { font: inherit; color: inherit; }
   50% { box-shadow: 0 0 0 6px rgba(217, 119, 6, 0.08); }
 }
 
+/* ส่วนสถานะ BE (/api/v1/ping) ต่อท้ายป้าย SIMULATED BACKEND เดิม —
+   เริ่มเป็นสีเทา (กำลังตรวจสอบ), เขียวถ้าพร้อม, แดงถ้าเข้าไม่ได้ */
+.be-sep { opacity: 0.5; }
+.be-dot {
+  width: 0.5rem; height: 0.5rem;
+  border-radius: 50%;
+  background: #8a8a8a;
+  flex: none;
+}
+#be-status-label { color: inherit; opacity: 0.85; }
+.be-dot.ok { background: #14663D; box-shadow: 0 0 0 3px rgba(20, 102, 61, 0.22); }
+.be-dot.err { background: var(--red-btn); box-shadow: 0 0 0 3px rgba(179, 38, 30, 0.22); }
+#be-status-label.ok { color: #14663D; opacity: 1; }
+#be-status-label.err { color: var(--red-btn); opacity: 1; }
+
 .ghost-btn {
   display: inline-flex;
   align-items: center;
@@ -295,8 +310,20 @@ button { font: inherit; color: inherit; }
 
 .msg-user { justify-content: flex-end; }
 
+/* wrapper รอบ bubble ฝั่งผู้ใช้ — เดิมไม่มี class เลย ทำให้เป็น flex item ที่
+   ไม่มี width constraint ใด ๆ, เบราว์เซอร์เดา auto-width แคบผิดปกติกับ
+   ข้อความสั้นที่ไม่มีช่องว่าง (ผสมกับ overflow-wrap:anywhere) จนห่อทีละตัวอักษร
+   — ให้พฤติกรรมเดียวกับ .msg-stack ฝั่ง agent ที่ทำงานถูกต้องอยู่แล้ว */
+.msg-user-stack {
+  max-width: min(92%, 39rem);
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+}
+
 .msg-user .bubble {
-  max-width: min(82%, 34rem);
+  max-width: 100%;
   background: var(--violet-700);
   color: #fff;
   border-radius: 16px 16px 4px 16px;
@@ -756,6 +783,9 @@ button { font: inherit; color: inherit; }
 }
 .voice-btn[aria-pressed="true"] { background: var(--violet-600); color: #fff; }
 .voice-btn.voice-speaking { animation: sim-pulse 1.2s ease-in-out infinite; }
+#geo-btn.geo-ok { background: var(--green-bg); border-color: var(--green-border); }
+#geo-btn.geo-err { background: var(--red-bg); border-color: var(--red-border); }
+#geo-btn.geo-checking { opacity: 0.6; cursor: wait; }
 .voice-status {
   margin: 0.35rem 0 0;
   color: var(--violet-700);

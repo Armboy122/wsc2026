@@ -30,6 +30,12 @@ import { linkifySafeHtml } from './linkify.js';
     reset: '/api/v1/reset',
   };
 
+  // Go BE (wsc2026-be) — currently a separate origin/port from whatever
+  // serves this static page, so this isn't just API.chat's relative path.
+  // ponytail: hardcoded :8080 for local dev; point this at the real BE host
+  // once wsc2026-be serves web/ itself and the origin matches.
+  const BE_PING_URL = `${location.protocol}//${location.hostname}:8080/api/v1/ping`;
+
   /* คีย์ที่ห้ามแสดงโดยเด็ดขาด แม้บั๊กของระบบหลังบ้านจะทำให้ข้อมูลรั่วไหลออกมา */
   const COT_KEY_RE = /thought|thinking|reasoning|chain[_-]?of[_-]?thought|cot|scratchpad/i;
 
@@ -61,6 +67,7 @@ import { linkifySafeHtml } from './linkify.js';
     busy: false,        // กำลังรับส่งข้อมูลแชตแบบไปกลับ
     actionBusy: false,  // กำลังรับส่งข้อมูล confirm/reject แบบไปกลับ
     traceOpen: false,
+    clientLocation: null, // { lat, lon } from navigator.geolocation — fallback for OMS anonymous reports with no CA
   };
 
   /* ---------- องค์ประกอบ ---------- */
@@ -81,8 +88,12 @@ import { linkifySafeHtml } from './linkify.js';
     traceRefresh: document.getElementById('trace-refresh'),
     traceClose: document.getElementById('trace-close'),
     srStatus: document.getElementById('sr-status'),
+    geoBtn: document.getElementById('geo-btn'),
     voiceToggle: document.getElementById('voice-toggle'),
     voiceStatus: document.getElementById('voice-status'),
+    beStatusBadge: document.getElementById('be-status-badge'),
+    beStatusDot: document.getElementById('be-status-dot'),
+    beStatusLabel: document.getElementById('be-status-label'),
   };
 
   /* ---------- ฟังก์ชันอรรถประโยชน์ ---------- */
@@ -265,7 +276,7 @@ import { linkifySafeHtml } from './linkify.js';
     const el = document.createElement('article');
     el.className = 'msg msg-user';
     el.innerHTML = `
-      <div>
+      <div class="msg-user-stack">
         <div class="bubble">${escapeHtml(text)}</div>
         ${timestampHtml(new Date().toISOString(), '')}
       </div>`;
@@ -655,11 +666,15 @@ import { linkifySafeHtml } from './linkify.js';
     showTyping();
     announce('กำลังส่งข้อความถึงผู้ช่วย');
 
+    // รอผลขอพิกัดครั้งแรก (ถ้ายังไม่ตอบ) กันเคสพิมพ์/ส่งเร็วกว่า GPS resolve
+    if (!state.clientLocation && geolocationReady) await geolocationReady;
+
     const body = {
       message,
       requestId: uuid(),
     };
     if (state.conversationId) body.conversationId = state.conversationId;
+    if (state.clientLocation) body.clientLocation = state.clientLocation;
     if (selection && selection.selectedPromptId && selection.selectedValue) {
       body.selectedPromptId = selection.selectedPromptId;
       body.selectedValue = selection.selectedValue;
@@ -1001,9 +1016,83 @@ import { linkifySafeHtml } from './linkify.js';
   }
   els.voiceToggle?.addEventListener('click', toggleVoice);
 
+  /* ---------- พิกัดโดยประมาณจาก IP (fallback สำหรับแจ้งเหตุแบบไม่ทราบ CA) ----------
+   * ใช้ IP geolocation แทน navigator.geolocation ทั้งหมด — ไม่ต้องขอ permission,
+   * ไม่พึ่ง GPS/Location Services ของเครื่อง (เจอเครื่องที่ CoreLocation พังแม้
+   * ตั้งค่าถูกทุกอย่างแล้ว) แลกกับความแม่นยำที่หยาบกว่ามาก (ระดับอำเภอ/จังหวัด
+   * ตามฐาน ISP ไม่ใช่ตำแหน่งจริงของเครื่อง) — เพียงพอสำหรับ fallback ตอนไม่มี CA
+   * ที่จะ query MST GIS ได้อยู่แล้ว */
+
+  function setGeoButtonState(cls) {
+    if (!els.geoBtn) return;
+    els.geoBtn.classList.remove('geo-ok', 'geo-err', 'geo-checking');
+    if (cls) els.geoBtn.classList.add(cls);
+  }
+
+  // Promise ที่ sendMessage รอได้ (ครั้งแรกเท่านั้น) กัน race ที่ผู้ใช้พิมพ์และ
+  // กดส่งเร็วกว่า IP lookup จะตอบ (มักเกิดตอนเดโม — พิมพ์ทันทีที่หน้าโหลด)
+  let geolocationReady = null;
+
+  // silent=true (ตอนโหลดหน้า): ทำเงียบ ๆ อัปเดตแค่สีปุ่ม
+  // silent=false (ผู้ใช้กดปุ่ม 📍 เอง): แจ้งผลลัพธ์เป็น notice ให้เห็นทันที
+  function requestGeolocation({ silent } = {}) {
+    setGeoButtonState('geo-checking');
+    geolocationReady = fetch('https://ipwho.is/')
+      .then((res) => {
+        if (!res.ok) throw new Error(`ip lookup ${res.status}`);
+        return res.json();
+      })
+      .then((data) => {
+        if (!data.success || typeof data.latitude !== 'number' || typeof data.longitude !== 'number') {
+          throw new Error(data.message || 'ip lookup: ไม่มีพิกัดในผลลัพธ์');
+        }
+        state.clientLocation = { lat: data.latitude, lon: data.longitude };
+        setGeoButtonState('geo-ok');
+        if (!silent) announce(`ได้ตำแหน่งโดยประมาณแล้ว (${data.city || ''} ${data.region || ''})`.trim());
+      })
+      .catch((err) => {
+        // fail เงียบ — ไม่มี clientLocation แนบไปด้วย (agent ยัง fallback
+        // ไปหาที่อยู่แบบข้อความได้)
+        console.warn('[ip-geolocation] ไม่สามารถระบุตำแหน่งโดยประมาณได้:', err && err.message);
+        setGeoButtonState('geo-err');
+        if (!silent) {
+          addSystemNotice('<strong>ระบุตำแหน่งไม่สำเร็จ</strong><br>ไม่สามารถเชื่อมต่อบริการค้นหาตำแหน่งจาก IP ได้ — แจ้งเหตุยังทำได้ปกติ', 'notice-error');
+        }
+      });
+    return geolocationReady;
+  }
+  els.geoBtn?.addEventListener('click', () => requestGeolocation({ silent: false }));
+
+  /* ---------- ตรวจสถานะ BE (/api/v1/ping) ---------- */
+
+  function setBeStatus(state, label) {
+    if (!els.beStatusDot) return;
+    els.beStatusDot.classList.remove('ok', 'err');
+    els.beStatusLabel.classList.remove('ok', 'err');
+    if (state) {
+      els.beStatusDot.classList.add(state);
+      els.beStatusLabel.classList.add(state);
+    }
+    els.beStatusLabel.textContent = label;
+  }
+
+  async function checkBackendPing() {
+    try {
+      const res = await fetch(BE_PING_URL, { method: 'GET' });
+      if (!res.ok) throw new Error(String(res.status));
+      const data = await res.json();
+      setBeStatus('ok', data.db === 'ok' ? 'BE พร้อมใช้งาน' : 'BE ขึ้นแล้ว แต่ DB มีปัญหา');
+    } catch {
+      setBeStatus('err', 'BE ไม่พร้อมใช้งาน');
+    }
+  }
+
   /* ---------- การเริ่มต้น ---------- */
 
   updateTraceIdLabel();
   autosize();
   els.input.focus();
+  requestGeolocation({ silent: true });
+  checkBackendPing();
+  setInterval(checkBackendPing, 15000);
 })();
