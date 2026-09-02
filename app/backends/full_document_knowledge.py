@@ -35,7 +35,10 @@ DEFAULT_READINESS_TIMEOUT_SECONDS = 5.0
 DEFAULT_SOURCE_ROOT = Path(__file__).resolve().parents[2] / "knowledge" / "source"
 DEFAULT_HARD_CONTEXT_CHARS = 1_000_000
 MAX_ANSWER_CONTEXT_CHARS = 4000
+MAX_CONCISE_ANSWER_CHARS = 1000
+MAX_CONCISE_ANSWER_UNITS = 3
 MAX_SNIPPET_CHARS = 1000
+_ONLINE_ACTION_PREFIX = "ดำเนินการออนไลน์: "
 USER_SAFE_NOT_CONFIGURED = (
     "เซิร์ฟเวอร์นี้ยังไม่ได้ตั้งค่าบริการความรู้ "
     "กรุณาติดต่อผู้ดูแลระบบเพื่อตรวจสอบการตั้งค่าบริการ"
@@ -322,9 +325,14 @@ class FullDocumentKnowledgeBackend:
             for doc in selected
         )
         prompt = (
-            "Answer the Thai user directly and completely using only the full documents below. "
-            "If the query labels a current question and prior context, answer only the current "
-            "question; use the prior context solely to identify what it refers to. "
+            "Answer the Thai user directly, completely, and concisely using only the full "
+            "documents below. Prefer at most three short bullets or sentences; omit details "
+            "that do not answer the current question. If the query labels a current question "
+            "and prior context, answer only the current question; use the prior context solely "
+            "to identify what it refers to. When the user asks about a service and the documents "
+            "include a relevant service URL, end with exactly one primary "
+            "call to action on its own line in this form (with no punctuation after the URL): "
+            "ดำเนินการออนไลน์: <URL>\n"
             "You may include relevant URLs only by copying them exactly (verbatim) from the "
             "documents above; never invent, guess, shorten, or add punctuation to a URL, and "
             "do not answer with a bare list of links or a summary. Return JSON only exactly "
@@ -340,6 +348,8 @@ class FullDocumentKnowledgeBackend:
             return GroundedEvidence("", 0, ())
         answer, raw_citations = data.get("answer"), data.get("citations")
         if not isinstance(answer, str) or not answer.strip() or len(answer) > MAX_ANSWER_CONTEXT_CHARS:
+            return GroundedEvidence("", 0, ())
+        if not _answer_format_is_concise(answer):
             return GroundedEvidence("", 0, ())
         # ตรวจ URL แบบกำหนดผลแน่นอน: คำตอบที่มี http/https URL ต้องคัดลอก URL นั้น
         # ตรงตามตัวอักษรจากข้อความฉบับเต็มของเอกสารที่เลือก มิฉะนั้น fail closed
@@ -370,6 +380,24 @@ class FullDocumentKnowledgeBackend:
                 snippet=snippet,
             ))
         return GroundedEvidence(answer, len({citation.source_id for citation in citations}), tuple(citations))
+
+
+def _answer_format_is_concise(answer: str) -> bool:
+    """Validate the deterministic concise-answer and online-action format."""
+    if len(answer) > MAX_CONCISE_ANSWER_CHARS:
+        return False
+    lines = [line.strip() for line in answer.splitlines() if line.strip()]
+    action_lines = [line for line in lines if line.startswith(_ONLINE_ACTION_PREFIX)]
+    if len(action_lines) > 1:
+        return False
+    if action_lines:
+        action_line = action_lines[0]
+        if lines[-1] != action_line or not action_line.removeprefix(_ONLINE_ACTION_PREFIX).strip():
+            return False
+        lines.remove(action_line)
+    text_without_urls = _URL_PATTERN.sub("", " ".join(lines))
+    sentence_count = len([part for part in re.split(r"[.!?。]+", text_without_urls) if part.strip()])
+    return max(len(lines), sentence_count) <= MAX_CONCISE_ANSWER_UNITS
 
 
 def _answer_urls_verified(answer: str, texts: dict[str, str]) -> bool:

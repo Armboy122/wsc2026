@@ -289,6 +289,55 @@ def test_answer_url_verbatim_from_selected_document_is_accepted(tmp_path: Path) 
     assert url in evidence.answer_context
 
 
+def test_service_answer_prompt_requests_one_clickable_online_call_to_action(tmp_path: Path) -> None:
+    url = "https://sabuyservice.pea.co.th/sub-menu/b3c04204-212c-418c-98a2-08dcb8233569"
+    write_docx(tmp_path / "service.docx", f"ยื่นคำขอออนไลน์ได้ที่ {url}", title="ขอใช้ไฟฟ้าใหม่")
+    service, client = backend(
+        tmp_path,
+        [
+            '{"sourceIds":["service.docx"]}',
+            f'{{"answer":"ยื่นคำขอใช้ไฟฟ้าใหม่ได้ทางออนไลน์\\nดำเนินการออนไลน์: {url}",'
+            f'"citations":[{{"sourceId":"service.docx","snippet":"ยื่นคำขอออนไลน์ได้ที่ {url}"}}]}}',
+        ],
+    )
+
+    evidence = asyncio.run(service.search("ขอลิงก์ยื่นขอใช้ไฟฟ้าใหม่", 1))
+
+    assert evidence.answer_context == f"ยื่นคำขอใช้ไฟฟ้าใหม่ได้ทางออนไลน์\nดำเนินการออนไลน์: {url}"
+    prompt = client.calls[1]["contents"]
+    assert "directly, completely, and concisely" in prompt
+    assert "at most three short bullets or sentences" in prompt
+    assert "ดำเนินการออนไลน์: <URL>" in prompt
+    assert "exactly one primary" in prompt
+    assert "no punctuation after the URL" in prompt
+
+
+def test_non_concise_or_malformed_online_action_answers_fail_closed(tmp_path: Path) -> None:
+    url = "https://sabuyservice.pea.co.th/sub-menu/b3c04204-212c-418c-98a2-08dcb8233569"
+    source_text = f"ยื่นคำขอออนไลน์ได้ที่ {url}"
+    write_docx(tmp_path / "service.docx", source_text, title="ขอใช้ไฟฟ้าใหม่")
+    invalid_answers = (
+        "หนึ่ง. สอง. สาม. สี่.",
+        f"ดำเนินการออนไลน์: {url}\\nดำเนินการออนไลน์: {url}",
+        f"ดำเนินการออนไลน์: {url}\\nรายละเอียดเพิ่มเติม",
+    )
+
+    for answer in invalid_answers:
+        service, _ = backend(
+            tmp_path,
+            [
+                '{"sourceIds":["service.docx"]}',
+                json.dumps({"answer": answer, "citations": [{"sourceId": "service.docx", "snippet": source_text}]}),
+            ],
+        )
+
+        evidence = asyncio.run(service.search("ขอใช้ไฟฟ้าใหม่", 1))
+
+        assert evidence.result_count == 0
+        assert evidence.answer_context == ""
+        assert evidence.citations == ()
+
+
 def test_answer_url_with_appended_punctuation_fails_closed(tmp_path: Path) -> None:
     """พรอมต์ห้ามเติมวรรคตอนต่อท้าย URL — คำตอบที่เติมแล้วต้อง fail closed"""
     url = "https://cdp.pea.co.th/"
