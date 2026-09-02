@@ -31,10 +31,8 @@ class ErrorPresentation:
 
     def llm_payload(self) -> dict[str, object]:
         return {
-            "code": self.code.value,
             "explanation": self.explanation.strip(),
             "nextStep": self.next_step.strip(),
-            "retryable": self.retryable,
         }
 
 

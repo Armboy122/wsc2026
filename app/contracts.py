@@ -95,6 +95,7 @@ class ToolErrorCode(str, Enum):
     NOT_FOUND = "not_found"
     UNAVAILABLE = "unavailable"
     CONFLICT = "conflict"
+    CONFIRMATION_REQUIRED = "confirmation_required"
     INTERNAL = "internal"
 
 

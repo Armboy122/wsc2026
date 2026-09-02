@@ -318,7 +318,12 @@ class MainAgent:
     async def _execute_chat_call(self, call: ToolCall, conversation_id: UUID, trace_id: UUID) -> ToolResult:
         if call.action in _SUBMIT_ACTIONS:
             self._traces.append(trace_id, TraceEventKind.ERROR, {"stage": "chat_policy", "action": call.action.value})
-            return _error_result(call, ToolErrorCode.CONFLICT, "การส่งรายการต้องได้รับการยืนยันอย่างชัดเจน")
+            result = _error_result(
+                call,
+                ToolErrorCode.CONFIRMATION_REQUIRED,
+                "การส่งรายการต้องได้รับการยืนยันอย่างชัดเจน",
+            )
+            return _sanitize_error_result(result, self._response_policies)
         return await self._execute_internal(call, conversation_id, trace_id)
 
     async def _execute_internal(self, call: ToolCall, conversation_id: UUID, trace_id: UUID) -> ToolResult:
@@ -556,6 +561,11 @@ def _error_presentation(
             "บริการที่จำเป็นยังไม่พร้อมใช้งานครับ",
             "กรุณาลองใหม่อีกครั้งภายหลังครับ",
             True,
+        ),
+        ToolErrorCode.CONFIRMATION_REQUIRED: (
+            "รายการนี้ยังไม่ได้รับการยืนยันจากผู้ใช้ครับ",
+            "กรุณาตรวจทานรายการและกดยืนยันผ่านขั้นตอนที่กำหนดก่อนส่งครับ",
+            False,
         ),
         ToolErrorCode.INTERNAL: (
             "ระบบไม่สามารถดำเนินคำขอนี้ได้ครับ",

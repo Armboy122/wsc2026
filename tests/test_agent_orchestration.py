@@ -445,8 +445,71 @@ async def test_llm_cannot_submit_voc_case_before_explicit_confirmation() -> None
     assert response.tool_results[0].action is ToolAction.VOC_SUBMIT_CASE
     assert response.tool_results[0].status is ToolResultStatus.ERROR
     assert response.tool_results[0].error is not None
-    assert response.tool_results[0].error.code is ToolErrorCode.CONFLICT
+    assert response.tool_results[0].error.code is ToolErrorCode.CONFIRMATION_REQUIRED
+    assert "ยืนยัน" in response.tool_results[0].error.message
     assert response.pending_action is None
+
+
+@pytest.mark.asyncio
+async def test_failed_confirmed_submit_redacts_secret_from_response_and_terminal_state() -> None:
+    class SecretFailingSubmitOms:
+        name = ToolName.OMS
+
+        async def execute(self, call: ToolCall, context: object) -> ToolResult:
+            if call.action is ToolAction.OMS_PREPARE_OUTAGE_WITH_CA:
+                return ToolResult(
+                    call_id=call.call_id,
+                    name=call.name,
+                    action=call.action,
+                    status=ToolResultStatus.SUCCESS,
+                    data={"summary": "เตรียมแจ้งเหตุไฟดับ"},
+                    simulation=True,
+                )
+            return ToolResult(
+                call_id=call.call_id,
+                name=call.name,
+                action=call.action,
+                status=ToolResultStatus.ERROR,
+                error=ToolError(
+                    code=ToolErrorCode.INTERNAL,
+                    message="upstream token=submit-super-secret customer=999",
+                ),
+                simulation=True,
+            )
+
+        def reset(self) -> None:
+            return None
+
+    prepare_call = ToolCall(
+        call_id=uuid4(),
+        name=ToolName.OMS,
+        action=ToolAction.OMS_PREPARE_OUTAGE_WITH_CA,
+        input={
+            "caNumber": "100000000003",
+            "description": "ไฟดับ",
+            "idempotencyKey": "idem-submit-error",
+        },
+    )
+    registry = ToolRegistry(
+        [KnowledgeTool(FakeKnowledgeBackend()), SecretFailingSubmitOms()],
+        catalogue=(ToolDefinition(ToolName.OMS, "OMS", ("prepare_outage_with_ca",)),),
+        response_policies=(OmsResponsePolicy(),),
+    )
+    agent = MainAgent(
+        LLMClient(ScriptedLLMAdapter([LLMResponse(tool_calls=(prepare_call,))])),
+        registry,
+    )
+
+    prepared = await agent.handle_chat(ChatRequest(message="เตรียมแจ้งไฟดับ"))
+    assert prepared.pending_action is not None
+    decision = await agent.confirm_pending_action(prepared.pending_action.pending_action_id)
+
+    assert decision.tool_result is not None and decision.tool_result.error is not None
+    assert "submit-super-secret" not in decision.tool_result.error.message
+    assert decision.pending_action.submission_result is not None
+    assert decision.pending_action.submission_result.error is not None
+    assert "submit-super-secret" not in decision.pending_action.submission_result.error.message
+    assert decision.pending_action.status.value == "failed"
 
 
 @pytest.mark.asyncio

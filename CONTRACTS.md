@@ -241,7 +241,7 @@ Tool จะปฏิเสธการเรียกที่ `name` ไม่�
 | `citations` | `Citation[]` | เฉพาะผลลัพธ์ knowledge ที่สำเร็จเท่านั้นที่มีรายการได้ |
 | `simulation` | boolean | เป็น `false` เฉพาะผลลัพธ์ knowledge |
 
-`ToolError` มี `code` (`invalid_input`, `not_found`, `unavailable`, `conflict`, `internal`) และ `message` ที่ปลอดภัยสำหรับผู้ใช้ (สูงสุด 500 อักขระ)
+`ToolError` มี `code` (`invalid_input`, `not_found`, `unavailable`, `conflict`, `confirmation_required`, `internal`) และ `message` ที่ปลอดภัยสำหรับผู้ใช้ (สูงสุด 500 อักขระ)
 
 ### `PendingAction`
 

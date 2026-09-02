@@ -37,8 +37,8 @@ app/plugins/
 | `app/contracts.py` (Pydantic) | **source of truth เดียว** ของ input/output schema | — |
 
 เส้นทาง error ใช้ `ToolError.code → plugin ErrorPresentation → safe LLM wording → deterministic fallback`:
-plugin กำหนด `explanation`, `nextStep` และ `retryable`; Main Agent ส่งให้ LLM เฉพาะโครงนี้และยอมรับ
-ข้อความที่ยังคงข้อเท็จจริงทั้งสองส่วนไว้ตรงเดิมเท่านั้น มิฉะนั้นใช้ fallback จาก typed presentation
+plugin กำหนด `explanation`, `nextStep` และ `retryable`; Main Agent ส่งให้ LLM เฉพาะ
+`explanation`/`nextStep` และยอมรับเพียง courtesy framing ที่ยังคงสองข้อความนี้ไว้ตรงเดิม มิฉะนั้นใช้ fallback จาก typed presentation
 โดยไม่ส่ง raw upstream error, stack trace หรือ secret ให้ LLM
 
 manifest อ้าง schema ด้วย **ชื่อคลาส** (เช่น `inputContract: OmsGetOutageByCaInput`) แล้ว `manifest.py`
