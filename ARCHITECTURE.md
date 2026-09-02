@@ -44,6 +44,8 @@ LLM ไม่เคยเห็น YAML ดิบ: loader อ่าน manifest 
 `ToolDefinition` catalogue สั้น ๆ ซึ่ง **ตัด operation ที่ `exposure: internal` ออกทั้งหมด**
 ทำให้ `submit_*` ไม่ถูกโฆษณาให้โมเดลเลือกเอง และ write state machine
 (`prepare_* → explicit confirm endpoint → submit_*`) ยังบังคับใช้เหมือนเดิม
+VOC offline demo รองรับการอ่าน category/สถานะเท่านั้น; การเตรียมเคสใช้ provider ที่ส่ง `externalPayload`
+จากข้อมูล taxonomy, location และ consent ที่ผู้ใช้ให้จริง เพื่อไม่ให้ deterministic demo เดาข้อมูลเหล่านี้
 
 ความปลอดภัยของ loader: manifest เป็น trusted config ที่ commit ใน repo เท่านั้น,
 `runtime.factory` ต้องอยู่ใต้ `app.plugins.` เท่านั้น, ไม่มี `eval`/`exec`,

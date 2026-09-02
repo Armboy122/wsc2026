@@ -22,7 +22,7 @@ class DemoToolCall:
 class DemoPlan:
     calls: tuple[DemoToolCall, ...] = ()
     direct_response: str | None = None
-    exclusive: bool = False
+    exclusive_among_plugins: bool = False
 
 
 class DemoBehavior(Protocol):

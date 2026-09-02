@@ -29,22 +29,22 @@ class VocDemoBehavior:
         if _wants_categories(text):
             return DemoPlan(
                 calls=(DemoToolCall(0, ToolName.VOC, ToolAction.VOC_LIST_CATEGORIES, {}),),
-                exclusive=True,
+                exclusive_among_plugins=True,
             )
         if _tracking_requested(text):
             voc_id = _labelled_value(message, "vocId", 64) or _bare_voc_id(message)
             tracking_key = _labelled_value(message, "trackingKey", 64) or _bare_tracking_key(message, voc_id)
             if not voc_id or not tracking_key:
-                return DemoPlan(direct_response="voc_tracking_inputs", exclusive=True)
+                return DemoPlan(direct_response="voc_tracking_inputs", exclusive_among_plugins=True)
             return DemoPlan(
                 calls=(DemoToolCall(0, ToolName.VOC, ToolAction.VOC_GET_CASE, {
                     "vocId": voc_id,
                     "trackingKey": tracking_key,
                 }),),
-                exclusive=True,
+                exclusive_among_plugins=True,
             )
         if _case_requested(text):
-            return DemoPlan(direct_response="voc_demo_prepare_unavailable", exclusive=True)
+            return DemoPlan(direct_response="voc_demo_prepare_unavailable", exclusive_among_plugins=True)
         return None
 
     def after_tools_demo(

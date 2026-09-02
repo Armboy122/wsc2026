@@ -122,7 +122,9 @@ class DemoLLMAdapter:
 
 
 def _select_contributions(contributions: tuple[DemoPlan, ...]) -> tuple[DemoPlan, ...]:
-    exclusive = tuple(contribution for contribution in contributions if contribution.exclusive)
+    exclusive = tuple(
+        contribution for contribution in contributions if contribution.exclusive_among_plugins
+    )
     return exclusive or contributions
 
 
