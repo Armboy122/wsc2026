@@ -1,10 +1,11 @@
 """ทดสอบ Gemini Main-Agent adapter โดยไม่เรียกเครือข่ายจริง"""
 
+import json
 from uuid import uuid4
 
 import pytest
 
-from app.contracts import ToolName
+from app.contracts import OmsPrepareAnonymousOutageInput, ToolName
 from app.llm.factory import LLMProviderConfig, create_llm_adapter
 from app.llm.gemini import GeminiLLMAdapter
 from app.llm.models import LLMMessage, LLMRequest, ToolDefinition
@@ -54,7 +55,14 @@ async def test_gemini_adapter_calls_configured_model(monkeypatch: pytest.MonkeyP
     adapter = GeminiLLMAdapter(api_key="secret", model="gemini-2.5-flash")
     request = LLMRequest(
         messages=(LLMMessage("user", "สวัสดี"),),
-        tools=(ToolDefinition(ToolName.KNOWLEDGE, "ค้นหา", ("search",)),),
+        tools=(
+            ToolDefinition(ToolName.KNOWLEDGE, "ค้นหา", ("search",)),
+            ToolDefinition(
+                ToolName.OMS,
+                "แจ้งเหตุไฟฟ้าขัดข้อง",
+                ("prepare_anonymous_outage",),
+            ),
+        ),
         correlation_id=uuid4(),
     )
 
@@ -74,7 +82,15 @@ async def test_gemini_adapter_calls_configured_model(monkeypatch: pytest.MonkeyP
         "temperature": 0,
         "responseMimeType": "application/json",
     }
-    assert "inputSchema" in str(payload["systemInstruction"])
+    system_instruction = str(payload["systemInstruction"])
+    assert "inputSchema" in system_instruction
+    assert json.dumps(
+        OmsPrepareAnonymousOutageInput.model_json_schema(
+            by_alias=True, mode="validation"
+        ),
+        ensure_ascii=False,
+    ) in system_instruction
+    assert "submit_anonymous_outage" not in system_instruction
     assert result.provider_metadata == {
         "provider": "gemini",
         "model": "gemini-2.5-flash",

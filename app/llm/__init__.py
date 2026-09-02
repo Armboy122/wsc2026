@@ -7,7 +7,6 @@ from app.llm.factory import LLMProviderConfig, create_llm_adapter
 from app.llm.gemini import GeminiLLMAdapter
 from app.llm.maxplus import MaxPlusDeepSeekAdapter
 from app.llm.models import (
-    DirectResponseKind,
     KnowledgeConversationContext,
     LLMMessage,
     LLMRequest,
@@ -18,7 +17,6 @@ from app.llm.scripted import ScriptedLLMAdapter
 
 __all__ = [
     "DemoLLMAdapter",
-    "DirectResponseKind",
     "GeminiLLMAdapter",
     "JudgeLLMClient",
     "KnowledgeConversationContext",

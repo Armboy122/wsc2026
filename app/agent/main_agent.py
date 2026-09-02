@@ -13,6 +13,7 @@ from pydantic import ValidationError
 
 from app.agent.registry import ToolContext, ToolRegistry, _error_result
 from app.agent.stores import ConversationStore, PendingActionStore, TraceStore
+from app.agent.response_policy import ResponsePolicies
 from app.contracts import (
     PREPARE_TO_SUBMIT,
     ActionDecisionResponse,
@@ -33,7 +34,6 @@ from app.contracts import (
     validate_tool_input,
 )
 from app.llm import (
-    DirectResponseKind,
     KnowledgeConversationContext,
     LLMClient,
     LLMMessage,
@@ -47,10 +47,7 @@ _MAX_TOOL_STEPS = 12
 # planner มักขยายถ้อยคำค้นหาภาษาไทยเล็กน้อยทุกรอบ ทำให้ guard กัน input ซ้ำตรง ๆ จับไม่ได้
 # จึงจำกัดจำนวนค้นหาความรู้ต่อเทิร์น แล้วใช้ผลที่ค้นได้แล้วไปเรียบเรียงคำตอบต่อ
 _MAX_KNOWLEDGE_SEARCHES_PER_TURN = 2
-_SUBMIT_ACTIONS = frozenset({
-    ToolAction.OMS_SUBMIT_OUTAGE_WITH_CA,
-    ToolAction.OMS_SUBMIT_ANONYMOUS_OUTAGE,
-})
+_SUBMIT_ACTIONS = frozenset(PREPARE_TO_SUBMIT.values())
 # แค็ตตาล็อกที่ LLM เห็นมาจาก registry (Knowledge built-in + ปลั๊กอินที่โหลดได้)
 # เพิ่มเครื่องมือใหม่จึงไม่ต้องแก้ Main Agent อีก
 # ผู้ใช้ต้องตรวจทานสิ่งที่ตนเองกรอกก่อนยืนยัน จึงเปิดเผยเฉพาะฟิลด์ที่ผู้ใช้เป็นผู้ให้มาเอง
@@ -65,31 +62,9 @@ _CAPABILITY_MESSAGE = "ผมช่วยค้นหาความรู้ PE
 _PLANNER_PARSE_FAILURE_MESSAGE = "ขออภัยครับ ระบบประมวลผลคำขอนี้ไม่สำเร็จ กรุณาลองพิมพ์คำถามอีกครั้งครับ"
 _KNOWLEDGE_ESCALATION_MESSAGE = "ยังไม่พบคำตอบที่มีแหล่งอ้างอิงเพียงพอ เดี๋ยวผมขอส่งต่อคำถามนี้ให้เจ้าหน้าที่ช่วยตรวจสอบครับ"
 _DIRECT_RESPONSE_MESSAGES = {
-    DirectResponseKind.GREETING: _GREETING_MESSAGE,
-    DirectResponseKind.THANKS: _THANKS_MESSAGE,
-    DirectResponseKind.UNSUPPORTED: "ขออภัยครับ คำขอนี้ยังไม่รองรับด้วยความสามารถและเครื่องมือของ PEA One Agent ในขณะนี้",
-    DirectResponseKind.OMS_CA_NUMBER: "ได้ครับ กรุณาแจ้งหมายเลขผู้ใช้ไฟ 12 หลัก (ดูได้จากบิลค่าไฟ) เพื่อตรวจสอบเหตุไฟฟ้าขัดข้องครับ",
-    DirectResponseKind.OMS_OUTAGE_START: (
-        "ได้ครับ กรุณาแจ้งก่อนว่าคุณมีหมายเลขผู้ใช้ไฟ (CA) 12 หลัก หรือไม่ครับ\n"
-        "- ถ้ามี: กรุณาแจ้งหมายเลข 12 หลัก (ดูได้จากบิลค่าไฟ) พร้อมอาการที่เกิดขึ้นครับ\n"
-        "- ถ้าไม่มี: กรุณาแจ้ง 3 อย่างนี้ครับ\n"
-        "1. ไฟดับทุกหลังหรือหลังเดียว (เช่น ทั้งซอย / เฉพาะบ้าน)\n"
-        "2. สถานที่หรือที่อยู่คร่าว ๆ\n"
-        "3. เบอร์โทรที่ติดต่อกลับได้"
-    ),
-    DirectResponseKind.OMS_WITH_CA_INPUTS: (
-        "ได้ครับ กรุณาแจ้ง 2 อย่างนี้ครับ\n"
-        "1. หมายเลขผู้ใช้ไฟ 12 หลัก (ดูได้จากบิลค่าไฟ)\n"
-        "2. อาการที่เกิดขึ้น เช่น ไฟดับทั้งบ้าน หรือไฟกะพริบ\n"
-        "ถ้าสะดวก แนบเบอร์โทรติดต่อกลับ หรือที่อยู่เพิ่มเติม ก็ช่วยให้เจ้าหน้าที่ติดตามได้เร็วขึ้นครับ"
-    ),
-    DirectResponseKind.OMS_ANONYMOUS_INPUTS: (
-        "ได้ครับ กรุณาแจ้ง 3 อย่างนี้ครับ\n"
-        "1. ไฟดับทุกหลังหรือหลังเดียว (เช่น ทั้งซอย / เฉพาะบ้าน)\n"
-        "2. สถานที่หรือที่อยู่คร่าว ๆ เช่น บ้านเลขที่ 123 หมู่ 4 ตำบลใด\n"
-        "3. เบอร์โทรที่ติดต่อกลับได้\n"
-        'พิมพ์เป็นภาษาพูดได้เลยครับ เช่น "ไฟดับทั้งซอย อยู่บ้านเลขที่ 123 หมู่ 4 โทร 0812345678"'
-    ),
+    "greeting": _GREETING_MESSAGE,
+    "thanks": _THANKS_MESSAGE,
+    "unsupported": "ขออภัยครับ คำขอนี้ยังไม่รองรับด้วยความสามารถและเครื่องมือของ PEA One Agent ในขณะนี้",
 }
 _EXACT_GREETINGS = frozenset({"hi", "hello", "hey"})
 # คำตอบต่อเนื่องเป็นการยืนยันสั้น ๆ ข้อความยาวผิดปกติแปลว่าโมเดลเริ่มเล่าเรื่องเอง
@@ -126,14 +101,14 @@ class MainAgent:
         self._tools = tool_registry
         # แค็ตตาล็อกมาจาก registry เสมอ เพิ่มปลั๊กอินใหม่จึงไม่ต้องแก้ Main Agent
         self._tool_catalogue = tool_registry.llm_catalogue
+        self._response_policies = tool_registry.response_policies
         self._conversations = conversations or ConversationStore()
         self._pending_actions = pending_actions or PendingActionStore()
         self._traces = traces or TraceStore()
         self._call_inputs: dict[UUID, dict[str, Any]] = {}
         self._confirmation_tasks: dict[UUID, asyncio.Task[ActionDecisionResponse]] = {}
         self._knowledge_contexts: dict[UUID, KnowledgeConversationContext] = {}
-        # บทสนทนาที่มีผล OMS สำเร็จแล้ว ใช้อนุญาตคำตอบต่อเนื่องที่อ้างอิงผลนั้นได้
-        self._oms_grounded_conversations: set[UUID] = set()
+        self._grounded_conversations: set[UUID] = set()
         self._reset_generation = 0
 
     async def handle_chat(self, request: ChatRequest) -> ChatResponse:
@@ -144,7 +119,7 @@ class MainAgent:
         all_results: list[ToolResult] = []
         final_text = ""
         direct_completion_text: str | None = None
-        direct_response_kind: DirectResponseKind | None = None
+        direct_response_kind: str | None = None
         seen_knowledge_calls: set[tuple[str, str]] = set()
         duplicate_knowledge_call = False
         knowledge_searches = 0
@@ -160,6 +135,7 @@ class MainAgent:
                         self._tool_catalogue,
                         trace_id,
                         self._knowledge_contexts.get(conversation_id),
+                        self._response_policies.planner_instructions,
                     )
                 )
             except Exception as error:
@@ -231,11 +207,18 @@ class MainAgent:
                 request.message,
                 direct_completion_text,
                 direct_response=direct_response_kind,
-                allow_grounded_followup=conversation_id in self._oms_grounded_conversations,
+                allow_grounded_followup=conversation_id in self._grounded_conversations,
+                response_policies=self._response_policies,
             )
             if final_text == _FINAL_ONLY_MESSAGE:
                 self._traces.append(trace_id, TraceEventKind.ERROR, {"stage": "output_policy", "policy": "final_only"})
-        message = _authoritative_message(final_text, all_results, pending, user_message=request.message)
+        message = _authoritative_message(
+            final_text,
+            all_results,
+            pending,
+            user_message=request.message,
+            response_policies=self._response_policies,
+        )
         self._conversations.append(conversation_id, LLMMessage("user", request.message))
         knowledge_context = next(
             (
@@ -250,14 +233,8 @@ class MainAgent:
             self._knowledge_contexts.pop(conversation_id, None)
         else:
             self._knowledge_contexts[conversation_id] = knowledge_context
-        # ผลอ่านของ OMS ที่สำเร็จเป็นหลักฐานให้คำถามต่อเนื่องรอบถัดไปอ้างอิงได้
-        if any(
-            result.name is ToolName.OMS
-            and result.action is ToolAction.OMS_GET_OUTAGE_BY_CA
-            and result.status is ToolResultStatus.SUCCESS
-            for result in all_results
-        ):
-            self._oms_grounded_conversations.add(conversation_id)
+        if any(self._response_policies.grounds_followup(result) for result in all_results):
+            self._grounded_conversations.add(conversation_id)
         self._conversations.append(conversation_id, LLMMessage("assistant", message))
         return ChatResponse(conversation_id=conversation_id, trace_id=trace_id, message=message, citations=citations, pending_action=pending, tool_results=tuple(all_results))
 
@@ -334,7 +311,7 @@ class MainAgent:
         self._traces.clear()
         self._call_inputs.clear()
         self._knowledge_contexts.clear()
-        self._oms_grounded_conversations.clear()
+        self._grounded_conversations.clear()
         return ResetResponse()
 
     async def _execute_chat_call(self, call: ToolCall, conversation_id: UUID, trace_id: UUID) -> ToolResult:
@@ -396,12 +373,8 @@ class MainAgent:
 
 def _calls_from_response(
     response: LLMResponse,
-) -> tuple[tuple[ToolCall, ...], str, DirectResponseKind | None, bool]:
-    """แยกวิเคราะห์คำตอบของ planner
-
-    ค่าตอบคืนลำดับที่สี่ (malformed) สื่อว่าข้อความของโมเดล "ตั้งใจ" เป็น JSON ของ planner
-    แต่แยกวิเคราะห์ไม่ได้ ต่างจากข้อความตรงธรรมดาที่ไม่ใช่ JSON ซึ่งไม่ถือว่าเสียหาย
-    """
+) -> tuple[tuple[ToolCall, ...], str, str | None, bool]:
+    """Parse the strict planner envelope while leaving plugin labels opaque."""
     if response.tool_calls:
         return response.tool_calls, "", None, False
     try:
@@ -412,9 +385,10 @@ def _calls_from_response(
             or set(payload) != allowed_keys
             or not isinstance(payload["message"], str)
             or not isinstance(payload["toolCalls"], list)
+            or payload["directResponse"] is not None and not isinstance(payload["directResponse"], str)
         ):
             return (), response.text, None, _looks_like_planner_json(response.text)
-        direct_response = DirectResponseKind(payload["directResponse"]) if payload["directResponse"] is not None else None
+        direct_response = payload["directResponse"]
         calls = tuple(ToolCall(call_id=uuid4(), name=item["name"], action=item["action"], input=item["input"]) for item in payload["toolCalls"] if isinstance(item, dict) and set(item) == {"name", "action", "input"})
         if len(calls) != len(payload["toolCalls"]):
             return (), "ไม่สามารถตีความการดำเนินการของเครื่องมือที่ร้องขอได้อย่างปลอดภัยครับ", None, False
@@ -439,33 +413,24 @@ def _safe_direct_message(
     user_message: str,
     completion_text: str,
     *,
-    direct_response: DirectResponseKind | None = None,
+    direct_response: str | None = None,
     allow_grounded_followup: bool = False,
+    response_policies: ResponsePolicies,
 ) -> str:
-    """สร้างข้อความตรงจากชนิดที่กำหนดไว้ โดยไม่เชื่อถือข้อความอิสระจากโมเดล
-
-    ข้อยกเว้นคือคำถามต่อเนื่องหลังผล OMS ที่สำเร็จในบทสนทนาเดียวกัน เช่น
-    "งั้นเจ้าหน้าที่กำลังดำเนินการใช่ไหม" ซึ่งไม่มีแม่แบบใดตอบได้ตรง การบังคับใช้
-    แม่แบบจึงทำให้ผู้ใช้ถูกถามหมายเลขผู้ใช้ไฟซ้ำทั้งที่เพิ่งให้ไป รอบนี้จึงยอมใช้ข้อความ
-    ของโมเดล เพราะข้อเท็จจริงที่อ้างถึงมาจาก typed OMS result ที่อยู่ใน history แล้ว
-    โมเดลมักติดป้าย ``oms_ca_number`` ผิดบนคำถามต่อเนื่องเช่นนี้ด้วย จึงต้องให้ข้อความ
-    ของโมเดลมีสิทธิ์ชนะแม่แบบ ``oms_ca_number`` ในบทสนทนาที่มีผล OMS สำเร็จแล้ว
-    """
+    """Render generic labels locally and delegate opaque plugin labels safely."""
     if _requires_final_only_output(completion_text):
         return _FINAL_ONLY_MESSAGE
     if user_message.strip().casefold() in _EXACT_GREETINGS:
         return _GREETING_MESSAGE
     followup = " ".join(completion_text.split())
-    if (
-        isinstance(direct_response, DirectResponseKind)
-        and direct_response is not DirectResponseKind.OMS_CA_NUMBER
-    ):
-        # ชนิดที่ไม่มีแม่แบบ (เช่น เครื่องมือที่ยังไม่เปิดใช้) ต้อง fail closed ไม่ใช้ข้อความโมเดล
-        return _DIRECT_RESPONSE_MESSAGES.get(direct_response, _DIRECT_RESPONSE_MESSAGES[DirectResponseKind.UNSUPPORTED])
+    if isinstance(direct_response, str):
+        if direct_response in _DIRECT_RESPONSE_MESSAGES:
+            return _DIRECT_RESPONSE_MESSAGES[direct_response]
+        if (message := response_policies.direct_message(direct_response, followup, allow_grounded_followup)) is not None:
+            return message
+        return _CAPABILITY_MESSAGE
     if allow_grounded_followup and 0 < len(followup) <= _MAX_FOLLOWUP_LENGTH:
         return followup
-    if isinstance(direct_response, DirectResponseKind):
-        return _DIRECT_RESPONSE_MESSAGES.get(direct_response, _DIRECT_RESPONSE_MESSAGES[DirectResponseKind.UNSUPPORTED])
     return _CAPABILITY_MESSAGE
 
 
@@ -517,43 +482,33 @@ def _authoritative_message(
     pending: PendingAction | None,
     *,
     user_message: str = "",
+    response_policies: ResponsePolicies,
 ) -> str:
     if not results:
         return text or _default_message(results)
 
-    safety = next((str((result.data or {}).get("safetyMessage")) for result in results if result.name is ToolName.OMS and result.status is ToolResultStatus.SUCCESS and (result.data or {}).get("safetyMessage")), None)
-    facts = _result_facts(results, user_message=user_message)
+    facts = _result_facts(results, user_message=user_message, response_policies=response_policies)
     if pending:
         facts.append("กรุณายืนยันรายการที่เสนอนี้อย่างชัดเจนเพื่อส่งรายการครับ")
     message = "\n\n".join(facts) or _default_message(results)
-    return f"{safety}\n\n{message}".strip() if safety and not message.startswith(safety) else message
+    return message
 
 
-def _operational_error_fact(result: ToolResult) -> str:
-    """อธิบายสาเหตุที่ผู้ใช้แก้ไขเองได้ แทนการเหมารวมว่าบริการไม่พร้อมใช้งาน"""
+def _operational_error_fact(result: ToolResult, response_policies: ResponsePolicies | None = None) -> str:
+    """Explain an operational failure, allowing its enabled plugin to specialize it."""
+    if response_policies is not None and (message := response_policies.error_message(result)) is not None:
+        return message
     code = result.error.code if result.error else None
-    if result.name is ToolName.OMS and result.action is ToolAction.OMS_GET_OUTAGE_BY_CA and code is ToolErrorCode.NOT_FOUND:
-        return "ไม่พบหมายเลขผู้ใช้ไฟนี้ในระบบครับ กรุณาตรวจสอบหมายเลขอีกครั้ง หรือถ้าไม่ทราบหมายเลขผู้ใช้ไฟ แจ้งอาการที่เกิดขึ้น สถานที่ และเบอร์โทร เพื่อแจ้งเหตุแทนได้ครับ"
-    if (
-        result.name is ToolName.OMS
-        and result.action in (ToolAction.OMS_GET_OUTAGE_BY_CA, ToolAction.OMS_PREPARE_OUTAGE_WITH_CA)
-        and code is ToolErrorCode.INVALID_INPUT
-    ):
-        return (
-            "หมายเลขผู้ใช้ไฟต้องเป็นตัวเลข 12 หลักเท่านั้นครับ (ดูได้จากบิลค่าไฟ) "
-            "กรุณาตรวจสอบหมายเลขแล้วส่งใหม่อีกครั้ง "
-            "หรือถ้าไม่ทราบหมายเลขผู้ใช้ไฟ แจ้งอาการที่เกิดขึ้น สถานที่ และเบอร์โทรแทนได้ครับ"
-        )
-    if result.name is ToolName.OMS and code is ToolErrorCode.CONFLICT:
-        return "OMS พบเหตุการณ์ที่เกี่ยวข้องอยู่แล้ว จึงไม่สามารถสร้างเหตุซ้ำได้ครับ"
     if code is ToolErrorCode.NOT_FOUND:
         return "ไม่พบข้อมูลที่ตรงกับที่ระบุครับ กรุณาตรวจสอบข้อมูลอีกครั้ง"
     if code is ToolErrorCode.INVALID_INPUT:
-        return "ข้อมูลที่ระบุยังไม่ครบถ้วนหรือไม่ถูกต้องครับ กรุณาตรวจสอบแล้วลองใหม่อีกครั้ง"
+        return "ข้อมูลที่ระบุยังไม่ครบถ้วนหรือไม่ถูกต้องครับ (หมายเลขอ้างอิงต้องเป็นตัวเลข 12 หลักเมื่อระบบกำหนด) กรุณาตรวจสอบแล้วลองใหม่อีกครั้ง"
     return "ไม่สามารถดำเนินการบางส่วนของคำขอได้ เนื่องจากบริการที่จำเป็นไม่พร้อมใช้งานครับ"
 
 
-def _result_facts(results: list[ToolResult], *, user_message: str = "") -> list[str]:
+def _result_facts(
+    results: list[ToolResult], *, user_message: str = "", response_policies: ResponsePolicies
+) -> list[str]:
     """จัดรูปแบบเฉพาะข้อมูลผลลัพธ์ที่ผ่านการตรวจสอบ โดยไม่ใช้ข้อความของ planner หลังเรียกเครื่องมือ"""
     facts: list[str] = []
     knowledge_has_grounded = any(
@@ -571,7 +526,7 @@ def _result_facts(results: list[ToolResult], *, user_message: str = "") -> list[
             fact = (
                 _KNOWLEDGE_ESCALATION_MESSAGE
                 if result.name is ToolName.KNOWLEDGE
-                else _operational_error_fact(result)
+                else _operational_error_fact(result, response_policies)
             )
             # การลองซ้ำของโมเดลต้องไม่ทำให้ผู้ใช้เห็นข้อความเดิมซ้ำหลายรอบ
             if fact not in facts:
@@ -587,8 +542,8 @@ def _result_facts(results: list[ToolResult], *, user_message: str = "") -> list[
             if fact not in seen_knowledge_facts:
                 facts.append(fact)
                 seen_knowledge_facts.add(fact)
-        elif result.name is ToolName.OMS:
-            facts.append(_oms_result_fact(result.action, data))
+        elif (fact := response_policies.result_fact(result)) is not None:
+            facts.append(fact)
         elif isinstance(data.get("summary"), str):
             facts.append(data["summary"])
         else:
@@ -612,29 +567,6 @@ def _knowledge_fact(answer_context: str, user_message: str) -> str:
             "ขอทราบว่าเป็นการขอในนามบุคคลธรรมดาหรือนิติบุคคลครับ?"
         )
     return answer_context
-
-
-def _oms_result_fact(action: ToolAction, data: dict[str, Any]) -> str:
-    """สรุป OMS โดยไม่เปิดเผยหมายเลขผู้ใช้ไฟหรือโครงข่ายภายใน"""
-    if action is ToolAction.OMS_GET_OUTAGE_BY_CA:
-        active_event = data.get("activeEvent")
-        if isinstance(active_event, dict) and isinstance(active_event.get("message"), str):
-            status = active_event.get("status")
-            return f"สถานะ {status}: {active_event['message']}" if isinstance(status, str) else active_event["message"]
-        return "ไม่พบเหตุไฟฟ้าขัดข้องที่เกี่ยวข้องในขณะนี้ครับ"
-    if action in {ToolAction.OMS_PREPARE_OUTAGE_WITH_CA, ToolAction.OMS_PREPARE_ANONYMOUS_OUTAGE}:
-        summary = data.get("summary")
-        return summary if isinstance(summary, str) else "เตรียมแจ้งเหตุไฟฟ้าขัดข้องแล้วครับ"
-    if action in {ToolAction.OMS_SUBMIT_OUTAGE_WITH_CA, ToolAction.OMS_SUBMIT_ANONYMOUS_OUTAGE}:
-        message = data.get("message")
-        status = data.get("status")
-        reference = data.get("eventId") or data.get("reportId")
-        prefix = f"สถานะ {status}: " if isinstance(status, str) else ""
-        if isinstance(message, str) and isinstance(reference, str):
-            return f"{prefix}{message} (เลขอ้างอิง {reference})"
-        if isinstance(message, str):
-            return f"{prefix}{message}"
-    return "ดำเนินการกับ OMS เรียบร้อยแล้วครับ"
 
 
 def _looks_like_knowledge_question(message: str) -> bool:

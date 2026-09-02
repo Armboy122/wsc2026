@@ -1,12 +1,13 @@
 """ทดสอบ MaxPlus adapter โดยไม่เรียก network จริง"""
 
+import json
 from uuid import uuid4
 
 import pytest
 
 from app.llm.maxplus import MaxPlusDeepSeekAdapter
 from app.llm.models import LLMMessage, LLMRequest, ToolDefinition
-from app.contracts import ToolName
+from app.contracts import OmsPrepareAnonymousOutageInput, ToolName
 
 
 class _Response:
@@ -45,7 +46,14 @@ async def test_adapter_calls_configured_deepseek_model(monkeypatch: pytest.Monke
     )
     request = LLMRequest(
         messages=(LLMMessage("user", "สวัสดี"),),
-        tools=(ToolDefinition(ToolName.KNOWLEDGE, "ค้นหา", ("search",)),),
+        tools=(
+            ToolDefinition(ToolName.KNOWLEDGE, "ค้นหา", ("search",)),
+            ToolDefinition(
+                ToolName.OMS,
+                "แจ้งเหตุไฟฟ้าขัดข้อง",
+                ("prepare_anonymous_outage",),
+            ),
+        ),
         correlation_id=uuid4(),
     )
 
@@ -59,7 +67,15 @@ async def test_adapter_calls_configured_deepseek_model(monkeypatch: pytest.Monke
     }
     assert isinstance(payload, dict)
     assert payload["model"] == "deepseek-v4-flash-0731"
-    assert "inputSchema" in str(payload["messages"])
+    catalogue_prompt = payload["messages"][1]["content"]
+    assert "inputSchema" in catalogue_prompt
+    assert json.dumps(
+        OmsPrepareAnonymousOutageInput.model_json_schema(
+            by_alias=True, mode="validation"
+        ),
+        ensure_ascii=False,
+    ) in catalogue_prompt
+    assert "submit_anonymous_outage" not in catalogue_prompt
     assert result.provider_metadata == {"provider": "maxplus_openai", "model": "deepseek-v4-flash-0731"}
     assert result.text.startswith("{")
 
@@ -90,8 +106,10 @@ async def test_adapter_prompt_contains_current_knowledge_oms_contract(monkeypatc
     payload = _request_capture["json"]
     assert isinstance(payload, dict)
     system_prompt = payload["messages"][0]["content"]
-    assert "oms_tool.get_outage_by_ca" in system_prompt
-    assert "prepare_anonymous_outage" in system_prompt
+    # The system prompt is generic; tool details are in the catalogue (user message).
+    catalogue = payload["messages"][1]["content"]
+    assert "get_outage_by_ca" in catalogue
+    assert "prepare_anonymous_outage" in catalogue
     assert "voc_tool" not in system_prompt
     assert "ห้ามเปิดเผย chain of thought" in system_prompt
 

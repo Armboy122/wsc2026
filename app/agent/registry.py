@@ -8,6 +8,7 @@ from uuid import UUID
 
 from pydantic import ValidationError
 
+from app.agent.response_policy import ResponsePolicies
 from app.contracts import (
     TOOL_ACTIONS,
     ToolAction,
@@ -70,6 +71,13 @@ class ToolRegistry:
             if name is not ToolName.KNOWLEDGE and not callable(getattr(tool, "reset", None)):
                 raise ValueError(f"เครื่องมือปฏิบัติการต้องรีเซ็ตได้: {name.value}")
         self._tools = by_name
+        self._response_policies = ResponsePolicies(
+            tuple(
+                policy
+                for tool in by_name.values()
+                if (policy := getattr(tool, "response_policy", None)) is not None
+            )
+        )
         self._catalogue = BUILT_IN_CATALOGUE + tuple(catalogue or ())
         declared = {definition.name for definition in self._catalogue}
         unknown = declared - frozenset(by_name)
@@ -82,6 +90,11 @@ class ToolRegistry:
     def llm_catalogue(self) -> tuple[ToolDefinition, ...]:
         """แค็ตตาล็อกที่ Main Agent ส่งให้ LLM โดยไม่รวม action ที่เป็น internal"""
         return self._catalogue
+
+    @property
+    def response_policies(self) -> ResponsePolicies:
+        """Presentation policies contributed by the tools that are actually enabled."""
+        return self._response_policies
 
     def reset(self) -> None:
         """รีเซ็ตเครื่องมือปฏิบัติการทุกตัวเพียงหนึ่งครั้งสำหรับการรันเดโมใหม่"""

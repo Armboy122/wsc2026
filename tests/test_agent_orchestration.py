@@ -70,13 +70,14 @@ def _agent(knowledge_backend: FakeKnowledgeBackend | None = None) -> MainAgent:
     return MainAgent(LLMClient(DemoLLMAdapter()), _registry(knowledge_backend))
 
 
-def test_system_prompt_defines_outage_status_follow_up_behavior() -> None:
+def test_system_prompt_is_generic_and_outage_policy_is_plugin_owned() -> None:
+    from app.plugins.oms.response import OmsResponsePolicy
+
     assert "การติดตามสถานะเหตุที่เคยตรวจแล้ว" in SYSTEM_PROMPT
-    assert "get_outage_by_ca" in SYSTEM_PROMPT
-    assert "ระบบยืนยันได้เพียงว่าเหตุอยู่ระหว่างดำเนินการ" in SYSTEM_PROMPT
-    assert "ห้ามใช้ `unsupported`" in SYSTEM_PROMPT
+    assert "OMS" not in SYSTEM_PROMPT and "VOC" not in SYSTEM_PROMPT
     assert "คำขอบคุณ" in SYSTEM_PROMPT
     assert "thanks" in SYSTEM_PROMPT
+    assert "oms_tool.get_outage_by_ca" in OmsResponsePolicy.planner_instructions
 
 
 @pytest.mark.asyncio
@@ -114,14 +115,21 @@ def _error_result(action: ToolAction, code: ToolErrorCode) -> ToolResult:
 def test_invalid_ca_error_tells_user_the_rule_and_how_to_retry() -> None:
     """Regression: CA ผิดรูปแบบต้องบอกกติกา 12 หลักและทางเลือกแจ้งแบบไม่มี CA แทนข้อความกลาง ๆ"""
     from app.agent.main_agent import _operational_error_fact
+    from app.agent.response_policy import ResponsePolicies
+    from app.plugins.oms.response import OmsResponsePolicy
 
-    fact = _operational_error_fact(_error_result(ToolAction.OMS_GET_OUTAGE_BY_CA, ToolErrorCode.INVALID_INPUT))
+    policies = ResponsePolicies((OmsResponsePolicy(),))
+    fact = _operational_error_fact(
+        _error_result(ToolAction.OMS_GET_OUTAGE_BY_CA, ToolErrorCode.INVALID_INPUT), policies
+    )
     assert "12 หลัก" in fact
     assert "อาการที่เกิดขึ้น สถานที่ และเบอร์โทร" in fact
     # ข้อความถึงผู้ใช้ต้องเป็นภาษาคน ไม่ใช่ชื่อฟิลด์ภาษาอังกฤษแบบ schema
     assert "description" not in fact and "contactPhone" not in fact
 
-    prepare_fact = _operational_error_fact(_error_result(ToolAction.OMS_PREPARE_OUTAGE_WITH_CA, ToolErrorCode.INVALID_INPUT))
+    prepare_fact = _operational_error_fact(
+        _error_result(ToolAction.OMS_PREPARE_OUTAGE_WITH_CA, ToolErrorCode.INVALID_INPUT), policies
+    )
     assert "12 หลัก" in prepare_fact
 
 
@@ -312,50 +320,44 @@ async def test_operational_intent_replaces_previous_knowledge_context(
 
 
 @pytest.mark.asyncio
-async def test_json_planner_legacy_voc_response_fails_closed() -> None:
+async def test_llm_cannot_submit_voc_case_before_explicit_confirmation() -> None:
+    """Regression: submit actions from every plugin must stay behind the confirm endpoint."""
     from app.llm import LLMResponse, ScriptedLLMAdapter
 
-    adapter = ScriptedLLMAdapter(
-        [
-            LLMResponse(
-                text='{"message":"ignored freeform","toolCalls":[],"directResponse":"voc_details"}'
-            )
-        ]
+    class SpyVocTool:
+        name = ToolName.VOC
+
+        def __init__(self) -> None:
+            self.executed = False
+
+        async def execute(self, call: ToolCall, context: object) -> ToolResult:
+            self.executed = True
+            raise AssertionError("VOC submit reached the tool before confirmation")
+
+        def reset(self) -> None:
+            pass
+
+    voc_tool = SpyVocTool()
+    registry = ToolRegistry([KnowledgeTool(FakeKnowledgeBackend()), voc_tool])
+    call = ToolCall(
+        call_id=uuid4(),
+        name=ToolName.VOC,
+        action=ToolAction.VOC_SUBMIT_CASE,
+        input={"pendingActionId": str(uuid4()), "idempotencyKey": str(uuid4())},
     )
-    agent = MainAgent(LLMClient(adapter), _registry())
+    adapter = ScriptedLLMAdapter([LLMResponse(tool_calls=(call,))])
 
-    response = await agent.handle_chat(ChatRequest(message="ต้องการร้องเรียน"))
+    response = await MainAgent(LLMClient(adapter), registry).handle_chat(
+        ChatRequest(message="ส่งเรื่องร้องเรียนนี้เลย")
+    )
 
-    assert "ไม่รองรับ" in response.message
-    assert "ignored freeform" not in response.message
-    assert "เลือกประเภทเรื่อง" not in response.message
-    assert response.tool_results == ()
+    assert voc_tool.executed is False
+    assert len(response.tool_results) == 1
+    assert response.tool_results[0].action is ToolAction.VOC_SUBMIT_CASE
+    assert response.tool_results[0].status is ToolResultStatus.ERROR
+    assert response.tool_results[0].error is not None
+    assert response.tool_results[0].error.code is ToolErrorCode.CONFLICT
     assert response.pending_action is None
-
-
-@pytest.mark.asyncio
-async def test_legacy_voc_direct_response_does_not_persist_context() -> None:
-    from app.llm import DirectResponseKind, LLMResponse, ScriptedLLMAdapter
-
-    adapter = ScriptedLLMAdapter(
-        [LLMResponse(direct_response=DirectResponseKind.VOC_DETAILS)]
-    )
-    agent = MainAgent(LLMClient(adapter), _registry())
-    first = await agent.handle_chat(ChatRequest(message="ร้องเรียนการบริการหน่อย"))
-
-    second = await agent.handle_chat(
-        ChatRequest(
-            conversationId=first.conversation_id,
-            message="ข้อความถัดไป",
-        )
-    )
-
-    assert "ไม่รองรับ" in first.message
-    assert "เลือกประเภทเรื่อง" not in first.message
-    assert "บริการผู้ช่วยไม่พร้อมใช้งาน" in second.message
-    assert "เลือกประเภทเรื่อง" not in second.message
-    assert first.tool_results == second.tool_results == ()
-    assert first.pending_action is second.pending_action is None
 
 
 @pytest.mark.asyncio
@@ -373,11 +375,11 @@ async def test_invalid_direct_response_kind_fails_closed() -> None:
 
 @pytest.mark.asyncio
 async def test_structured_direct_response_never_forwards_freeform_model_text() -> None:
-    from app.llm import DirectResponseKind, LLMResponse, ScriptedLLMAdapter
+    from app.llm import LLMResponse, ScriptedLLMAdapter
 
     fabricated = "FABRICATED: ค่าไฟทุกบัญชีเป็นศูนย์"
     adapter = ScriptedLLMAdapter(
-        [LLMResponse(text=fabricated, direct_response=DirectResponseKind.VOC_DETAILS)]
+        [LLMResponse(text=fabricated, direct_response="unsupported")]
     )
     agent = MainAgent(LLMClient(adapter), _registry())
 
@@ -645,7 +647,7 @@ async def test_mislabeled_oms_ca_followup_after_outage_check_uses_model_text() -
     คำถามอย่าง "แสดงว่าช่างกำลังมาใช่ไหม" จึงถูกตอบด้วยแม่แบบขอ CA ซ้ำอีกครั้ง
     ทั้งที่บทสนทนามีผล OMS ที่สำเร็จอยู่แล้ว
     """
-    from app.llm import DirectResponseKind, LLMResponse, ScriptedLLMAdapter
+    from app.llm import LLMResponse, ScriptedLLMAdapter
 
     followup_text = "ใช่ครับ ช่างการไฟฟ้ากำลังเดินทางไปแก้ไขที่หม้อแปลงครับ"
     adapter = ScriptedLLMAdapter(
@@ -661,7 +663,7 @@ async def test_mislabeled_oms_ca_followup_after_outage_check_uses_model_text() -
                 )
             ),
             LLMResponse(text="ตรวจสอบเรียบร้อยแล้วครับ"),
-            LLMResponse(text=followup_text, direct_response=DirectResponseKind.OMS_CA_NUMBER),
+            LLMResponse(text=followup_text, direct_response="oms_ca_number"),
         ]
     )
     agent = MainAgent(LLMClient(adapter), _registry())

@@ -10,6 +10,7 @@ import json
 from uuid import uuid4
 
 from app.contracts import (
+    KnowledgeSearchInput,
     OmsGetOutageByCaInput,
     OmsPrepareAnonymousOutageInput,
     OmsPrepareOutageWithCaInput,
@@ -36,15 +37,33 @@ def _action_schema(catalogue: dict, tool_name: str, action_name: str) -> dict:
     return next(item for item in tool["actions"] if item["name"] == action_name)
 
 
+def test_knowledge_schema_matches_pydantic_contract() -> None:
+    catalogue = _catalogue_for(
+        ToolDefinition(ToolName.KNOWLEDGE, "Knowledge", ("search",))
+    )
+    schema = _action_schema(catalogue, "knowledge_tool", "search")
+
+    assert schema["inputSchema"] == KnowledgeSearchInput.model_json_schema(
+        by_alias=True, mode="validation"
+    )
+
+
 def test_prepare_anonymous_outage_schema_requires_every_mandatory_field() -> None:
     """Regression: ขาด required เคยทำให้ Gemini ลืมส่ง idempotencyKey เป็นครั้งคราว"""
     catalogue = _catalogue_for(
         ToolDefinition(ToolName.OMS, "OMS", ("get_outage_by_ca", "prepare_outage_with_ca", "prepare_anonymous_outage"))
     )
     schema = _action_schema(catalogue, "oms_tool", "prepare_anonymous_outage")
-    assert set(schema["inputSchema"]["required"]) == {"description", "location", "contactPhone", "idempotencyKey"}
-    # ต้องตรงกับ pydantic model จริงที่ registry validate ก่อนเรียก backend
-    assert set(schema["inputSchema"]["required"]) == set(OmsPrepareAnonymousOutageInput.model_json_schema()["required"])
+    assert set(schema["inputSchema"]["required"]) == {
+        "description",
+        "location",
+        "contactPhone",
+        "idempotencyKey",
+    }
+    # ต้องตรงทั้ง schema กับ pydantic model จริงที่ registry validate ก่อนเรียก backend
+    assert schema["inputSchema"] == OmsPrepareAnonymousOutageInput.model_json_schema(
+        by_alias=True, mode="validation"
+    )
 
 
 def test_get_outage_by_ca_schema_requires_ca_number() -> None:
@@ -52,7 +71,9 @@ def test_get_outage_by_ca_schema_requires_ca_number() -> None:
         ToolDefinition(ToolName.OMS, "OMS", ("get_outage_by_ca",))
     )
     schema = _action_schema(catalogue, "oms_tool", "get_outage_by_ca")
-    assert schema["inputSchema"]["required"] == list(OmsGetOutageByCaInput.model_json_schema()["required"])
+    assert schema["inputSchema"] == OmsGetOutageByCaInput.model_json_schema(
+        by_alias=True, mode="validation"
+    )
 
 
 def test_prepare_outage_with_ca_schema_matches_contract_required_fields() -> None:
@@ -60,7 +81,9 @@ def test_prepare_outage_with_ca_schema_matches_contract_required_fields() -> Non
         ToolDefinition(ToolName.OMS, "OMS", ("prepare_outage_with_ca",))
     )
     schema = _action_schema(catalogue, "oms_tool", "prepare_outage_with_ca")
-    assert set(schema["inputSchema"]["required"]) == set(OmsPrepareOutageWithCaInput.model_json_schema()["required"])
+    assert schema["inputSchema"] == OmsPrepareOutageWithCaInput.model_json_schema(
+        by_alias=True, mode="validation"
+    )
 
 
 def test_voc_prepare_case_schema_requires_all_contact_fields() -> None:

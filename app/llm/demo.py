@@ -15,7 +15,6 @@ from uuid import NAMESPACE_URL, UUID, uuid5
 
 from app.contracts import ContactChannel, ToolAction, ToolCall, ToolName, VocCategory
 from app.llm.models import (
-    DirectResponseKind,
     KnowledgeConversationContext,
     LLMMessage,
     LLMRequest,
@@ -39,7 +38,7 @@ class DemoLLMAdapter:
         """ส่งคืนการวางแผนแบบกำหนดผลลัพธ์ได้หรือคำตอบที่อ้างอิงผลลัพธ์เครื่องมือ"""
         user_index = _latest_user_index(request.messages)
         if user_index is None:
-            return _direct_response(DirectResponseKind.GREETING)
+            return _direct_response("greeting")
         current_messages = request.messages[user_index:]
         tool_messages = tuple(message for message in current_messages if message.role == "tool")
         if tool_messages:
@@ -65,11 +64,11 @@ class DemoLLMAdapter:
         planned: list[tuple[int, ToolName, ToolAction, dict[str, Any]]] = []
 
         if _is_greeting(text):
-            return _direct_response(DirectResponseKind.GREETING)
+            return _direct_response("greeting")
         if _is_thanks(text):
-            return _direct_response(DirectResponseKind.THANKS)
+            return _direct_response("thanks")
         if _is_unsafe_or_unknown_request(text):
-            return _direct_response(DirectResponseKind.UNSUPPORTED)
+            return _direct_response("unsupported")
 
         wants_categories = _wants_categories(text)
         case_requested = _case_requested(text, wants_categories=wants_categories, has_details=bool(subject and detail))
@@ -83,7 +82,7 @@ class DemoLLMAdapter:
                 if ca_number:
                     _append_plan(planned, message, ("outage", "ไฟดับ", "ตรวจสอบ", "สถานะ"), ToolName.OMS, ToolAction.OMS_GET_OUTAGE_BY_CA, {"caNumber": ca_number})
                 else:
-                    return _direct_response(DirectResponseKind.OMS_CA_NUMBER)
+                    return _direct_response("oms_ca_number")
             elif ca_number and description:
                 # OMS ต้องตรวจเหตุที่มีอยู่ก่อนเสมอ เพื่อป้องกันการสร้างเหตุซ้ำ
                 _append_plan(planned, message, ("outage", "ไฟดับ", "แจ้งเหตุ"), ToolName.OMS, ToolAction.OMS_GET_OUTAGE_BY_CA, {"caNumber": ca_number})
@@ -91,10 +90,10 @@ class DemoLLMAdapter:
                 action = ToolAction.OMS_PREPARE_ANONYMOUS_OUTAGE
                 _append_plan(planned, message, ("outage", "ไฟดับ", "แจ้งเหตุ"), ToolName.OMS, action, {"description": description, "location": outage_location, "contactPhone": contact_phone, "idempotencyKey": _idempotency_key(correlation_id, action, f"{description}:{outage_location}:{contact_phone}")})
             elif ca_number:
-                return _direct_response(DirectResponseKind.OMS_WITH_CA_INPUTS)
+                return _direct_response("oms_with_ca_inputs")
             else:
                 # ยังไม่รู้ว่าผู้ใช้มี CA หรือไม่ ถาม CA ก่อนเสมอ
-                return _direct_response(DirectResponseKind.OMS_OUTAGE_START)
+                return _direct_response("oms_outage_start")
 
         if knowledge_requested:
             _append_plan(planned, message, ("knowledge", "policy", "tariff", "rate", "guidance", "safety", "payment channels", "ค้นหา", "นโยบาย", "อัตราค่าไฟ"), ToolName.KNOWLEDGE, ToolAction.KNOWLEDGE_SEARCH, {"query": _safe_query(message), "maxResults": 3})
@@ -103,7 +102,7 @@ class DemoLLMAdapter:
             return _planned_response(correlation_id, [item[1:] for item in sorted(planned, key=lambda item: item[0])])
         if _is_pea_knowledge_request(text):
             return _planned_response(correlation_id, [(ToolName.KNOWLEDGE, ToolAction.KNOWLEDGE_SEARCH, {"query": _safe_query(message), "maxResults": 3})])
-        return _direct_response(DirectResponseKind.UNSUPPORTED)
+        return _direct_response("unsupported")
 
     def _after_tools(self, messages: tuple[LLMMessage, ...], tool_messages: tuple[LLMMessage, ...], correlation_id: UUID) -> LLMResponse:
         """ใช้ผลตรวจเหตุจาก OMS เป็นเงื่อนไขก่อนเตรียมสร้างเหตุที่รู้ CA"""
@@ -131,7 +130,7 @@ def _prepare_outage_with_ca(message: str, correlation_id: UUID, outage_check: di
     ca_number = outage_check.get("caNumber")
     description = _labelled_value(message, "description", 2000)
     if not isinstance(ca_number, str) or not _recognised_ca_number(ca_number) or not description:
-        return _direct_response(DirectResponseKind.OMS_WITH_CA_INPUTS)
+        return _direct_response("oms_with_ca_inputs")
     contact_phone = _labelled_value(message, "contactPhone", 32)
     location_note = _labelled_value(message, "locationNote", 500)
     action = ToolAction.OMS_PREPARE_OUTAGE_WITH_CA
@@ -296,25 +295,6 @@ def _tracking_requested(text: str, *, wants_categories: bool, has_details: bool)
     )) or bool(re.search(r"\b(?:vocid|trackingkey)\b", text))
 
 
-def _first_missing_case_field(
-    subject: str | None,
-    detail: str | None,
-    contact_name: str | None,
-    contact_phone: str | None,
-    location: str | None,
-) -> DirectResponseKind | None:
-    """ลำดับการถามข้อมูลทีละขั้นเหมือนฟอร์มบนเว็บ: รายละเอียด → ชื่อ → เบอร์ → สถานที่"""
-    if not subject or not detail:
-        return DirectResponseKind.VOC_DETAILS
-    if not contact_name:
-        return DirectResponseKind.VOC_CONTACT_NAME
-    if not contact_phone:
-        return DirectResponseKind.VOC_CONTACT_PHONE
-    if not location:
-        return DirectResponseKind.VOC_LOCATION
-    return None
-
-
 def _has_explicit_operational_intent(message: str) -> bool:
     """ใช้ predicate ชุดเดียวกับ planner เพื่อกัน intent ใหม่ออกจาก Knowledge context"""
     text = message.casefold()
@@ -339,7 +319,7 @@ def _planned_response(correlation_id: UUID, planned: list[tuple[ToolName, ToolAc
     ))
 
 
-def _direct_response(kind: DirectResponseKind) -> LLMResponse:
+def _direct_response(kind: str) -> LLMResponse:
     """ขอให้ Main Agent สร้างข้อความตรงจากแม่แบบที่กำหนดไว้"""
     return LLMResponse(direct_response=kind)
 

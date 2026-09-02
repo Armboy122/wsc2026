@@ -7,7 +7,7 @@
 1. `knowledge_tool` — **built-in capability** ประกอบใน `app/main.py` โดยตรง
 2. `oms_tool` — **external plugin** ที่ค้นพบจาก manifest ตอน startup
 
-Sabuy และ VOC คงเฉพาะ implementation/contracts/isolated tests แบบ dormant และไม่ลงทะเบียนใน runtime catalogue
+Sabuy คงเฉพาะ implementation/contracts แบบ dormant และไม่ลงทะเบียนใน runtime catalogue; VOC มี plugin implementation ที่เปิดใช้งานสำหรับ catalog, เตรียม/ส่งเคส และติดตามเคส
 
 ### ระบบปลั๊กอิน (Plugin Architecture v1)
 
@@ -72,11 +72,12 @@ Main Agent  <---->  LLMAdapter (judge-provided LLM implementation)
     |  +--------> ToolRegistry (Knowledge built-in + ปลั๊กอินที่ loader ลงทะเบียน)
     |               |
     |               +--> oms_tool (plugin: app/plugins/oms) -> httpx → External OMS REST
+    |               +--> voc_tool (plugin: app/plugins/voc) -> httpx → External VOC REST
     +-----------> knowledge_tool -> Document Router -> Full selected DOCX text -> Gemini Long Context
 
 Plugin loader (startup เท่านั้น): app/plugins/*/plugin.yaml -> validate -> factory -> Tool + catalogue
 
-Sabuy/VOC implementation + contracts + isolated tests: dormant, not registered
+Sabuy implementation + contracts: dormant, not registered; VOC plugin is enabled and registered
         |
         v
 TraceStore + PendingActionStore (in-process, resettable demo state)
@@ -123,7 +124,7 @@ LINE Reply/Push Message (fallback เป็น push เมื่อ reply token 
 
 - รับข้อความผู้ใช้และแยก conversation history, workflow state และผลลัพธ์จาก tool ออกจากกัน;
 - ใช้ agent loop แบบ bounded โดยค่าเริ่มต้นไม่เกิน 12 agent steps/12 tool calls ต่อหนึ่งข้อความ และหยุดทันทีเมื่อพบ Knowledge call ซ้ำ;
-- เรียกเฉพาะ tool ที่อยู่ใน active catalogue ซึ่งรับมาจาก `ToolRegistry.llm_catalogue` (Knowledge built-in + ปลั๊กอินที่เปิดใช้งาน) ไม่ได้ hardcode ไว้ใน Main Agent; ปัจจุบันคือ Knowledge และ OMS ส่วน Sabuy/VOC ไม่ลงทะเบียน;
+- เรียกเฉพาะ tool ที่อยู่ใน active catalogue ซึ่งรับมาจาก `ToolRegistry.llm_catalogue` (Knowledge built-in + ปลั๊กอินที่เปิดใช้งาน) ไม่ได้ hardcode ไว้ใน Main Agent; ปัจจุบันคือ Knowledge, OMS และ VOC ส่วน Sabuy ไม่ลงทะเบียน;
 - ถือว่าผลลัพธ์จาก tool เป็นข้อเท็จจริงที่มีอำนาจเหนือข้อความจากโมเดล และไม่รวม no-evidence เข้ากับคำตอบที่มี citation แล้ว;
 - บังคับ OMS flow แบบมี CA ให้ GET ก่อน prepare เสมอ และใช้ anonymous prepare เมื่อไม่มี CA;
 - สร้าง pending action หลังจากได้รับผลลัพธ์ `prepare_*` ที่สำเร็จ;
@@ -169,7 +170,7 @@ class LLMAdapter(Protocol):
     async def complete(self, request: LLMRequest) -> LLMResponse: ...
 ```
 
-`LLMRequest` ประกอบด้วย messages, แค็ตตาล็อก tool สองรายการที่ลงทะเบียนแบบ typed และกำหนดตายตัว และ correlation id ส่วน `LLMResponse` ประกอบด้วย text และค่า `ToolCall` ตั้งแต่ศูนย์รายการขึ้นไป อะแดปเตอร์สำหรับกรรมการจะแปลงโครงสร้าง SDK ของตนเป็น contract ภายในเหล่านี้ โดย `ScriptedLLMAdapter` เพียงพอสำหรับเดโม/การทดสอบที่กำหนดผลได้แน่นอน
+`LLMRequest` ประกอบด้วย messages, catalogue ของ tool ที่ลงทะเบียนแบบ typed ซึ่ง loader ประกอบจาก manifest และ correlation id ส่วน `LLMResponse` ประกอบด้วย text และค่า `ToolCall` ตั้งแต่ศูนย์รายการขึ้นไป อะแดปเตอร์สำหรับกรรมการจะแปลงโครงสร้าง SDK ของตนเป็น contract ภายในเหล่านี้ โดย `ScriptedLLMAdapter` เพียงพอสำหรับเดโม/การทดสอบที่กำหนดผลได้แน่นอน
 
 อะแดปเตอร์ต้องไม่มีนโยบายของ PEA, ข้อมูลลับในผลลัพธ์ trace หรือการเข้าถึงระบบหลังบ้านโดยตรง
 
@@ -250,7 +251,7 @@ prepare_* -> pending_confirmation -> confirm endpoint -> submit_* -> submitted |
 | หัวหน้าทีม/การผสานระบบ | `ARCHITECTURE.md`, `CONTRACTS.md`, `app/contracts.py`, `app/main.py`, `tests/test_contracts.py` | เป็นเจ้าของ frozen contract และการเชื่อม route; อนุมัติการเปลี่ยนแปลง contract ทั้งหมด |
 | ผู้ปฏิบัติงาน A — เอเจนต์ | `app/agent/`, `app/llm/` | import เฉพาะ `app.contracts`; เรียกเฉพาะ interface `ToolRegistry` |
 | ผู้ปฏิบัติงาน B — ฐานความรู้ | `app/tools/knowledge_tool.py`, `app/backends/full_document_knowledge.py`, `knowledge/` | ใช้ document-level routing และ full-file context เท่านั้น; ห้ามเพิ่ม vector DB, chunk retrieval หรือเปลี่ยน public contract |
-| ผู้ปฏิบัติงาน C — งานปฏิบัติการ | `app/tools/oms_tool.py`, `app/plugins/` (loader + manifest + ปลั๊กอินแต่ละตัว); ไฟล์ VOC คง dormant | ใช้ action และ model ที่ตรึงไว้ใน `app.contracts`; manifest ห้าม bypass write state machine |
+| ผู้ปฏิบัติงาน C — งานปฏิบัติการ | `app/tools/oms_tool.py`, `app/tools/voc_tool.py`, `app/plugins/` (loader + manifest + ปลั๊กอินแต่ละตัว); Sabuy คง dormant | ใช้ action และ model ที่ตรึงไว้ใน `app.contracts`; manifest ห้าม bypass write state machine |
 | ผู้ปฏิบัติงาน Voice — โหมดเสียง | `app/live/`, `app/api/live.py`, `web/gemini-live-client.js`, `web/media-handler.js`, `web/pcm-processor.js` | import เฉพาะ `app.contracts` + `app.live.models`; เรียก Main Agent ผ่าน `MainAgentGateway` เท่านั้น; ห้ามแตะ ToolRegistry/backend ธุรกิจ |
 | ผู้ปฏิบัติงาน D — การตรวจสอบ/เอกสาร | `tests/`, `README.md`, `demo/` | ไม่แก้ไข production module หรือ contract |
 
@@ -279,4 +280,4 @@ prepare_* -> pending_confirmation -> confirm endpoint -> submit_* -> submitted |
 
 ## นิยามของคำว่าเสร็จสมบูรณ์
 
-prototype พร้อมสำหรับเดโมเมื่อ public route ใน `CONTRACTS.md` ทำงานกับ frozen Pydantic model ได้; Document Router เลือกเฉพาะไฟล์ที่เกี่ยวข้องและ Main Agent ตอบจากข้อความฉบับเต็มของไฟล์เหล่านั้นพร้อม citation ที่ตรวจสอบได้; OMS connector รักษาสาม operation ใน immutable OpenAPI และคืน `simulation: true`; สามารถ prepare รอ explicit human confirmation แล้ว internal submit หนึ่งครั้งโดยมี trace ที่ปกปิดข้อมูล ระบบต้องทำงานเป็น FastAPI process หนึ่ง process มี Main Agent เพียงหนึ่งตัวและ tool ระดับบนสุดสองรายการคือ Knowledge และ OMS เท่านั้น โดย Sabuy/VOC คงแบบ dormant
+prototype พร้อมสำหรับเดโมเมื่อ public route ใน `CONTRACTS.md` ทำงานกับ frozen Pydantic model ได้; Document Router เลือกเฉพาะไฟล์ที่เกี่ยวข้องและ Main Agent ตอบจากข้อความฉบับเต็มของไฟล์เหล่านั้นพร้อม citation ที่ตรวจสอบได้; OMS และ VOC connector คืน `simulation: true`; ทุก write flow สามารถ prepare รอ explicit human confirmation แล้ว internal submit หนึ่งครั้งโดยมี trace ที่ปกปิดข้อมูล ระบบต้องทำงานเป็น FastAPI process หนึ่ง process มี Main Agent เพียงหนึ่งตัวและ catalogue ที่ประกอบจาก Knowledge กับปลั๊กอินที่เปิดใช้งาน โดย Sabuy คงแบบ dormant

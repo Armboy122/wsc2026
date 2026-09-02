@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 from dataclasses import dataclass, field
-from enum import Enum
 from typing import Any
 from uuid import UUID
 
@@ -41,23 +40,7 @@ class LLMRequest:
     tools: tuple[ToolDefinition, ...]
     correlation_id: UUID
     knowledge_context: KnowledgeConversationContext | None = None
-
-
-class DirectResponseKind(str, Enum):
-    """ชนิดข้อความตรงที่ Main Agent สร้างจากแม่แบบที่เชื่อถือได้"""
-
-    GREETING = "greeting"
-    THANKS = "thanks"
-    UNSUPPORTED = "unsupported"
-    OMS_CA_NUMBER = "oms_ca_number"
-    OMS_OUTAGE_START = "oms_outage_start"
-    OMS_WITH_CA_INPUTS = "oms_with_ca_inputs"
-    OMS_ANONYMOUS_INPUTS = "oms_anonymous_inputs"
-    VOC_DETAILS = "voc_details"
-    VOC_CONTACT_NAME = "voc_contact_name"
-    VOC_CONTACT_PHONE = "voc_contact_phone"
-    VOC_LOCATION = "voc_location"
-    VOC_TRACKING_INPUTS = "voc_tracking_inputs"
+    planner_instructions: tuple[str, ...] = ()
 
 
 @dataclass(frozen=True, slots=True)
@@ -66,5 +49,5 @@ class LLMResponse:
 
     text: str = ""
     tool_calls: tuple[ToolCall, ...] = ()
-    direct_response: DirectResponseKind | None = None
+    direct_response: str | None = None
     provider_metadata: dict[str, Any] = field(default_factory=dict)
