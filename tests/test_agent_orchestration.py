@@ -144,6 +144,69 @@ def test_existing_oms_outage_is_presented_as_a_human_status_not_raw_enum() -> No
     assert not message.startswith("สถานะ RECEIVED:")
 
 
+def test_voice_like_operational_wrapper_keeps_the_typed_oms_fact_verbatim() -> None:
+    from app.agent.main_agent import _authoritative_message
+    from app.agent.response_policy import ResponsePolicies
+
+    result = ToolResult(
+        call_id=uuid4(),
+        name=ToolName.OMS,
+        action=ToolAction.OMS_GET_OUTAGE_BY_CA,
+        status=ToolResultStatus.SUCCESS,
+        data={
+            "caNumber": "020008084480",
+            "customerFound": True,
+            "network": {"meterId": "M", "transformerId": "T", "feederId": "F"},
+            "activeEvent": {"status": "RECEIVED", "message": "ไฟฟ้าดับ"},
+            "recommendedAction": "CREATE_METER_EVENT",
+        },
+        simulation=True,
+    )
+    fact = OmsResponsePolicy().result_fact(result)
+    assert fact is not None
+
+    message = _authoritative_message(
+        f"ตรวจสอบแล้วครับ {fact}",
+        [result],
+        None,
+        response_policies=ResponsePolicies((OmsResponsePolicy(),)),
+    )
+
+    assert message == f"ตรวจสอบแล้วครับ {fact}"
+
+
+def test_unsafe_operational_wrapper_uses_deterministic_fact() -> None:
+    from app.agent.main_agent import _authoritative_message
+    from app.agent.response_policy import ResponsePolicies
+
+    result = ToolResult(
+        call_id=uuid4(),
+        name=ToolName.OMS,
+        action=ToolAction.OMS_GET_OUTAGE_BY_CA,
+        status=ToolResultStatus.SUCCESS,
+        data={
+            "caNumber": "020008084480",
+            "customerFound": True,
+            "network": {"meterId": "M", "transformerId": "T", "feederId": "F"},
+            "activeEvent": {"status": "RECEIVED", "message": "ไฟฟ้าดับ"},
+            "recommendedAction": "CREATE_METER_EVENT",
+        },
+        simulation=True,
+    )
+    fact = OmsResponsePolicy().result_fact(result)
+    assert fact is not None
+
+    message = _authoritative_message(
+        f"{fact} ช่างจะถึงภายใน 10 นาทีครับ",
+        [result],
+        None,
+        response_policies=ResponsePolicies((OmsResponsePolicy(),)),
+    )
+
+    assert message == fact
+    assert "10 นาที" not in message
+
+
 def test_invalid_ca_error_tells_user_the_rule_and_how_to_retry() -> None:
     """Regression: CA ผิดรูปแบบต้องบอกกติกา 12 หลักและทางเลือกแจ้งแบบไม่มี CA แทนข้อความกลาง ๆ"""
     from app.agent.main_agent import _operational_error_fact

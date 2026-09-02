@@ -512,7 +512,32 @@ def _authoritative_message(
     facts = _result_facts(results, user_message=user_message, response_policies=response_policies)
     if pending:
         facts.append("กรุณายืนยันรายการที่เสนอนี้อย่างชัดเจนเพื่อส่งรายการครับ")
+        return "\n\n".join(facts) or _default_message(results)
+    if (
+        all(result.status is ToolResultStatus.SUCCESS for result in results)
+        and all(result.name is not ToolName.KNOWLEDGE for result in results)
+        and _safe_llm_operational_wording(text, tuple(facts))
+    ):
+        return text.strip()
     return "\n\n".join(facts) or _default_message(results)
+
+
+def _safe_llm_operational_wording(text: str, facts: tuple[str, ...]) -> bool:
+    """Permit only brief voice-like framing around verbatim trusted operational facts."""
+    candidate = text.strip()
+    if not candidate or len(candidate) > 2000 or _requires_final_only_output(candidate):
+        return False
+    remainder = candidate
+    for fact in facts:
+        if fact not in remainder:
+            return False
+        remainder = remainder.replace(fact, "", 1)
+    for allowed_phrase in (
+        "ตรวจสอบแล้วครับ", "ตรวจสอบแล้วค่ะ", "ขอแจ้งผลครับ", "ขอแจ้งผลค่ะ",
+        "ขณะนี้", "ดังนั้น", "ครับ", "ค่ะ", "และ",
+    ):
+        remainder = remainder.replace(allowed_phrase, "")
+    return re.fullmatch(r"[\s,.:;!?()\-–—]*", remainder) is not None
 
 
 def _safe_llm_error_wording(text: str, presentations: tuple[ErrorPresentation, ...]) -> bool:

@@ -41,6 +41,10 @@ plugin กำหนด `explanation`, `nextStep` และ `retryable`; Main Age
 `explanation`/`nextStep` และยอมรับเพียง courtesy framing ที่ยังคงสองข้อความนี้ไว้ตรงเดิม มิฉะนั้นใช้ fallback จาก typed presentation
 โดยไม่ส่ง raw upstream error, stack trace หรือ secret ให้ LLM
 
+สำหรับผลปฏิบัติการที่สำเร็จและไม่มี pending action Main Agent อนุญาตให้ LLM เติมคำเปิด/ปิดแบบผู้ช่วยเสียงได้
+แต่ต้องคง plugin result fact ทุกส่วนไว้ตรงเดิม และห้ามเพิ่มสาเหตุ ระยะเวลา การคาดการณ์ หรือการดำเนินการของเจ้าหน้าที่;
+หากไม่ผ่าน validation จะใช้ plugin fact เดิมโดยตรง Knowledge และ write confirmation ไม่ผ่าน presentation pass นี้
+
 manifest อ้าง schema ด้วย **ชื่อคลาส** (เช่น `inputContract: OmsGetOutageByCaInput`) แล้ว `manifest.py`
 ตรวจกับ `INPUT_MODELS` / `OUTPUT_MODELS` / `PREPARE_TO_SUBMIT` จริง หากไม่ตรงจะ fail closed ตอน startup
 จึงไม่มี JSON Schema ชุดที่สองใน YAML ให้ drift
