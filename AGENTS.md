@@ -141,8 +141,11 @@ Use the narrowest relevant check during iteration, then run the broader suite wh
 Default repository checks:
 
 ```bash
-python3 -m pytest -q
+.venv/bin/python -m pytest -q
 ```
+
+pytest ติดตั้งอยู่ใน virtualenv ของโปรเจกต์เท่านั้น การเรียก `python3 -m pytest` ตรง ๆ
+จะได้ `No module named pytest`
 
 When validating the running public API and evaluation envelope:
 

@@ -18,7 +18,7 @@ git clone https://github.com/Armboy122/wsc2026.git
 cd wsc2026
 
 # 2) ติดตั้ง dependencies (ใช้ uv — ดูวิธีติดตั้งด้านล่าง)
-uv sync --extra dev --extra knowledge
+uv sync --extra dev --extra voice
 
 # 3) สร้างไฟล์ตั้งค่าจากตัวอย่าง
 cp .env.example .env
@@ -81,8 +81,8 @@ knowledge/source/qa/       คำถาม-คำตอบที่อนุม�
 - ตรวจสอบความพร้อมได้ที่ `http://127.0.0.1:8000/health` — ต้องเห็น
   `"knowledge_backend": "ready"` (ถ้าเป็น `unavailable` แปลว่า key/ไฟล์ไม่พร้อม)
 
-> หมายเหตุ: `scripts/sync_knowledge.py` เป็นสคริปต์ซิงก์ไปยัง Gemini File Search ของระบบเก่า
-> **ไม่จำเป็นต้องรัน** เพื่อใช้ Knowledge ในเวอร์ชันปัจจุบัน
+> หมายเหตุ: ไม่มีขั้นตอนอัปโหลด ซิงก์ หรือสร้างดัชนีใด ๆ เอกสารทั้งหมดอยู่บนเครื่องนี้
+> และถูกอ่านสด ๆ จากดิสก์ทุกครั้งที่ตอบ
 
 ### ถ้าถามแล้วตอบว่า "ไม่มีหลักฐาน"
 
@@ -99,7 +99,7 @@ knowledge/source/qa/       คำถาม-คำตอบที่อนุม�
 ### ข้อกำหนดก่อนใช้
 
 - [x] ตั้ง `GEMINI_API_KEY` ใน `.env` แล้ว restart เซิร์ฟเวอร์ (ไม่งั้นเจอข้อความ "โหมดเสียงยังไม่ได้ตั้งค่า")
-- [x] ติดตั้ง dependency ครบแล้ว — `uv sync --extra dev --extra knowledge` (มี `--extra knowledge`
+- [x] ติดตั้ง dependency ครบแล้ว — `uv sync --extra dev --extra voice` (มี `--extra voice`
   ซึ่งติดตั้ง `google-genai` ที่โหมดเสียงต้องใช้)
 - [x] เปิดเว็บผ่าน **`http://127.0.0.1:8000` หรือ https** (สิทธิ์ไมโครโฟนไม่ทำงานบน `http://` ที่ไม่ใช่ localhost)
 - [x] เบราว์เซอร์ Chrome/Edge ล่าสุด

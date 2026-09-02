@@ -13,7 +13,9 @@ dependencies = [
 ]
 
 [project.optional-dependencies]
-knowledge = [
+# google-genai คือ SDK ของ Gemini ที่ "โหมดเสียง" (app/live/) ต้องใช้แบบ hard dependency
+# ส่วน Knowledge นำเข้าแบบ lazy และข้ามได้ทั้งหมดเมื่อใช้ provider maxplus_openai
+voice = [
   "google-genai>=1.0,<2.0",
 ]
 dev = [

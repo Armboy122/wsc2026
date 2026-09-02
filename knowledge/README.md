@@ -12,7 +12,7 @@
 - แหล่งข้อมูล runtime มีได้เฉพาะเอกสารที่ผ่านการอนุมัติภายใต้ `knowledge/source/`
 - corpus ปัจจุบันประกอบด้วย DOCX ที่ผู้ใช้อนุมัติ 38 ไฟล์ รวม Approved Q&A แบบ DOCX 11 ไฟล์ใต้ `knowledge/source/qa/`
 - Q&A ควรแยกหนึ่งหัวข้อต่อหนึ่งไฟล์ โดยใช้คำถามหลักเป็นย่อหน้าแรก เพื่อให้ Router จับคู่คำถามที่มีความหมายใกล้เคียงได้จาก catalog
-- `knowledge/source/README.md`, `knowledge/source/qa/README.md`, metadata, manifest และไฟล์ซ่อนทุกชนิดไม่ใช่เอกสารความรู้
+- `knowledge/source/README.md`, `knowledge/source/qa/README.md`, metadata และไฟล์ซ่อนทุกชนิดไม่ใช่เอกสารความรู้
 - LLM ต้องตอบจากข้อความในไฟล์ที่เลือกเท่านั้น ห้ามใช้ความจำของโมเดลเติมข้อเท็จจริง PEA
 - หากไม่มีไฟล์หรือหลักฐานที่ตรงคำถาม ต้องคืน no-evidence และไม่มี citation
 - ชื่อไฟล์และพาธสัมพัทธ์เป็น identifier ที่ตรวจสอบย้อนหลังได้ ห้ามเปิดเผย absolute path
@@ -28,9 +28,11 @@ knowledge/
       *.docx            คำถาม คำตอบ และแหล่งอ้างอิงที่อนุมัติแล้ว
       README.md         รูปแบบและนโยบาย Q&A; ห้ามนำเข้า context
     README.md           นโยบายเท่านั้น; ห้ามนำเข้า context
-  manifest.json        metadata ที่ไม่ใช้ใน runtime
   tests/               เทสต์ Document Router, full-file loading และ fail-closed
 ```
+
+> ไม่มีไฟล์ manifest, ดัชนี, embedding cache หรือ state ฝั่งคลาวด์ใด ๆ ในคลังนี้
+> `knowledge/source/` คือแหล่งความจริงเพียงแหล่งเดียว
 
 ## ขั้นตอนทำงานที่บังคับใช้
 
