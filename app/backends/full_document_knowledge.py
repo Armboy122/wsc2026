@@ -332,7 +332,7 @@ class FullDocumentKnowledgeBackend:
             "to identify what it refers to. When the user asks about a service and the documents "
             "include a relevant service URL, end with exactly one primary "
             "call to action on its own line in this form (with no punctuation after the URL): "
-            "ดำเนินการออนไลน์: <URL>\n"
+            "ดำเนินการออนไลน์: <URL>\nPlace the URL only in that call to action. "
             "You may include relevant URLs only by copying them exactly (verbatim) from the "
             "documents above; never invent, guess, shorten, or add punctuation to a URL, and "
             "do not answer with a bare list of links or a summary. Return JSON only exactly "
@@ -390,11 +390,17 @@ def _answer_format_is_concise(answer: str) -> bool:
     action_lines = [line for line in lines if line.startswith(_ONLINE_ACTION_PREFIX)]
     if len(action_lines) > 1:
         return False
-    if action_lines:
+    urls = _URL_PATTERN.findall(answer)
+    if urls:
+        if len(action_lines) != 1:
+            return False
         action_line = action_lines[0]
-        if lines[-1] != action_line or not action_line.removeprefix(_ONLINE_ACTION_PREFIX).strip():
+        action_url = action_line.removeprefix(_ONLINE_ACTION_PREFIX).strip()
+        if lines[-1] != action_line or _URL_PATTERN.fullmatch(action_url) is None or urls != [action_url]:
             return False
         lines.remove(action_line)
+    elif action_lines:
+        return False
     text_without_urls = _URL_PATTERN.sub("", " ".join(lines))
     sentence_count = len([part for part in re.split(r"[.!?。]+", text_without_urls) if part.strip()])
     return max(len(lines), sentence_count) <= MAX_CONCISE_ANSWER_UNITS

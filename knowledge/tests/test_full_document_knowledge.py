@@ -84,6 +84,26 @@ def test_committed_tou_tariff_document_is_catalogued_with_verifiable_rates() -> 
     assert "https://www.pea.co.th/sites/default/files/documents/tariff/electricity_tariff.pdf" in text
 
 
+def test_committed_tou_tariff_document_returns_a_grounded_citation() -> None:
+    source_root = Path(__file__).resolve().parents[1] / "source"
+    snippet = "Peak: วันจันทร์-วันศุกร์ เวลา 09.00-22.00 น."
+    service, _ = backend(
+        source_root,
+        [
+            '{"sourceIds":["PEA_อัตราค่าไฟฟ้า_TOU_2569.docx"]}',
+            '{"answer":"Peak คือวันจันทร์-วันศุกร์ เวลา 09.00-22.00 น.",'
+            '"citations":[{"sourceId":"PEA_อัตราค่าไฟฟ้า_TOU_2569.docx",'
+            f'"snippet":"{snippet}"}}]}}',
+        ],
+    )
+
+    evidence = asyncio.run(service.search("อยากรู้อัตรค่าบริการ TOU", 3))
+
+    assert evidence.result_count == 1
+    assert evidence.citations[0].source_id == "PEA_อัตราค่าไฟฟ้า_TOU_2569.docx"
+    assert evidence.citations[0].snippet == snippet
+
+
 def test_gemini_json_response_requests_json_without_unsupported_thinking_override() -> None:
     client = FakeClient(['{"ok":true}'])
 
@@ -294,7 +314,7 @@ def test_answer_url_verbatim_from_selected_document_is_accepted(tmp_path: Path) 
         tmp_path,
         [
             '{"sourceIds":["service.docx"]}',
-            f'{{"answer":"สมัครออนไลน์ได้ที่ {url}","citations":[{{"sourceId":"service.docx","snippet":"สมัครออนไลน์ได้ที่ {url}"}}]}}',
+            f'{{"answer":"สมัครออนไลน์ได้\\nดำเนินการออนไลน์: {url}","citations":[{{"sourceId":"service.docx","snippet":"สมัครออนไลน์ได้ที่ {url}"}}]}}',
         ],
     )
 
@@ -335,6 +355,8 @@ def test_non_concise_or_malformed_online_action_answers_fail_closed(tmp_path: Pa
         "หนึ่ง. สอง. สาม. สี่.",
         f"ดำเนินการออนไลน์: {url}\\nดำเนินการออนไลน์: {url}",
         f"ดำเนินการออนไลน์: {url}\\nรายละเอียดเพิ่มเติม",
+        f"สมัครออนไลน์ได้ที่ {url}",
+        "สมัครออนไลน์ได้\nดำเนินการออนไลน์: เปิดเว็บไซต์",
     )
 
     for answer in invalid_answers:
