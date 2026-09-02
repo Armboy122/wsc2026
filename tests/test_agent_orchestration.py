@@ -119,6 +119,31 @@ def _error_result(action: ToolAction, code: ToolErrorCode) -> ToolResult:
     )
 
 
+def test_existing_oms_outage_is_presented_as_a_human_status_not_raw_enum() -> None:
+    result = ToolResult(
+        call_id=uuid4(),
+        name=ToolName.OMS,
+        action=ToolAction.OMS_GET_OUTAGE_BY_CA,
+        status=ToolResultStatus.SUCCESS,
+        data={
+            "caNumber": "020008084480",
+            "customerFound": True,
+            "network": {"meterId": "M", "transformerId": "T", "feederId": "F"},
+            "activeEvent": {"status": "RECEIVED", "message": "ไฟฟ้าดับ"},
+            "recommendedAction": "CREATE_METER_EVENT",
+        },
+        simulation=True,
+    )
+
+    message = OmsResponsePolicy().result_fact(result)
+
+    assert message is not None
+    assert "มีเหตุไฟฟ้าขัดข้อง" in message
+    assert "รับแจ้งแล้ว" in message
+    assert "ไฟฟ้าดับ" in message
+    assert not message.startswith("สถานะ RECEIVED:")
+
+
 def test_invalid_ca_error_tells_user_the_rule_and_how_to_retry() -> None:
     """Regression: CA ผิดรูปแบบต้องบอกกติกา 12 หลักและทางเลือกแจ้งแบบไม่มี CA แทนข้อความกลาง ๆ"""
     from app.agent.main_agent import _operational_error_fact

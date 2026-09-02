@@ -10,7 +10,7 @@ import pytest
 
 from app.contracts import ChatResponse
 from app.line.bridge import LineBridge
-from app.line.service import LineWebhookService, format_chat_messages
+from app.line.service import LineWebhookService, format_chat_messages, format_confirm_result_messages
 
 
 class _StubGateway:
@@ -39,6 +39,21 @@ def _citations(*uris: str) -> list[dict[str, Any]]:
         {"sourceId": f"s{i}", "title": f"เอกสารอ้างอิงฉบับที่ {i} ชื่อยาวมากจนเกินยี่สิบตัวอักษร", "uri": uri, "snippet": "ข้อความ", "page": 1}
         for i, uri in enumerate(uris, start=1)
     ]
+
+
+def test_failed_confirmation_shows_the_sanitized_error_only() -> None:
+    messages = format_confirm_result_messages({
+        "pendingAction": {"status": "failed", "summary": "รายการที่เตรียมไว้"},
+        "toolResult": {
+            "error": {
+                "message": "ระบบไม่สามารถดำเนินคำขอนี้ได้ครับ กรุณาลองใหม่ภายหลังครับ"
+            }
+        },
+    })
+
+    text = messages[0]["text"]
+    assert "ระบบไม่สามารถดำเนินคำขอนี้ได้" in text
+    assert "upstream-secret" not in text
 
 
 def test_new_chat_clears_conversation_and_pending_action() -> None:

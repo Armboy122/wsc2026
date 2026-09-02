@@ -296,7 +296,10 @@ def format_confirm_result_messages(decision: dict[str, Any]) -> list[dict[str, A
     if status == "submitted":
         return [{"type": "text", "text": f"✅ ยืนยันสำเร็จ ส่งรายการแล้ว (ระบบจำลอง)\n{summary}"}]
     if status == "failed":
-        return [{"type": "text", "text": f"❌ การส่งรายการล้มเหลว กรุณาลองใหม่อีกครั้งครับ\n{summary}"}]
+        tool_result = decision.get("toolResult") or {}
+        error = tool_result.get("error") or {}
+        safe_error = str(error.get("message") or "กรุณาลองใหม่อีกครั้งครับ")
+        return [{"type": "text", "text": f"❌ การส่งรายการล้มเหลว\n{safe_error}\n{summary}"}]
     return [{"type": "text", "text": f"รายการอยู่ในสถานะ {status} แล้วครับ"}]
 
 

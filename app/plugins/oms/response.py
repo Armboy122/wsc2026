@@ -6,6 +6,18 @@ from app.agent.response_policy import ErrorPresentation
 from app.contracts import ToolAction, ToolErrorCode, ToolName, ToolResult, ToolResultStatus
 
 
+_OUTAGE_STATUS_LABELS = {
+    "RECEIVED": "รับแจ้งแล้ว",
+    "ACKNOWLEDGED": "เจ้าหน้าที่รับทราบแล้ว",
+    "IN_PROGRESS": "กำลังดำเนินการ",
+    "RESTORED": "จ่ายไฟกลับคืนแล้ว",
+}
+
+
+def _outage_status_label(status: object) -> str:
+    return _OUTAGE_STATUS_LABELS.get(status, "กำลังตรวจสอบสถานะ")
+
+
 class OmsResponsePolicy:
     """Turn trusted OMS outcomes and planner labels into user-facing text."""
 
@@ -35,8 +47,8 @@ class OmsResponsePolicy:
         if result.action is ToolAction.OMS_GET_OUTAGE_BY_CA:
             active_event = data.get("activeEvent")
             if isinstance(active_event, dict) and isinstance(active_event.get("message"), str):
-                status = active_event.get("status")
-                message = f"สถานะ {status}: {active_event['message']}" if isinstance(status, str) else active_event["message"]
+                status = _outage_status_label(active_event.get("status"))
+                message = f"ขณะนี้มีเหตุไฟฟ้าขัดข้องที่เกี่ยวข้อง ({status}): {active_event['message']}"
                 return f"{safety}\n\n{message}" if isinstance(safety, str) else message
             return "ไม่พบเหตุไฟฟ้าขัดข้องที่เกี่ยวข้องในขณะนี้ครับ"
         if result.action in {ToolAction.OMS_PREPARE_OUTAGE_WITH_CA, ToolAction.OMS_PREPARE_ANONYMOUS_OUTAGE}:
