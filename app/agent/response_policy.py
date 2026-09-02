@@ -5,7 +5,37 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import Protocol
 
-from app.contracts import ToolResult
+from app.contracts import ToolErrorCode, ToolResult, ToolResultStatus
+
+
+@dataclass(frozen=True, slots=True)
+class ErrorPresentation:
+    """Safe error facts a plugin permits the LLM and user to see."""
+
+    code: ToolErrorCode
+    explanation: str
+    next_step: str
+    retryable: bool
+
+    def __post_init__(self) -> None:
+        if not self.explanation.strip() or len(self.explanation) > 500:
+            raise ValueError("error explanation ต้องมีความยาว 1-500 ตัวอักษร")
+        if not self.next_step.strip() or len(self.next_step) > 500:
+            raise ValueError("error next_step ต้องมีความยาว 1-500 ตัวอักษร")
+
+    def fallback_message(self) -> str:
+        return (
+            f"{self.explanation.strip()} {self.next_step.strip()}\n"
+            f"รหัสข้อผิดพลาด: {self.code.value}"
+        )
+
+    def llm_payload(self) -> dict[str, object]:
+        return {
+            "code": self.code.value,
+            "explanation": self.explanation.strip(),
+            "nextStep": self.next_step.strip(),
+            "retryable": self.retryable,
+        }
 
 
 class ResponsePolicy(Protocol):
@@ -22,7 +52,7 @@ class ResponsePolicy(Protocol):
 
     def result_fact(self, result: ToolResult) -> str | None: ...
 
-    def error_message(self, result: ToolResult) -> str | None: ...
+    def error_presentation(self, result: ToolResult) -> ErrorPresentation | None: ...
 
     def grounds_followup(self, result: ToolResult) -> bool: ...
 
@@ -53,10 +83,13 @@ class ResponsePolicies:
                 return fact
         return None
 
-    def error_message(self, result: ToolResult) -> str | None:
+    def error_presentation(self, result: ToolResult) -> ErrorPresentation | None:
+        if result.status is not ToolResultStatus.ERROR or result.error is None:
+            return None
         for policy in self.policies:
-            if (message := policy.error_message(result)) is not None:
-                return message
+            presentation = policy.error_presentation(result)
+            if presentation is not None and presentation.code is result.error.code:
+                return presentation
         return None
 
     def grounds_followup(self, result: ToolResult) -> bool:

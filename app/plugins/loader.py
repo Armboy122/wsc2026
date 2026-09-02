@@ -161,7 +161,7 @@ def _build_runtime(manifest: PluginManifest, settings: Any) -> PluginRuntime:
         not isinstance(getattr(policy, "planner_instructions", None), str)
         or not all(
             callable(getattr(policy, method, None))
-            for method in ("direct_message", "result_fact", "error_message", "grounds_followup")
+            for method in ("direct_message", "result_fact", "error_presentation", "grounds_followup")
         )
     ):
         raise PluginError(f"response policy ของ {manifest.metadata.id.value} ไม่ถูกต้อง")

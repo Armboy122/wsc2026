@@ -294,7 +294,14 @@ def _generic_grounded_message(results: tuple[dict[str, Any], ...]) -> str:
     messages: list[str] = []
     for result in results:
         if result.get("status") != "success":
-            messages.append(str(result.get("error", "บริการที่ร้องขอไม่พร้อมใช้งาน")))
+            presentation = result.get("errorPresentation")
+            if isinstance(presentation, dict):
+                explanation = presentation.get("explanation")
+                next_step = presentation.get("nextStep")
+                if isinstance(explanation, str) and isinstance(next_step, str):
+                    messages.append(f"{explanation} {next_step}")
+                    continue
+            messages.append("บริการที่ร้องขอไม่พร้อมใช้งาน กรุณาลองใหม่ภายหลังครับ")
             continue
         data = result.get("data")
         if not isinstance(data, dict):

@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from app.agent.response_policy import ErrorPresentation
 from app.contracts import ToolAction, ToolErrorCode, ToolName, ToolResult, ToolResultStatus
 
 
@@ -50,16 +51,31 @@ class OmsResponsePolicy:
             return f"{prefix}{message}" if isinstance(message, str) else "ดำเนินการกับ OMS เรียบร้อยแล้วครับ"
         return None
 
-    def error_message(self, result: ToolResult) -> str | None:
+    def error_presentation(self, result: ToolResult) -> ErrorPresentation | None:
         if result.name is not ToolName.OMS:
             return None
         code = result.error.code if result.error else None
         if result.action is ToolAction.OMS_GET_OUTAGE_BY_CA and code is ToolErrorCode.NOT_FOUND:
-            return "ไม่พบหมายเลขผู้ใช้ไฟนี้ในระบบครับ กรุณาตรวจสอบหมายเลขอีกครั้ง หรือแจ้งอาการ สถานที่ และเบอร์โทรเพื่อแจ้งเหตุแทนได้ครับ"
+            return ErrorPresentation(
+                code=code,
+                explanation="ไม่พบหมายเลขผู้ใช้ไฟนี้ในระบบครับ",
+                next_step="กรุณาตรวจสอบหมายเลขอีกครั้ง หรือแจ้งอาการ สถานที่ และเบอร์โทรเพื่อแจ้งเหตุแทนได้ครับ",
+                retryable=True,
+            )
         if result.action in {ToolAction.OMS_GET_OUTAGE_BY_CA, ToolAction.OMS_PREPARE_OUTAGE_WITH_CA} and code is ToolErrorCode.INVALID_INPUT:
-            return "หมายเลขผู้ใช้ไฟต้องเป็นตัวเลข 12 หลักเท่านั้นครับ กรุณาตรวจสอบหมายเลขแล้วส่งใหม่อีกครั้ง หรือถ้าไม่ทราบหมายเลขผู้ใช้ไฟ แจ้งอาการที่เกิดขึ้น สถานที่ และเบอร์โทรแทนได้ครับ"
+            return ErrorPresentation(
+                code=code,
+                explanation="หมายเลขผู้ใช้ไฟต้องเป็นตัวเลข 12 หลักเท่านั้นครับ",
+                next_step="กรุณาตรวจสอบหมายเลขแล้วส่งใหม่ หรือถ้าไม่ทราบหมายเลข ให้แจ้งอาการที่เกิดขึ้น สถานที่ และเบอร์โทรแทนได้ครับ",
+                retryable=True,
+            )
         if code is ToolErrorCode.CONFLICT:
-            return "OMS พบเหตุการณ์ที่เกี่ยวข้องอยู่แล้ว จึงไม่สามารถสร้างเหตุซ้ำได้ครับ"
+            return ErrorPresentation(
+                code=code,
+                explanation="OMS พบเหตุการณ์ที่เกี่ยวข้องอยู่แล้ว จึงไม่สามารถสร้างเหตุซ้ำได้ครับ",
+                next_step="กรุณาตรวจสอบและติดตามเหตุการณ์เดิมแทนการสร้างรายการใหม่ครับ",
+                retryable=False,
+            )
         return None
 
     def grounds_followup(self, result: ToolResult) -> bool:

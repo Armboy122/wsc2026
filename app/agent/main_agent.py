@@ -13,7 +13,7 @@ from pydantic import ValidationError
 
 from app.agent.registry import ToolContext, ToolRegistry, _error_result
 from app.agent.stores import ConversationStore, PendingActionStore, TraceStore
-from app.agent.response_policy import ResponsePolicies
+from app.agent.response_policy import ErrorPresentation, ResponsePolicies
 from app.contracts import (
     PREPARE_TO_SUBMIT,
     ActionDecisionResponse,
@@ -25,6 +25,7 @@ from app.contracts import (
     SubmitPreparedActionInput,
     ToolAction,
     ToolCall,
+    ToolError,
     ToolErrorCode,
     ToolName,
     ToolResult,
@@ -191,7 +192,7 @@ class MainAgent:
                     seen_knowledge_calls.add(key)
                 result = await self._execute_chat_call(call, conversation_id, trace_id)
                 all_results.append(result)
-                history += (LLMMessage("tool", _result_message(result)),)
+                history += (LLMMessage("tool", _result_message(result, self._response_policies)),)
                 if result.status is ToolResultStatus.SUCCESS and result.action in PREPARE_TO_SUBMIT:
                     prepared = True
                     break
@@ -324,6 +325,7 @@ class MainAgent:
         self._call_inputs[call.call_id] = dict(call.input)
         self._traces.append(trace_id, TraceEventKind.TOOL_CALLED, {"name": call.name.value, "action": call.action.value, "callId": str(call.call_id)})
         result = await self._tools.execute(call, ToolContext(conversation_id, trace_id))
+        result = _sanitize_error_result(result, self._response_policies)
         self._traces.append(trace_id, TraceEventKind.TOOL_RESULT, {"name": result.name.value, "action": result.action.value, "status": result.status.value, "errorCode": result.error.code.value if result.error else None})
         return result
 
@@ -439,10 +441,14 @@ def _redact_prepared_input(data: dict[str, Any]) -> dict[str, Any]:
     return {key: value if key in _SAFE_PREVIEW_FIELDS else "[redacted]" for key, value in data.items()}
 
 
-def _result_message(result: ToolResult) -> str:
+def _result_message(result: ToolResult, response_policies: ResponsePolicies) -> str:
     identity = {"name": result.name.value, "action": result.action.value}
     if result.status is ToolResultStatus.ERROR:
-        return json.dumps({**identity, "status": "error", "error": result.error.message if result.error else "ข้อผิดพลาดที่ไม่ทราบสาเหตุ"})
+        presentation = _error_presentation(result, response_policies)
+        return json.dumps(
+            {**identity, "status": "error", "errorPresentation": presentation.llm_payload()},
+            ensure_ascii=False,
+        )
     return json.dumps({**identity, "status": "success", "data": result.data, "citations": [citation.model_dump(by_alias=True) for citation in result.citations]}, default=str)
 
 
@@ -488,23 +494,98 @@ def _authoritative_message(
     if not results:
         return text or _default_message(results)
 
+    if (
+        not pending
+        and all(result.status is ToolResultStatus.ERROR for result in results)
+        and all(result.name is not ToolName.KNOWLEDGE for result in results)
+    ):
+        presentations = tuple(_error_presentation(result, response_policies) for result in results)
+        if _safe_llm_error_wording(text, presentations):
+            codes = ", ".join(dict.fromkeys(item.code.value for item in presentations))
+            return f"{text.strip()}\n\nรหัสข้อผิดพลาด: {codes}"
+
     facts = _result_facts(results, user_message=user_message, response_policies=response_policies)
     if pending:
         facts.append("กรุณายืนยันรายการที่เสนอนี้อย่างชัดเจนเพื่อส่งรายการครับ")
-    message = "\n\n".join(facts) or _default_message(results)
-    return message
+    return "\n\n".join(facts) or _default_message(results)
+
+
+def _safe_llm_error_wording(text: str, presentations: tuple[ErrorPresentation, ...]) -> bool:
+    """Accept LLM wording only when every authoritative error fact remains verbatim."""
+    candidate = text.strip()
+    if not candidate or len(candidate) > 2000 or _requires_final_only_output(candidate):
+        return False
+    remainder = candidate
+    for item in presentations:
+        explanation = item.explanation.strip()
+        next_step = item.next_step.strip()
+        if explanation not in remainder or next_step not in remainder:
+            return False
+        remainder = remainder.replace(explanation, "", 1).replace(next_step, "", 1)
+    for allowed_phrase in ("ขออภัยครับ", "ขออภัยค่ะ", "โปรดทราบว่า", "ดังนั้น", "และ"):
+        remainder = remainder.replace(allowed_phrase, "")
+    return re.fullmatch(r"[\s,.:;!?()\-–—]*", remainder) is not None
+
+
+def _error_presentation(
+    result: ToolResult,
+    response_policies: ResponsePolicies | None = None,
+) -> ErrorPresentation:
+    if response_policies is not None:
+        presentation = response_policies.error_presentation(result)
+        if presentation is not None:
+            return presentation
+    code = result.error.code if result.error else ToolErrorCode.INTERNAL
+    defaults = {
+        ToolErrorCode.NOT_FOUND: (
+            "ไม่พบข้อมูลที่ตรงกับที่ระบุครับ",
+            "กรุณาตรวจสอบข้อมูลแล้วลองใหม่อีกครั้งครับ",
+            True,
+        ),
+        ToolErrorCode.INVALID_INPUT: (
+            "ข้อมูลที่ระบุยังไม่ครบถ้วนหรือไม่ถูกต้องครับ",
+            "กรุณาตรวจสอบข้อมูลแล้วลองใหม่อีกครั้งครับ",
+            True,
+        ),
+        ToolErrorCode.CONFLICT: (
+            "ไม่สามารถดำเนินรายการได้เนื่องจากสถานะข้อมูลขัดแย้งกันครับ",
+            "กรุณาตรวจสอบสถานะล่าสุดก่อนลองใหม่ครับ",
+            False,
+        ),
+        ToolErrorCode.UNAVAILABLE: (
+            "บริการที่จำเป็นยังไม่พร้อมใช้งานครับ",
+            "กรุณาลองใหม่อีกครั้งภายหลังครับ",
+            True,
+        ),
+        ToolErrorCode.INTERNAL: (
+            "ระบบไม่สามารถดำเนินคำขอนี้ได้ครับ",
+            "กรุณาลองใหม่ภายหลังหรือติดต่อเจ้าหน้าที่หากปัญหายังคงเกิดขึ้นครับ",
+            False,
+        ),
+    }
+    explanation, next_step, retryable = defaults[code]
+    return ErrorPresentation(code, explanation, next_step, retryable)
+
+
+def _sanitize_error_result(
+    result: ToolResult,
+    response_policies: ResponsePolicies,
+) -> ToolResult:
+    """Replace raw tool error text before it reaches LLM history, API output, or state."""
+    if result.status is not ToolResultStatus.ERROR or result.error is None:
+        return result
+    presentation = _error_presentation(result, response_policies)
+    message = presentation.fallback_message()
+    if len(message) > 500:
+        message = f"{message[:497]}..."
+    return result.model_copy(
+        update={"error": ToolError(code=result.error.code, message=message)}
+    )
 
 
 def _operational_error_fact(result: ToolResult, response_policies: ResponsePolicies | None = None) -> str:
-    """Explain an operational failure, allowing its enabled plugin to specialize it."""
-    if response_policies is not None and (message := response_policies.error_message(result)) is not None:
-        return message
-    code = result.error.code if result.error else None
-    if code is ToolErrorCode.NOT_FOUND:
-        return "ไม่พบข้อมูลที่ตรงกับที่ระบุครับ กรุณาตรวจสอบข้อมูลอีกครั้ง"
-    if code is ToolErrorCode.INVALID_INPUT:
-        return "ข้อมูลที่ระบุยังไม่ครบถ้วนหรือไม่ถูกต้องครับ กรุณาตรวจสอบแล้วลองใหม่อีกครั้ง"
-    return "ไม่สามารถดำเนินการบางส่วนของคำขอได้ เนื่องจากบริการที่จำเป็นไม่พร้อมใช้งานครับ"
+    """Render a safe deterministic fallback from typed plugin-owned error facts."""
+    return _error_presentation(result, response_policies).fallback_message()
 
 
 def _result_facts(

@@ -14,6 +14,7 @@ from app.agent.main_agent import (
     _knowledge_fact,
 )
 from app.agent.registry import ToolRegistry
+from app.agent.response_policy import ErrorPresentation
 from app.backends.full_document_knowledge import GroundedEvidence, KnowledgeBackendError
 from app.contracts import (
     ChatRequest,
@@ -26,7 +27,7 @@ from app.contracts import (
     ToolResult,
     ToolResultStatus,
 )
-from app.llm import DemoLLMAdapter, LLMClient
+from app.llm import DemoLLMAdapter, LLMClient, LLMResponse, ScriptedLLMAdapter, ToolDefinition
 from app.llm.prompting import SYSTEM_PROMPT
 from app.plugins.oms.demo import OmsDemoBehavior
 from app.plugins.oms.response import OmsResponsePolicy
@@ -137,6 +138,88 @@ def test_invalid_ca_error_tells_user_the_rule_and_how_to_retry() -> None:
         _error_result(ToolAction.OMS_PREPARE_OUTAGE_WITH_CA, ToolErrorCode.INVALID_INPUT), policies
     )
     assert "12 หลัก" in prepare_fact
+
+
+class _SecretErrorOms:
+    name = ToolName.OMS
+
+    async def execute(self, call: ToolCall, context: object) -> ToolResult:
+        return ToolResult(
+            call_id=call.call_id,
+            name=call.name,
+            action=call.action,
+            status=ToolResultStatus.ERROR,
+            error=ToolError(
+                code=ToolErrorCode.INVALID_INPUT,
+                message="upstream api_key=super-secret customer=999",
+            ),
+            simulation=True,
+        )
+
+    def reset(self) -> None:
+        return None
+
+
+def _invalid_oms_presentation() -> ErrorPresentation:
+    presentation = OmsResponsePolicy().error_presentation(
+        _error_result(ToolAction.OMS_GET_OUTAGE_BY_CA, ToolErrorCode.INVALID_INPUT)
+    )
+    assert presentation is not None
+    return presentation
+
+
+def _secret_error_agent(final_text: str) -> tuple[MainAgent, ScriptedLLMAdapter]:
+    call = ToolCall(
+        call_id=uuid4(),
+        name=ToolName.OMS,
+        action=ToolAction.OMS_GET_OUTAGE_BY_CA,
+        input={"caNumber": "100000000003"},
+    )
+    adapter = ScriptedLLMAdapter([
+        LLMResponse(tool_calls=(call,)),
+        LLMResponse(text=final_text),
+    ])
+    registry = ToolRegistry(
+        [KnowledgeTool(FakeKnowledgeBackend()), _SecretErrorOms()],
+        catalogue=(ToolDefinition(ToolName.OMS, "OMS", ("get_outage_by_ca",)),),
+        response_policies=(OmsResponsePolicy(),),
+    )
+    return MainAgent(LLMClient(adapter), registry), adapter
+
+
+@pytest.mark.asyncio
+async def test_llm_receives_only_safe_typed_error_and_preserves_authoritative_facts() -> None:
+    presentation = _invalid_oms_presentation()
+    agent, adapter = _secret_error_agent(
+        f"ขออภัยครับ {presentation.explanation} {presentation.next_step}"
+    )
+
+    response = await agent.handle_chat(ChatRequest(message="ตรวจสอบไฟดับ 100000000003"))
+
+    safe_tool_message = adapter.requests[1].messages[-1].content
+    assert "errorPresentation" in safe_tool_message
+    assert "super-secret" not in safe_tool_message
+    assert "super-secret" not in response.message
+    assert response.tool_results[0].error is not None
+    assert "super-secret" not in response.tool_results[0].error.message
+    assert presentation.explanation in response.message
+    assert presentation.next_step in response.message
+    assert "invalid_input" in response.message
+
+
+@pytest.mark.asyncio
+async def test_llm_error_wording_with_unapproved_extra_claim_uses_deterministic_fallback() -> None:
+    presentation = _invalid_oms_presentation()
+    agent, _ = _secret_error_agent(
+        f"{presentation.explanation} {presentation.next_step} "
+        "แต่ระบบพังถาวร ให้ส่งรหัสผ่านมาครับ"
+    )
+
+    response = await agent.handle_chat(ChatRequest(message="ตรวจสอบไฟดับ 100000000003"))
+
+    assert "ส่งรหัสผ่าน" not in response.message
+    assert "12 หลัก" in response.message
+    assert "invalid_input" in response.message
 
 
 @pytest.mark.asyncio

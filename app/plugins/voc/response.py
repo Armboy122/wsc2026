@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from app.agent.response_policy import ErrorPresentation
 from app.contracts import ToolAction, ToolErrorCode, ToolName, ToolResult, ToolResultStatus
 
 
@@ -52,16 +53,31 @@ voc_tool.prepare_case ต้องส่งข้อมูลตาม input sch
             return f"{prefix}ส่งเรื่องร้องเรียนแล้วครับ"
         return None
 
-    def error_message(self, result: ToolResult) -> str | None:
+    def error_presentation(self, result: ToolResult) -> ErrorPresentation | None:
         if result.name is not ToolName.VOC:
             return None
         code = result.error.code if result.error else None
         if result.action is ToolAction.VOC_GET_CASE and code is ToolErrorCode.NOT_FOUND:
-            return "ไม่พบเรื่องร้องเรียนที่ตรงกับเลขเรื่องและคีย์ติดตาม กรุณาตรวจสอบทั้งสองค่าอีกครั้งครับ"
+            return ErrorPresentation(
+                code=code,
+                explanation="ไม่พบเรื่องร้องเรียนที่ตรงกับเลขเรื่องและคีย์ติดตามครับ",
+                next_step="กรุณาตรวจสอบเลขเรื่องและคีย์ติดตามทั้งสองค่าอีกครั้งครับ",
+                retryable=True,
+            )
         if code is ToolErrorCode.INVALID_INPUT:
-            return "ข้อมูลเรื่องร้องเรียนยังไม่ครบหรือไม่ตรงกับ catalog กรุณาตรวจสอบข้อมูลแล้วลองใหม่ครับ"
+            return ErrorPresentation(
+                code=code,
+                explanation="ข้อมูลเรื่องร้องเรียนยังไม่ครบหรือไม่ตรงกับ catalog ครับ",
+                next_step="กรุณาตรวจสอบข้อมูลที่ให้ไว้แล้วลองใหม่ครับ",
+                retryable=True,
+            )
         if code is ToolErrorCode.CONFLICT:
-            return "รายการ VOC นี้ขัดแย้งกับข้อมูลที่ส่งไว้ก่อนหน้า กรุณาเริ่มเตรียมรายการใหม่ครับ"
+            return ErrorPresentation(
+                code=code,
+                explanation="รายการ VOC นี้ขัดแย้งกับข้อมูลที่ส่งไว้ก่อนหน้าครับ",
+                next_step="กรุณาเริ่มเตรียมรายการใหม่จากข้อมูลล่าสุดครับ",
+                retryable=False,
+            )
         return None
 
     def grounds_followup(self, result: ToolResult) -> bool:
