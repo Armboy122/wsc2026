@@ -73,7 +73,7 @@ Main Agent  <---->  LLMAdapter (judge-provided LLM implementation)
     |               |
     |               +--> oms_tool (plugin: app/plugins/oms) -> httpx → External OMS REST
     |               +--> voc_tool (plugin: app/plugins/voc) -> httpx → External VOC REST
-    +-----------> knowledge_tool -> Document Router -> Full selected DOCX text -> Gemini Long Context
+    +-----------> knowledge_tool -> Document Router -> Full selected Markdown text -> Gemini Long Context
 
 Plugin loader (startup เท่านั้น): app/plugins/*/plugin.yaml -> validate -> factory -> Tool + catalogue
 
@@ -190,7 +190,7 @@ Tool Registry ถูกกำหนดตายตัวเมื่อเริ
 
 - `FullDocumentKnowledgeBackend` ใช้ **Document Routing + Full-file Long Context** โดยไม่ใช้ Gemini File Search, vector search, embedding หรือ chunk retrieval
 - ขั้นเลือกเอกสารส่งเฉพาะคำถามและ catalog ระดับเอกสาร (รหัสไฟล์ ชื่อไฟล์ และหัวข้อ) ให้โมเดลเลือกไฟล์ที่เกี่ยวข้องไม่เกิน `maxResults` รายการ รหัสไฟล์ที่โมเดลส่งคืนต้องอยู่ใน allowlist ของ catalog เท่านั้น
-- หลังเลือกแล้ว backend ต้องอ่านและแปลง **ข้อความฉบับเต็มของทุกไฟล์ที่เลือก** จาก `knowledge/source/` และส่งข้อความทั้งหมดพร้อมคำถามให้ Gemini Long Context ห้ามตัดเฉพาะบาง chunk หรือเติมไฟล์ที่ไม่เกี่ยวข้อง
+- หลังเลือกแล้ว backend ต้องอ่าน **ข้อความฉบับเต็มของทุกไฟล์ Markdown ที่เลือก** จาก `knowledge/source/` และส่งข้อความทั้งหมดพร้อมคำถามให้ Gemini Long Context ห้ามตัดเฉพาะบาง chunk หรือเติมไฟล์ที่ไม่เกี่ยวข้อง
 - หากคำถามเกี่ยวข้องหลายหัวข้อให้เลือกหลายไฟล์ฉบับเต็ม หากกำกวมหรือไม่มีไฟล์ที่ตรงต้องคืน no-evidence เพื่อให้ Main Agent ถามกลับหรือแจ้งว่าไม่มีข้อมูล ห้ามเดาคำตอบ
 - คำตอบต้องอ้างอิงเฉพาะไฟล์ที่ถูกเลือก และ citation ต้องใช้รหัสไฟล์/ชื่อไฟล์จริงพร้อมข้อความหลักฐานที่ตรวจสอบได้ว่าอยู่ในไฟล์นั้น
 - backend อาจ cache ข้อความฉบับเต็มที่แปลงแล้วใน memory ได้ แต่ห้ามใช้ cache เป็นดัชนีค้น chunk หากไฟล์ที่เลือกทั้งหมดเกิน context budget ต้องลดชุดผ่านการถามให้ชัดเจนหรือ fail closed ห้ามตัดท้ายไฟล์โดยเงียบ
@@ -259,7 +259,7 @@ prepare_* -> pending_confirmation -> confirm endpoint -> submit_* -> submitted |
 
 ## ลำดับงาน 2 วัน
 
-**วันที่ 1:** ตรึง contract; สร้าง stub สำหรับการตรวจสอบ route และ model; พัฒนาระบบหลังบ้านจำลองที่กำหนดผลได้แน่นอน; พัฒนา Document Router และตัวแปลง DOCX แบบเต็มไฟล์; พัฒนาจุดเชื่อมต่อของ scripted/judge adapter; พิสูจน์ trace ของ prepare/confirm/reject
+**วันที่ 1:** ตรึง contract; สร้าง stub สำหรับการตรวจสอบ route และ model; พัฒนาระบบหลังบ้านจำลองที่กำหนดผลได้แน่นอน; พัฒนา Document Router และตัวอ่าน Markdown แบบเต็มไฟล์; พัฒนาจุดเชื่อมต่อของ scripted/judge adapter; พิสูจน์ trace ของ prepare/confirm/reject
 
 **วันที่ 2:** เชื่อมต่อ judge adapter; เตรียม catalog ของเอกสารที่อนุมัติ; เชื่อม Gemini Long Context ด้วยข้อความเต็มของไฟล์ที่เลือก; เพิ่ม fixture และเส้นทางความล้มเหลว; ซ้อมเส้นทางเดโมตามสคริปต์สี่เส้นทาง; รันรายการตรวจสอบการผสานระบบ
 

@@ -32,6 +32,11 @@ def _write_qa_docx(path: Path, question: str, answer: str) -> None:
         archive.writestr("word/document.xml", document)
 
 
+def _write_qa_markdown(path: Path, question: str, answer: str) -> None:
+    path.parent.mkdir(parents=True)
+    path.write_text(f"# {question}\n\n{answer}\n", encoding="utf-8")
+
+
 class _FakeGeminiClient:
     def __init__(self, responses: list[str]) -> None:
         self._responses = iter(responses)
@@ -97,3 +102,20 @@ async def test_chat_answers_from_an_approved_qa_document() -> None:
 
     assert response.message == answer
     assert response.citations[0].source_id == source_id
+
+
+def test_catalog_reads_markdown_and_excludes_policy_readmes(tmp_path: Path) -> None:
+    source_id = "qa/ผู้เช่าบ้านขอใช้ไฟฟ้าใหม่.md"
+    question = "ถาม: ผู้เช่าบ้านขอใช้ไฟฟ้าใหม่ได้หรือไม่"
+    answer = "ตอบ: ผู้เช่าบ้านยื่นคำขอได้เมื่อมีหลักฐานสิทธิครอบครองที่เกี่ยวข้อง"
+    _write_qa_markdown(tmp_path / source_id, question, answer)
+    (tmp_path / "README.md").write_text("# นโยบาย corpus\n", encoding="utf-8")
+    (tmp_path / "qa" / "README.md").write_text("# นโยบาย Q&A\n", encoding="utf-8")
+
+    backend = FullDocumentKnowledgeBackend(api_key="test-key", source_root=tmp_path)
+
+    catalog = backend._catalog()
+
+    assert list(catalog) == [source_id]
+    assert catalog[source_id].title == question
+    assert backend._full_text(catalog[source_id]) == f"# {question}\n\n{answer}\n"

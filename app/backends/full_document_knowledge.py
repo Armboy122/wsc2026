@@ -1,4 +1,4 @@
-"""Fail-closed provider-swappable long-context backend for approved DOCX files.
+"""Fail-closed provider-swappable long-context backend for approved documents.
 
 The first model call receives catalog metadata only and selects document identifiers.  A
 second call receives only the selected, complete documents; this module never uses File
@@ -38,6 +38,7 @@ MAX_ANSWER_CONTEXT_CHARS = 4000
 MAX_CONCISE_ANSWER_CHARS = 1000
 MAX_CONCISE_ANSWER_UNITS = 3
 MAX_SNIPPET_CHARS = 1000
+SUPPORTED_DOCUMENT_SUFFIXES = frozenset({".docx", ".md"})
 _ONLINE_ACTION_PREFIX = "ดำเนินการออนไลน์: "
 USER_SAFE_NOT_CONFIGURED = (
     "เซิร์ฟเวอร์นี้ยังไม่ได้ตั้งค่าบริการความรู้ "
@@ -129,7 +130,7 @@ class _OpenAICompatibleClient:
 
 
 class FullDocumentKnowledgeBackend:
-    """Route a query to allowlisted DOCX files, then ground it with the selected provider."""
+    """Route a query to allowlisted Markdown or DOCX files, then ground it with the provider."""
 
     def __init__(
         self,
@@ -194,7 +195,7 @@ class FullDocumentKnowledgeBackend:
 
     def _ready_sync(self) -> None:
         if not self._catalog():
-            raise ValueError("no approved DOCX documents")
+            raise ValueError("no approved knowledge documents")
         self._make_client()
 
     async def search(self, query: str, max_results: int) -> GroundedEvidence:
@@ -260,17 +261,21 @@ class FullDocumentKnowledgeBackend:
             return {}
         catalog: dict[str, _Document] = {}
         for candidate in root.rglob("*"):
-            if candidate.suffix.lower() != ".docx" or candidate.is_symlink() or not candidate.is_file():
+            if (
+                candidate.suffix.lower() not in SUPPORTED_DOCUMENT_SUFFIXES
+                or candidate.is_symlink()
+                or not candidate.is_file()
+            ):
                 continue
             resolved = candidate.resolve(strict=True)
             if not resolved.is_relative_to(root):
                 continue
             source_id = candidate.relative_to(root).as_posix()
-            if source_id.startswith(".") or source_id in catalog:
+            if source_id.startswith(".") or candidate.name.lower() == "readme.md" or source_id in catalog:
                 continue
             try:
-                title = _extract_docx_title(candidate)
-            except (OSError, ValueError, zipfile.BadZipFile, ElementTree.ParseError):
+                title = _extract_document_title(candidate)
+            except (OSError, UnicodeError, ValueError, zipfile.BadZipFile, ElementTree.ParseError):
                 continue
             catalog[source_id] = _Document(source_id, candidate, candidate.name, title)
         return catalog
@@ -307,7 +312,7 @@ class FullDocumentKnowledgeBackend:
         cache_key = (document.source_id, status.st_mtime_ns, status.st_size)
         if cache_key in self._text_cache:
             return self._text_cache[cache_key]
-        text = _extract_docx_text(document.path)
+        text = _extract_document_text(document.path)
         if not text.strip():
             raise ValueError("empty document")
         self._text_cache = {
@@ -491,6 +496,33 @@ def _is_supported_text_part(name: str) -> bool:
         or (name.startswith("word/header") and name.endswith(".xml"))
         or (name.startswith("word/footer") and name.endswith(".xml"))
     )
+
+
+def _extract_document_title(path: Path) -> str:
+    """Read a title from an approved Markdown or DOCX document."""
+    if path.suffix.lower() == ".md":
+        return _extract_markdown_title(path)
+    if path.suffix.lower() == ".docx":
+        return _extract_docx_title(path)
+    raise ValueError("unsupported document type")
+
+
+def _extract_document_text(path: Path) -> str:
+    """Read complete text from an approved Markdown or DOCX document."""
+    if path.suffix.lower() == ".md":
+        return path.read_text(encoding="utf-8")
+    if path.suffix.lower() == ".docx":
+        return _extract_docx_text(path)
+    raise ValueError("unsupported document type")
+
+
+def _extract_markdown_title(path: Path) -> str:
+    """Use the first non-empty Markdown line as the document title."""
+    for line in path.read_text(encoding="utf-8").splitlines():
+        title = line.strip()
+        if title:
+            return title.lstrip("#").strip()
+    raise ValueError("missing document title")
 
 
 def _extract_docx_title(path: Path) -> str:
