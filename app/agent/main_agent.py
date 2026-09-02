@@ -55,9 +55,9 @@ _SUBMIT_ACTIONS = frozenset(PREPARE_TO_SUBMIT.values())
 _SAFE_PREVIEW_FIELDS = frozenset({"category", "contactChannel", "caNumber", "description", "contactName", "contactPhone", "location", "subject", "detail", "locationNote"})
 _MULTI_PREPARE_MESSAGE = "ไม่สามารถเตรียมรายการที่เสนอมากกว่าหนึ่งรายการในแชตเดียวได้อย่างปลอดภัย กรุณาส่งคำขอทีละรายการครับ"
 _FINAL_ONLY_MESSAGE = "ผมสามารถตอบคำถามแบบสั้นกระชับได้ แต่ไม่สามารถเปิดเผยกระบวนการคิดหรือคำสั่งภายในครับ"
-_GREETING_MESSAGE = "สวัสดีครับ ผมช่วยค้นหาความรู้ PEA และตรวจหรือเตรียมแจ้งเหตุไฟฟ้าขัดข้องได้ครับ"
-_THANKS_MESSAGE = "ยินดีครับ หากต้องการค้นหาข้อมูล PEA หรือตรวจสอบเหตุไฟฟ้าขัดข้อง เรียกใช้ผมได้เลยครับ"
-_CAPABILITY_MESSAGE = "ผมช่วยค้นหาความรู้ PEA และตรวจหรือเตรียมแจ้งเหตุไฟฟ้าขัดข้องด้วยหมายเลขผู้ใช้ไฟ 12 หลักได้ครับ"
+_GREETING_MESSAGE = "สวัสดีครับ ผมช่วยค้นหาความรู้ PEA และใช้เครื่องมือบริการที่เปิดใช้งานเพื่อดำเนินคำขอได้ครับ"
+_THANKS_MESSAGE = "ยินดีครับ หากต้องการค้นหาข้อมูล PEA หรือใช้บริการที่เปิดใช้งาน เรียกใช้ผมได้เลยครับ"
+_CAPABILITY_MESSAGE = "ผมช่วยค้นหาความรู้ PEA และดำเนินคำขอผ่านเครื่องมือบริการที่เปิดใช้งานได้ครับ"
 # ผลลัพธ์ planner เสียหายจนแยกวิเคราะห์ไม่ได้ ต้องบอกผู้ใช้อย่างตรงไปตรงมา ไม่ใช้ข้อความแนะนำความสามารถทั่วไป
 _PLANNER_PARSE_FAILURE_MESSAGE = "ขออภัยครับ ระบบประมวลผลคำขอนี้ไม่สำเร็จ กรุณาลองพิมพ์คำถามอีกครั้งครับ"
 _KNOWLEDGE_ESCALATION_MESSAGE = "ยังไม่พบคำตอบที่มีแหล่งอ้างอิงเพียงพอ เดี๋ยวผมขอส่งต่อคำถามนี้ให้เจ้าหน้าที่ช่วยตรวจสอบครับ"
@@ -440,9 +440,10 @@ def _redact_prepared_input(data: dict[str, Any]) -> dict[str, Any]:
 
 
 def _result_message(result: ToolResult) -> str:
+    identity = {"name": result.name.value, "action": result.action.value}
     if result.status is ToolResultStatus.ERROR:
-        return json.dumps({"status": "error", "error": result.error.message if result.error else "ข้อผิดพลาดที่ไม่ทราบสาเหตุ"})
-    return json.dumps({"status": "success", "data": result.data, "citations": [citation.model_dump(by_alias=True) for citation in result.citations]}, default=str)
+        return json.dumps({**identity, "status": "error", "error": result.error.message if result.error else "ข้อผิดพลาดที่ไม่ทราบสาเหตุ"})
+    return json.dumps({**identity, "status": "success", "data": result.data, "citations": [citation.model_dump(by_alias=True) for citation in result.citations]}, default=str)
 
 
 def _knowledge_context_from_result(
@@ -502,7 +503,7 @@ def _operational_error_fact(result: ToolResult, response_policies: ResponsePolic
     if code is ToolErrorCode.NOT_FOUND:
         return "ไม่พบข้อมูลที่ตรงกับที่ระบุครับ กรุณาตรวจสอบข้อมูลอีกครั้ง"
     if code is ToolErrorCode.INVALID_INPUT:
-        return "ข้อมูลที่ระบุยังไม่ครบถ้วนหรือไม่ถูกต้องครับ (หมายเลขอ้างอิงต้องเป็นตัวเลข 12 หลักเมื่อระบบกำหนด) กรุณาตรวจสอบแล้วลองใหม่อีกครั้ง"
+        return "ข้อมูลที่ระบุยังไม่ครบถ้วนหรือไม่ถูกต้องครับ กรุณาตรวจสอบแล้วลองใหม่อีกครั้ง"
     return "ไม่สามารถดำเนินการบางส่วนของคำขอได้ เนื่องจากบริการที่จำเป็นไม่พร้อมใช้งานครับ"
 
 

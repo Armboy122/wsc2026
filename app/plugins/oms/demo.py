@@ -15,6 +15,8 @@ _CA_NUMBER_PATTERN = re.compile(r"(?<![A-Za-z0-9-])[0-9]{12}(?![A-Za-z0-9-])")
 
 
 class OmsDemoBehavior:
+    tool_name = ToolName.OMS
+
     def has_demo_intent(self, message: str) -> bool:
         text = message.casefold()
         return _recognised_ca_number(message) is not None or any(
@@ -61,7 +63,9 @@ class OmsDemoBehavior:
             (
                 result["data"]
                 for result in results
-                if result.get("status") == "success"
+                if result.get("name") == ToolName.OMS.value
+                and result.get("action") == ToolAction.OMS_GET_OUTAGE_BY_CA.value
+                and result.get("status") == "success"
                 and isinstance(result.get("data"), dict)
                 and "activeEvent" in result["data"]
             ),

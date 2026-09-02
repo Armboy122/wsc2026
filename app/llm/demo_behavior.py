@@ -28,6 +28,8 @@ class DemoPlan:
 class DemoBehavior(Protocol):
     """No-I/O plugin behavior used only by the offline demo adapter."""
 
+    tool_name: ToolName
+
     def plan_demo(self, message: str, correlation_id: UUID) -> DemoPlan | None: ...
 
     def after_tools_demo(

@@ -300,5 +300,6 @@ def _generic_grounded_message(results: tuple[dict[str, Any], ...]) -> str:
         if isinstance(data.get("summary"), str):
             messages.append(data["summary"])
         elif isinstance(data.get("answerContext"), str):
-            messages.append(data["answerContext"])
+            citation_count = len(result.get("citations", []))
+            messages.append(f"{data['answerContext']} (อ้างอิง {citation_count} แหล่ง)")
     return " ".join(messages)

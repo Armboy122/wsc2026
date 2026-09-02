@@ -19,7 +19,7 @@ from app.contracts import ToolName
 from app.llm.models import ToolDefinition
 from app.plugins.aliases import PluginAliasError, load_alias_guidance
 from app.plugins.manifest import PluginManifest
-from app.plugins.runtime import PluginRuntime
+from app.plugins.runtime import BoundDemoBehavior, PluginRuntime
 
 _MANIFEST_FILENAME = "plugin.yaml"
 _PLUGIN_ROOT = Path(__file__).resolve().parent
@@ -52,8 +52,15 @@ class LoadedPlugin:
         return self.runtime.response_policy
 
     @property
-    def demo_behavior(self) -> Any:
-        return self.runtime.demo_behavior
+    def demo_behavior(self) -> BoundDemoBehavior | None:
+        behavior = self.runtime.demo_behavior
+        if behavior is None:
+            return None
+        return BoundDemoBehavior(
+            behavior=behavior,
+            tool_name=self.manifest.metadata.id,
+            allowed_actions=frozenset(operation.action for operation in self.manifest.llm_actions),
+        )
 
     @property
     def tool_definition(self) -> ToolDefinition:
@@ -147,4 +154,24 @@ def _build_runtime(manifest: PluginManifest, settings: Any) -> PluginRuntime:
         raise PluginError(
             f"เครื่องมือที่ factory คืนมาไม่ตรงกับ metadata.id: {manifest.metadata.id.value}"
         )
+    if not all(callable(getattr(runtime.tool, method, None)) for method in ("execute", "reset")):
+        raise PluginError(f"tool ของ {manifest.metadata.id.value} ไม่เป็นไปตาม runtime protocol")
+    policy = runtime.response_policy
+    if policy is not None and (
+        not isinstance(getattr(policy, "planner_instructions", None), str)
+        or not all(
+            callable(getattr(policy, method, None))
+            for method in ("direct_message", "result_fact", "error_message", "grounds_followup")
+        )
+    ):
+        raise PluginError(f"response policy ของ {manifest.metadata.id.value} ไม่ถูกต้อง")
+    behavior = runtime.demo_behavior
+    if behavior is not None and (
+        getattr(behavior, "tool_name", None) is not manifest.metadata.id
+        or not all(
+            callable(getattr(behavior, method, None))
+            for method in ("plan_demo", "after_tools_demo", "has_demo_intent")
+        )
+    ):
+        raise PluginError(f"demo behavior ของ {manifest.metadata.id.value} ไม่ถูกต้อง")
     return runtime

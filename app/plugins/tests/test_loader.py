@@ -70,6 +70,22 @@ def test_llm_catalogue_hides_internal_submit_actions() -> None:
     }
 
 
+def test_cross_plugin_demo_behavior_fails_closed(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
+    from app.plugins.oms import factory as oms_factory
+    from app.plugins.runtime import PluginRuntime
+    from app.plugins.voc.demo import VocDemoBehavior
+    from app.tools.oms_tool import OmsTool
+
+    monkeypatch.setattr(
+        oms_factory,
+        "create_plugin",
+        lambda settings: PluginRuntime(tool=OmsTool(), demo_behavior=VocDemoBehavior()),
+    )
+
+    with pytest.raises(PluginError, match="demo behavior"):
+        load_plugins(load_settings(), plugin_root=_write(tmp_path, _manifest_dict()))
+
+
 def test_disabled_plugin_is_not_registered(tmp_path: Path) -> None:
     payload = _manifest_dict()
     payload["metadata"]["enabled"] = False

@@ -19,6 +19,7 @@ voc_tool.prepare_case ต้องส่งข้อมูลตาม input sch
         "voc_contact_phone": "กรุณาระบุเบอร์โทรที่สะดวกให้เจ้าหน้าที่ติดต่อกลับครับ",
         "voc_location": "กรุณาระบุสถานที่เกิดเหตุหรือพื้นที่ที่เกี่ยวข้องครับ",
         "voc_tracking_inputs": "กรุณาระบุเลขเรื่อง VOC และคีย์ติดตามที่ได้รับตอนส่งเรื่องให้ครบครับ",
+        "voc_demo_prepare_unavailable": "โหมดออฟไลน์รองรับการดูประเภทเรื่องและติดตามเคส VOC เท่านั้น การเปิดเคสใหม่ต้องใช้ตัวช่วยที่เชื่อม provider เพื่อรวบรวม taxonomy สถานที่ และ consent โดยไม่เดาข้อมูลครับ",
     }
 
     def direct_message(self, kind: str, followup_text: str, allow_grounded_followup: bool) -> str | None:
@@ -44,8 +45,11 @@ voc_tool.prepare_case ต้องส่งข้อมูลตาม input sch
         if isinstance(summary, str):
             return summary
         if result.action is ToolAction.VOC_SUBMIT_CASE:
-            voc_id = data.get("vocId")
-            return f"ส่งเรื่องร้องเรียนเรียบร้อยแล้ว เลขเรื่อง {voc_id} ครับ" if isinstance(voc_id, str) else "ส่งเรื่องร้องเรียนเรียบร้อยแล้วครับ"
+            voc_id, tracking_key = data.get("vocId"), data.get("trackingKey")
+            prefix = "ผลจำลอง: " if result.simulation else ""
+            if isinstance(voc_id, str) and isinstance(tracking_key, str):
+                return f"{prefix}ส่งเรื่องร้องเรียนแล้ว เลขเรื่อง {voc_id} และคีย์ติดตาม {tracking_key} ครับ"
+            return f"{prefix}ส่งเรื่องร้องเรียนแล้วครับ"
         return None
 
     def error_message(self, result: ToolResult) -> str | None:

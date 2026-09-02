@@ -17,6 +17,8 @@ _BARE_TRACKING_KEY_PATTERN = re.compile(r"[A-Za-z0-9_-]{6,64}")
 class VocDemoBehavior:
     """Support deterministic VOC reads without inventing intake or consent data."""
 
+    tool_name = ToolName.VOC
+
     def has_demo_intent(self, message: str) -> bool:
         text = message.casefold()
         return _wants_categories(text) or _tracking_requested(text) or _case_requested(text)
@@ -42,7 +44,7 @@ class VocDemoBehavior:
                 exclusive=True,
             )
         if _case_requested(text):
-            return DemoPlan(direct_response="voc_details", exclusive=True)
+            return DemoPlan(direct_response="voc_demo_prepare_unavailable", exclusive=True)
         return None
 
     def after_tools_demo(
@@ -71,9 +73,9 @@ def _tracking_requested(text: str) -> bool:
 
 def _case_requested(text: str) -> bool:
     return any(term in text for term in (
-        "complain", "complaint", "service report", "เรื่องร้องเรียน", "ต้องการร้องเรียน",
-        "อยากร้องเรียน", "ขอร้องเรียน", "ร้องเรียนการ", "ร้องเรียนเรื่อง",
-        "แจ้งปัญหาบริการ", "แจ้งปัญหาการบริการ",
+        "file a complaint", "submit a complaint", "service complaint", "service report",
+        "เรื่องร้องเรียน", "ต้องการร้องเรียน", "อยากร้องเรียน", "ขอร้องเรียน",
+        "ร้องเรียนการ", "ร้องเรียนเรื่อง", "แจ้งปัญหาบริการ", "แจ้งปัญหาการบริการ",
     ))
 
 

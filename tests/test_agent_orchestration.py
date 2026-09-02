@@ -791,3 +791,20 @@ async def test_valid_json_direct_response_without_tool_calls_is_unchanged() -> N
     # ข้อความอิสระจากโมเดลยังถูกบังคับเป็นแม่แบบปลอดภัยเหมือนเดิม ไม่ใช่ข้อความข้อจำกัดใหม่
     assert response.message == _CAPABILITY_MESSAGE
     assert response.tool_results == ()
+
+
+@pytest.mark.asyncio
+async def test_disabled_plugin_cannot_render_its_direct_response() -> None:
+    """A provider label cannot revive presentation from a plugin that was not enabled."""
+    from app.llm import LLMResponse, ScriptedLLMAdapter
+
+    registry = ToolRegistry([KnowledgeTool(FakeKnowledgeBackend())])
+    agent = MainAgent(
+        LLMClient(ScriptedLLMAdapter([LLMResponse(direct_response="oms_outage_start")])),
+        registry,
+    )
+
+    response = await agent.handle_chat(ChatRequest(message="แจ้งเหตุไฟดับ"))
+
+    assert "หมายเลขผู้ใช้ไฟ" not in response.message
+    assert "ความรู้ PEA" in response.message
