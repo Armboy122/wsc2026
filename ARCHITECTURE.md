@@ -16,10 +16,13 @@ Sabuy คงเฉพาะ implementation/contracts แบบ dormant และ
 ```text
 app/plugins/
   manifest.py            สัญญาของ manifest (ตรวจกับ Pydantic contracts จริง)
-  loader.py              scan → validate → import factory → สร้าง Tool → compile catalogue
-  oms/
+  runtime.py             bundle: Tool + response policy + deterministic demo behavior
+  loader.py              scan → validate → import factory → สร้าง runtime → compile catalogue
+  oms/ และ voc/
     plugin.yaml          metadata + operations + ชื่อ env var ของ configuration
-    factory.py           สร้าง OmsTool จาก settings ที่มีอยู่แล้ว
+    factory.py           ประกอบ runtime contributions จาก settings
+    demo.py              deterministic planning เฉพาะ plugin สำหรับ offline demo
+    response.py          planner instructions + result/error presentation เฉพาะ plugin
 ```
 
 การแบ่งความรับผิดชอบที่ต้องรักษาไว้:
@@ -27,8 +30,10 @@ app/plugins/
 | ส่วน | หน้าที่ | ไม่ใช่หน้าที่ |
 | --- | --- | --- |
 | `plugin.yaml` | discovery, metadata, description, ประกาศ operation, ชี้ชื่อ env var | ยิง HTTP, ถือ schema, เก็บ secret |
-| `factory.py` | ประกอบเครื่องมือหนึ่งตัวจาก settings | business logic |
-| Python tool (`app/tools/oms_tool.py`) | HTTP request, authentication, payload/error mapping, prepare-submit | — |
+| `factory.py` | ประกอบ `PluginRuntime` จาก settings | business logic |
+| `demo.py` | deterministic intent/tool planning สำหรับ provider `demo` | HTTP และ write policy กลาง |
+| `response.py` | planner instructions และแปลง typed result/error เป็นข้อความผู้ใช้ | ยิง HTTP |
+| Python tool (`app/tools/*_tool.py`) | HTTP request, authentication, payload/error mapping, prepare-submit | planning/presentation |
 | `app/contracts.py` (Pydantic) | **source of truth เดียว** ของ input/output schema | — |
 
 manifest อ้าง schema ด้วย **ชื่อคลาส** (เช่น `inputContract: OmsGetOutageByCaInput`) แล้ว `manifest.py`
@@ -189,7 +194,8 @@ Tool Registry ถูกกำหนดตายตัวเมื่อเริ
 ### อะแดปเตอร์ระบบหลังบ้าน
 
 - `FullDocumentKnowledgeBackend` ใช้ **Document Routing + Full-file Long Context** โดยไม่ใช้ Gemini File Search, vector search, embedding หรือ chunk retrieval
-- ขั้นเลือกเอกสารส่งเฉพาะคำถามและ catalog ระดับเอกสาร (รหัสไฟล์ ชื่อไฟล์ และหัวข้อ) ให้โมเดลเลือกไฟล์ที่เกี่ยวข้องไม่เกิน `maxResults` รายการ รหัสไฟล์ที่โมเดลส่งคืนต้องอยู่ใน allowlist ของ catalog เท่านั้น
+- ก่อนเรียก Document Router backend จะใช้ alias rule แบบ Markdown ที่ผู้ดูแลกำหนดใน `knowledge/aliases/`; เมื่อข้อความตรง alias แบบ explicit จะเลือกเฉพาะ `sourceIds` ที่ rule อ้างถึง และตรวจว่าอยู่ใน allowlist / ไม่เกิน `maxResults` เสมอ rule ไม่ใช่หลักฐานและไม่เข้า long context
+- หากไม่มี alias ที่ตรง ขั้นเลือกเอกสารส่งเฉพาะคำถามและ catalog ระดับเอกสาร (รหัสไฟล์ ชื่อไฟล์ และหัวข้อ) ให้โมเดลเลือกไฟล์ที่เกี่ยวข้องไม่เกิน `maxResults` รายการ รหัสไฟล์ที่โมเดลส่งคืนต้องอยู่ใน allowlist ของ catalog เท่านั้น
 - หลังเลือกแล้ว backend ต้องอ่าน **ข้อความฉบับเต็มของทุกไฟล์ Markdown ที่เลือก** จาก `knowledge/source/` และส่งข้อความทั้งหมดพร้อมคำถามให้ Gemini Long Context ห้ามตัดเฉพาะบาง chunk หรือเติมไฟล์ที่ไม่เกี่ยวข้อง
 - หากคำถามเกี่ยวข้องหลายหัวข้อให้เลือกหลายไฟล์ฉบับเต็ม หากกำกวมหรือไม่มีไฟล์ที่ตรงต้องคืน no-evidence เพื่อให้ Main Agent ถามกลับหรือแจ้งว่าไม่มีข้อมูล ห้ามเดาคำตอบ
 - คำตอบต้องอ้างอิงเฉพาะไฟล์ที่ถูกเลือก และ citation ต้องใช้รหัสไฟล์/ชื่อไฟล์จริงพร้อมข้อความหลักฐานที่ตรวจสอบได้ว่าอยู่ในไฟล์นั้น

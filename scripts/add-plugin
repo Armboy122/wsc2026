@@ -116,7 +116,7 @@ def _factory(module: str, tool_class: str, env_prefix: str) -> str:
     lower = env_prefix.lower()
     return f'''"""ประกอบ {tool_class} จาก settings ที่มีอยู่แล้ว
 
-factory รับผิดชอบเพียงการสร้างเครื่องมือหนึ่งตัว ส่วน HTTP, authentication,
+factory รับผิดชอบการประกอบ PluginRuntime ส่วน HTTP, authentication,
 payload/error mapping และ prepare-submit ยังเป็นความรับผิดชอบของตัวเครื่องมือเอง
 """
 
@@ -124,19 +124,21 @@ from __future__ import annotations
 
 from typing import Any
 
+from app.plugins.runtime import PluginRuntime
 from {module} import {tool_class}
 
 
-def create_plugin(settings: Any) -> {tool_class}:
-    """สร้างเครื่องมือหนึ่งตัวตาม configuration ที่ manifest อ้างถึง"""
+def create_plugin(settings: Any) -> PluginRuntime:
+    """ประกอบ runtime contributions ตาม configuration ที่ manifest อ้างถึง"""
     # TODO: ส่ง configuration ที่ปลั๊กอินนี้ต้องใช้จริง เช่น
-    #   return {tool_class}(
+    #   tool = {tool_class}(
     #       settings.{lower}_base_url,
     #       settings.{lower}_timeout_seconds,
     #       api_key=settings.{lower}_api_key,
     #   )
     # หากยังไม่มีค่าเหล่านี้ใน app/core/config.py ต้องเพิ่มก่อน
-    return {tool_class}()
+    tool = {tool_class}()
+    return PluginRuntime(tool=tool)
 '''
 
 

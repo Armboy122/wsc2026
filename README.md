@@ -248,9 +248,10 @@ loader จะสแกน `app/plugins/*/plugin.yaml` ตอนเปิดเ�
    แล้วรัน `./scripts/add-plugin <ชื่อ> --force` ซ้ำ
 2. เขียนคลาสเครื่องมือใน `app/tools/<id>_tool.py` — รับผิดชอบ HTTP, authentication, error mapping
 3. เติม `description` ทุกจุดที่เป็น `TODO` ใน `plugin.yaml` (ข้อความนี้คือสิ่งที่ LLM ใช้เลือกเครื่องมือ)
-4. แก้ `factory.py` ให้ส่ง configuration ที่ต้องใช้จริง (เพิ่มใน `app/core/config.py` ถ้ายังไม่มี)
-5. ตั้ง `enabled: true` แล้ว **restart เซิร์ฟเวอร์**
-6. `python3 -m pytest -q`
+4. เพิ่ม `demo.py`/`response.py` เมื่อ plugin ต้องมี deterministic demo planning หรือข้อความผลลัพธ์เฉพาะระบบ
+5. แก้ `factory.py` ให้คืน `PluginRuntime(tool=..., response_policy=..., demo_behavior=...)` และส่ง configuration ที่ต้องใช้จริง
+6. ตั้ง `enabled: true` แล้ว **restart เซิร์ฟเวอร์**
+7. `.venv/bin/python -m pytest -q`
 
 ### เปิด/ปิดปลั๊กอิน
 
@@ -271,8 +272,9 @@ metadata:
 | ส่วน | หน้าที่ | **ไม่ใช่** หน้าที่ |
 |---|---|---|
 | `plugin.yaml` | discovery, metadata, ประกาศ operation, ชี้ชื่อ env var | ยิง HTTP, ถือ schema, เก็บ secret |
-| `factory.py` | ประกอบเครื่องมือหนึ่งตัวจาก settings | business logic |
-| `app/tools/*.py` | HTTP, authentication, payload/error mapping | — |
+| `factory.py` | ประกอบ `PluginRuntime` จาก settings | business logic |
+| `demo.py` / `response.py` | deterministic demo planning และการแสดงผลเฉพาะ plugin | HTTP/write state machine |
+| `app/tools/*.py` | HTTP, authentication, payload/error mapping | planning/presentation |
 | `app/contracts.py` | **source of truth เดียว** ของ schema | — |
 
 YAML เก็บเพียง *ชื่อ* คลาส contract (เช่น `inputContract: OmsGetOutageByCaInput`) แล้ว loader

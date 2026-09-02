@@ -18,6 +18,7 @@ from pydantic import ValidationError
 from app.contracts import ToolName
 from app.llm.models import ToolDefinition
 from app.plugins.manifest import PluginManifest
+from app.plugins.runtime import PluginRuntime
 
 _MANIFEST_FILENAME = "plugin.yaml"
 _PLUGIN_ROOT = Path(__file__).resolve().parent
@@ -28,17 +29,29 @@ class PluginError(RuntimeError):
 
 
 class PluginFactory(Protocol):
-    """factory ที่ manifest ชี้ไป ต้องคืนเครื่องมือหนึ่งตัวจาก settings ที่มีอยู่"""
+    """factory ที่ manifest ชี้ไป ต้องคืน runtime bundle จาก settings"""
 
-    def __call__(self, settings: Any) -> Any: ...
+    def __call__(self, settings: Any) -> PluginRuntime: ...
 
 
 @dataclass(frozen=True, slots=True)
 class LoadedPlugin:
-    """ปลั๊กอินที่ผ่านการตรวจสอบและประกอบเป็นเครื่องมือแล้ว"""
+    """ปลั๊กอินที่ผ่านการตรวจสอบและประกอบ runtime contributions แล้ว"""
 
     manifest: PluginManifest
-    tool: Any
+    runtime: PluginRuntime
+
+    @property
+    def tool(self) -> Any:
+        return self.runtime.tool
+
+    @property
+    def response_policy(self) -> Any:
+        return self.runtime.response_policy
+
+    @property
+    def demo_behavior(self) -> Any:
+        return self.runtime.demo_behavior
 
     @property
     def tool_definition(self) -> ToolDefinition:
@@ -64,7 +77,7 @@ def load_plugins(settings: Any, *, plugin_root: Path | None = None) -> tuple[Loa
         if manifest.metadata.id in seen:
             raise PluginError(f"ปลั๊กอินซ้ำ: {manifest.metadata.id.value}")
         seen.add(manifest.metadata.id)
-        loaded.append(LoadedPlugin(manifest=manifest, tool=_build_tool(manifest, settings)))
+        loaded.append(LoadedPlugin(manifest=manifest, runtime=_build_runtime(manifest, settings)))
     return tuple(loaded)
 
 
@@ -94,8 +107,8 @@ def _validate_manifest(raw: dict[str, Any], path: Path) -> PluginManifest:
         raise PluginError(f"manifest ไม่ถูกต้อง ({path.parent.name}): {error}") from error
 
 
-def _build_tool(manifest: PluginManifest, settings: Any) -> Any:
-    """import factory จาก path ที่ manifest เชื่อถือได้ แล้วสร้างเครื่องมือหนึ่งตัว"""
+def _build_runtime(manifest: PluginManifest, settings: Any) -> PluginRuntime:
+    """Import one trusted factory and validate its explicit contribution bundle."""
     module_path, _, attribute = manifest.runtime.factory.partition(":")
     try:
         factory = getattr(import_module(module_path), attribute)
@@ -104,11 +117,13 @@ def _build_tool(manifest: PluginManifest, settings: Any) -> Any:
     if not callable(factory):
         raise PluginError(f"factory เรียกใช้ไม่ได้: {manifest.runtime.factory}")
     try:
-        tool = factory(settings)
+        runtime = factory(settings)
     except Exception as error:  # noqa: BLE001 - แปลงเป็น startup error ที่อ่านเข้าใจได้
-        raise PluginError(f"สร้างเครื่องมือของปลั๊กอิน {manifest.metadata.id.value} ไม่สำเร็จ") from error
-    if getattr(tool, "name", None) is not manifest.metadata.id:
+        raise PluginError(f"สร้าง runtime ของปลั๊กอิน {manifest.metadata.id.value} ไม่สำเร็จ") from error
+    if not isinstance(runtime, PluginRuntime):
+        raise PluginError(f"factory ของ {manifest.metadata.id.value} ต้องคืน PluginRuntime")
+    if getattr(runtime.tool, "name", None) is not manifest.metadata.id:
         raise PluginError(
             f"เครื่องมือที่ factory คืนมาไม่ตรงกับ metadata.id: {manifest.metadata.id.value}"
         )
-    return tool
+    return runtime

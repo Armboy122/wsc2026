@@ -28,6 +28,8 @@ from app.contracts import (
 )
 from app.llm import DemoLLMAdapter, LLMClient
 from app.llm.prompting import SYSTEM_PROMPT
+from app.plugins.oms.demo import OmsDemoBehavior
+from app.plugins.oms.response import OmsResponsePolicy
 from app.tools.knowledge_tool import KnowledgeTool
 from app.tools.oms_tool import OmsTool
 
@@ -62,12 +64,16 @@ def _registry(knowledge_backend: FakeKnowledgeBackend | None = None) -> ToolRegi
         [
             KnowledgeTool(knowledge_backend or FakeKnowledgeBackend()),
             OmsTool(base_url="http://oms.test/api/v1/oms", transport=httpx.MockTransport(oms_handler)),
-        ]
+        ],
+        response_policies=(OmsResponsePolicy(),),
     )
 
 
 def _agent(knowledge_backend: FakeKnowledgeBackend | None = None) -> MainAgent:
-    return MainAgent(LLMClient(DemoLLMAdapter()), _registry(knowledge_backend))
+    return MainAgent(
+        LLMClient(DemoLLMAdapter((OmsDemoBehavior(),))),
+        _registry(knowledge_backend),
+    )
 
 
 def test_system_prompt_is_generic_and_outage_policy_is_plugin_owned() -> None:

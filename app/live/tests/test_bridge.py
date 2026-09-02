@@ -508,6 +508,8 @@ def _real_agent() -> object:
     from app.agent.registry import ToolRegistry
     from app.backends.full_document_knowledge import FullDocumentKnowledgeBackend
     from app.llm import DemoLLMAdapter, LLMClient
+    from app.plugins.oms.demo import OmsDemoBehavior
+    from app.plugins.oms.response import OmsResponsePolicy
     from app.tools.knowledge_tool import KnowledgeTool
     from app.tools.oms_tool import OmsTool
 
@@ -523,9 +525,10 @@ def _real_agent() -> object:
         [
             KnowledgeTool(FullDocumentKnowledgeBackend()),
             OmsTool(base_url="http://oms.test/api/v1/oms", transport=httpx.MockTransport(oms_handler)),
-        ]
+        ],
+        response_policies=(OmsResponsePolicy(),),
     )
-    return MainAgent(LLMClient(DemoLLMAdapter()), registry)
+    return MainAgent(LLMClient(DemoLLMAdapter((OmsDemoBehavior(),))), registry)
 
 
 @pytest.mark.asyncio

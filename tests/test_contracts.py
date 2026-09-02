@@ -19,6 +19,8 @@ from app.contracts import (
     ToolName,
 )
 from app.llm import DemoLLMAdapter, LLMClient, LLMResponse, ScriptedLLMAdapter
+from app.plugins.oms.demo import OmsDemoBehavior
+from app.plugins.oms.response import OmsResponsePolicy
 from app.tools.knowledge_tool import KnowledgeTool
 from app.tools.oms_tool import OmsTool
 
@@ -85,7 +87,8 @@ def _isolated_registry(post_counter: list[int] | None = None) -> ToolRegistry:
         [
             KnowledgeTool(_KnowledgeBackend()),
             OmsTool(base_url="http://oms.test/api/v1/oms", transport=httpx.MockTransport(oms_handler)),
-        ]
+        ],
+        response_policies=(OmsResponsePolicy(),),
     )
 
 
@@ -95,7 +98,7 @@ def client() -> TestClient:
     from app.core.di import agent_service
     from app.main import app
 
-    agent_service.set_agent(MainAgent(LLMClient(DemoLLMAdapter()), _isolated_registry()))
+    agent_service.set_agent(MainAgent(LLMClient(DemoLLMAdapter((OmsDemoBehavior(),))), _isolated_registry()))
     with TestClient(app) as test_client:
         assert test_client.post("/api/v1/reset", json={}).status_code == 200
         yield test_client
@@ -302,7 +305,7 @@ async def test_concurrent_confirms_share_one_oms_submission(monkeypatch: pytest.
 
     post_counter = [0]
     agent = MainAgent(
-        LLMClient(DemoLLMAdapter()),
+        LLMClient(DemoLLMAdapter((OmsDemoBehavior(),))),
         _isolated_registry(post_counter),
     )
     chat_response = await agent.handle_chat(

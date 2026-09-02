@@ -8,7 +8,7 @@ from uuid import UUID
 
 from pydantic import ValidationError
 
-from app.agent.response_policy import ResponsePolicies
+from app.agent.response_policy import ResponsePolicies, ResponsePolicy
 from app.contracts import (
     TOOL_ACTIONS,
     ToolAction,
@@ -59,6 +59,7 @@ class ToolRegistry:
         tools: tuple[Tool, ...] | list[Tool],
         *,
         catalogue: tuple[ToolDefinition, ...] | None = None,
+        response_policies: tuple[ResponsePolicy, ...] = (),
     ) -> None:
         by_name: dict[ToolName, Tool] = {}
         for tool in tools:
@@ -71,13 +72,7 @@ class ToolRegistry:
             if name is not ToolName.KNOWLEDGE and not callable(getattr(tool, "reset", None)):
                 raise ValueError(f"เครื่องมือปฏิบัติการต้องรีเซ็ตได้: {name.value}")
         self._tools = by_name
-        self._response_policies = ResponsePolicies(
-            tuple(
-                policy
-                for tool in by_name.values()
-                if (policy := getattr(tool, "response_policy", None)) is not None
-            )
-        )
+        self._response_policies = ResponsePolicies(response_policies)
         self._catalogue = BUILT_IN_CATALOGUE + tuple(catalogue or ())
         declared = {definition.name for definition in self._catalogue}
         unknown = declared - frozenset(by_name)

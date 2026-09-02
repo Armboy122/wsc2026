@@ -42,8 +42,12 @@ def test_real_oms_manifest_loads_and_builds_the_existing_tool() -> None:
     assert len(plugins) == 2
     plugin = next(item for item in plugins if item.manifest.metadata.id is ToolName.OMS)
     assert isinstance(plugin.tool, OmsTool)
+    assert plugin.response_policy is not None
+    assert plugin.demo_behavior is not None
 
     voc_plugin = next(item for item in plugins if item.manifest.metadata.id is ToolName.VOC)
+    assert voc_plugin.response_policy is not None
+    assert voc_plugin.demo_behavior is not None
     assert voc_plugin.tool_definition.actions == (
         "list_categories",
         "prepare_case",

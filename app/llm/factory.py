@@ -6,6 +6,7 @@ from dataclasses import dataclass, field
 
 from app.llm.adapter import LLMAdapter
 from app.llm.demo import DemoLLMAdapter
+from app.llm.demo_behavior import DemoBehavior
 from app.llm.gemini import GeminiLLMAdapter
 from app.llm.maxplus import MaxPlusDeepSeekAdapter
 
@@ -23,11 +24,15 @@ class LLMProviderConfig:
     base_url: str | None = None
 
 
-def create_llm_adapter(config: LLMProviderConfig) -> LLMAdapter:
-    """Create one adapter without exposing provider construction to callers."""
+def create_llm_adapter(
+    config: LLMProviderConfig,
+    *,
+    demo_behaviors: tuple[DemoBehavior, ...] = (),
+) -> LLMAdapter:
+    """Create one adapter; only the offline demo consumes plugin behaviors."""
     provider = config.provider.strip().lower()
     if provider == "demo":
-        return DemoLLMAdapter()
+        return DemoLLMAdapter(demo_behaviors)
     if provider == "gemini":
         kwargs = {"base_url": config.base_url} if config.base_url else {}
         return GeminiLLMAdapter(

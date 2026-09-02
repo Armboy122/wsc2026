@@ -2,13 +2,11 @@
 
 from __future__ import annotations
 
-from typing import Any
-
 from app.contracts import ToolAction, ToolErrorCode, ToolName, ToolResult, ToolResultStatus
 
 
 class OmsResponsePolicy:
-    """Turn trusted OMS outcomes and OMS planner labels into user-facing text."""
+    """Turn trusted OMS outcomes and planner labels into user-facing text."""
 
     planner_instructions = """สำหรับ OMS ใช้ directResponse ได้เฉพาะ [oms_ca_number, oms_outage_start, oms_with_ca_inputs, oms_anonymous_inputs]
 การแจ้งเหตุ OMS ที่มี caNumber ต้องเรียก oms_tool.get_outage_by_ca ก่อนเสมอ ห้ามเรียก prepare_outage_with_ca ในรอบเดียวกัน หลังผลตรวจมี activeEvent ให้สรุปเหตุเดิม; เมื่อ activeEvent เป็น null และ recommendedAction เป็น CREATE_METER_EVENT จึงเรียก prepare_outage_with_ca และหากขาด description ให้ใช้ oms_with_ca_inputs
@@ -70,8 +68,3 @@ class OmsResponsePolicy:
             and result.action is ToolAction.OMS_GET_OUTAGE_BY_CA
             and result.status is ToolResultStatus.SUCCESS
         )
-
-
-def response_policy() -> OmsResponsePolicy:
-    """Expose the enabled plugin's presentation policy through its tool interface."""
-    return OmsResponsePolicy()

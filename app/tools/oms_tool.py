@@ -7,7 +7,6 @@ import httpx
 
 from app.backends import BackendError
 from app.contracts import ToolAction, ToolErrorCode, ToolName
-from app.plugins.oms.response import response_policy
 from app.tools._base import SimulatedTool
 
 
@@ -15,7 +14,6 @@ class OmsTool(SimulatedTool):
     """เรียกใช้สัญญา OMS คงที่ โดยรายการเตรียมจะไม่เรียก OMS"""
 
     name = ToolName.OMS
-    response_policy = response_policy()
 
     def __init__(
         self,

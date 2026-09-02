@@ -81,14 +81,22 @@ knowledge_backend = FullDocumentKnowledgeBackend(
     provider=settings.knowledge_llm.provider,
     base_url=settings.knowledge_llm.base_url,
 )
-llm_adapter = create_llm_adapter(_provider_config(settings.main_llm))
+# โหลด plugin contributions ก่อนประกอบ demo adapter; provider จริงรับเฉพาะข้อความคำสั่ง
+plugins = load_plugins(settings)
+llm_adapter = create_llm_adapter(
+    _provider_config(settings.main_llm),
+    demo_behaviors=tuple(
+        behavior for plugin in plugins if (behavior := plugin.demo_behavior) is not None
+    ),
+)
 judge_llm_adapter = create_llm_adapter(_provider_config(settings.judge_llm))
 judge_llm_client = JudgeLLMClient(judge_llm_adapter)
-# Knowledge เป็น built-in ส่วนเครื่องมือปฏิบัติการมาจาก manifest ของปลั๊กอินตอน startup
-plugins = load_plugins(settings)
 tool_registry = ToolRegistry(
     [KnowledgeTool(knowledge_backend), *(plugin.tool for plugin in plugins)],
     catalogue=tuple(plugin.tool_definition for plugin in plugins),
+    response_policies=tuple(
+        policy for plugin in plugins if (policy := plugin.response_policy) is not None
+    ),
 )
 main_agent = MainAgent(LLMClient(llm_adapter), tool_registry)
 
