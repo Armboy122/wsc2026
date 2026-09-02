@@ -13,6 +13,7 @@ from urllib.parse import unquote
 from app.backends.full_document_knowledge import (
     FullDocumentKnowledgeBackend,
     _OpenAICompatibleClient,
+    _extract_docx_text,
     _json_response,
 )
 
@@ -67,6 +68,20 @@ def backend(tmp_path: Path, responses: list[str], **kwargs):
         api_key="test-key", source_root=tmp_path, client_factory=lambda _: client, **kwargs
     )
     return instance, client
+
+
+def test_committed_tou_tariff_document_is_catalogued_with_verifiable_rates() -> None:
+    source_root = Path(__file__).resolve().parents[1] / "source"
+    backend = FullDocumentKnowledgeBackend(api_key="test-key", source_root=source_root)
+
+    catalog = backend._catalog()
+    document = catalog["PEA_อัตราค่าไฟฟ้า_TOU_2569.docx"]
+    text = _extract_docx_text(document.path)
+
+    assert document.title == "อัตราค่าไฟฟ้า TOU (Time of Use) ปี 2569"
+    assert "Peak 5.1135 บาท/หน่วย" in text
+    assert "Off-Peak 2.6037 บาท/หน่วย" in text
+    assert "https://www.pea.co.th/sites/default/files/documents/tariff/electricity_tariff.pdf" in text
 
 
 def test_gemini_json_response_requests_json_without_unsupported_thinking_override() -> None:
