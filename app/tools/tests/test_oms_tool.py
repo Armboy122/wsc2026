@@ -98,7 +98,7 @@ def test_anonymous_post_wire_and_submit_conflict() -> None:
     result = asyncio.run(tool.execute(_call(ToolAction.OMS_SUBMIT_ANONYMOUS_OUTAGE, {"pendingActionId": str(uuid4()), "idempotencyKey": "k"})))
     assert result.error.code is ToolErrorCode.CONFLICT
     assert requests[0].method == "POST" and requests[0].url.path == "/api/v1/outages/anonymous"
-    assert json.loads(requests[0].content) == {"description": "ไฟดับ", "location": "บ้าน", "contactPhone": "0812345678"}
+    assert json.loads(requests[0].content) == {"description": "ไฟดับ", "location": "บ้าน", "contactPhone": "0812345678", "lat": None, "lon": None}
     assert "idempotencyKey" not in requests[0].content.decode() and "idempotency" not in requests[0].headers
     tool.close()
 

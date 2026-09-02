@@ -52,6 +52,10 @@ class LoadedPlugin:
         return self.runtime.response_policy
 
     @property
+    def guided_flow(self) -> Any:
+        return self.runtime.guided_flow
+
+    @property
     def demo_behavior(self) -> BoundDemoBehavior | None:
         behavior = self.runtime.demo_behavior
         if behavior is None:

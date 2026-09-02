@@ -111,7 +111,7 @@ def test_chat_returns_frozen_envelope_and_uuid_ids(client: TestClient) -> None:
     body = response.json()
     UUID(body["conversationId"])
     UUID(body["traceId"])
-    assert {"conversationId", "traceId", "message", "citations", "pendingAction", "toolResults"} == set(body)
+    assert {"conversationId", "traceId", "message", "citations", "pendingAction", "toolResults", "choicePrompt"} == set(body)
 
 
 def test_knowledge_returns_only_backend_citation(client: TestClient) -> None:

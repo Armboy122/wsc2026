@@ -11,6 +11,7 @@ from uuid import UUID, uuid4
 
 from pydantic import ValidationError
 
+from app.agent.guided_flow import GuidedFlows, GuidedTurn
 from app.agent.registry import ToolContext, ToolRegistry, _error_result
 from app.agent.stores import ConversationStore, PendingActionStore, TraceStore
 from app.agent.response_policy import ErrorPresentation, ResponsePolicies
@@ -19,6 +20,7 @@ from app.contracts import (
     ActionDecisionResponse,
     ChatRequest,
     ChatResponse,
+    ChoicePrompt,
     PendingAction,
     PendingActionStatus,
     ResetResponse,
@@ -97,9 +99,12 @@ class MainAgent:
         conversations: ConversationStore | None = None,
         pending_actions: PendingActionStore | None = None,
         traces: TraceStore | None = None,
+        guided_flows: GuidedFlows | None = None,
     ) -> None:
         self._llm = llm_client
         self._tools = tool_registry
+        # flow แบบกำหนดผลได้ของปลั๊กอิน ใช้เมื่อ write ต้องใช้รหัสจาก catalog ที่โมเดลเดาไม่ได้
+        self._guided_flows = guided_flows or GuidedFlows()
         # แค็ตตาล็อกมาจาก registry เสมอ เพิ่มปลั๊กอินใหม่จึงไม่ต้องแก้ Main Agent
         self._tool_catalogue = tool_registry.llm_catalogue
         self._response_policies = tool_registry.response_policies
@@ -116,7 +121,18 @@ class MainAgent:
         conversation_id = request.conversation_id or uuid4()
         trace_id = uuid4()
         self._traces.append(trace_id, TraceEventKind.CHAT_RECEIVED, {"message": "[redacted]", "requestId": str(request.request_id) if request.request_id else None})
-        history = self._conversations.messages_for(conversation_id) + (LLMMessage("user", request.message),)
+        previous_messages = self._conversations.messages_for(conversation_id)
+        # ข้อความ tool มีอายุแค่ในเทิร์นเดียว planner จึงมองไม่เห็นว่าเคยอ่าน catalog ไปแล้ว
+        # และมักสั่งอ่านซ้ำ เก็บคำตอบก่อนหน้าไว้เพื่อรู้ว่าผลรอบนี้ผู้ใช้เห็นไปแล้วหรือยัง
+        delivered_assistant_messages = tuple(
+            message.content for message in previous_messages if message.role == "assistant"
+        )
+        # flow ที่ปลั๊กอินขับเองต้องมาก่อนโมเดล เพราะรหัส taxonomy ต้องมาจาก catalog ไม่ใช่การเดา
+        guided = await self._handle_guided_turn(request, conversation_id, trace_id)
+        if guided is not None:
+            return guided
+
+        history = previous_messages + (LLMMessage("user", request.message),)
         all_results: list[ToolResult] = []
         final_text = ""
         direct_completion_text: str | None = None
@@ -204,7 +220,16 @@ class MainAgent:
 
         pending = self._create_pending_from_results(conversation_id, trace_id, all_results)
         citations = tuple(citation for result in all_results if result.status is ToolResultStatus.SUCCESS for citation in result.citations)
-        if not all_results and direct_completion_text is not None:
+        # planner ที่สั่งอ่านซ้ำโดยไม่จำเป็นต้องไม่กลบคำถามขอข้อมูลของรอบนี้
+        # อนุญาตให้ directResponse ชนะได้เฉพาะเมื่อผลรอบนี้ผู้ใช้เห็นครบแล้ว จึงไม่มีข้อเท็จจริงใหม่ถูกซ่อน
+        repeats_delivered_facts = direct_response_kind is not None and _repeats_delivered_facts(
+            all_results,
+            pending,
+            delivered_assistant_messages,
+            user_message=request.message,
+            response_policies=self._response_policies,
+        )
+        if direct_completion_text is not None and (not all_results or repeats_delivered_facts):
             final_text = _safe_direct_message(
                 request.message,
                 direct_completion_text,
@@ -214,13 +239,21 @@ class MainAgent:
             )
             if final_text == _FINAL_ONLY_MESSAGE:
                 self._traces.append(trace_id, TraceEventKind.ERROR, {"stage": "output_policy", "policy": "final_only"})
-        message = _authoritative_message(
-            final_text,
-            all_results,
-            pending,
-            user_message=request.message,
-            response_policies=self._response_policies,
-        )
+        if repeats_delivered_facts:
+            self._traces.append(
+                trace_id,
+                TraceEventKind.ERROR,
+                {"stage": "repeated_read_result", "directResponse": direct_response_kind},
+            )
+            message = final_text
+        else:
+            message = _authoritative_message(
+                final_text,
+                all_results,
+                pending,
+                user_message=request.message,
+                response_policies=self._response_policies,
+            )
         self._conversations.append(conversation_id, LLMMessage("user", request.message))
         knowledge_context = next(
             (
@@ -314,7 +347,73 @@ class MainAgent:
         self._call_inputs.clear()
         self._knowledge_contexts.clear()
         self._grounded_conversations.clear()
+        self._guided_flows.reset()
         return ResetResponse()
+
+    async def _handle_guided_turn(
+        self,
+        request: ChatRequest,
+        conversation_id: UUID,
+        trace_id: UUID,
+    ) -> ChatResponse | None:
+        """เดิน flow ของปลั๊กอินโดยไม่เรียกโมเดล และคืน None เมื่อไม่มี flow ที่รับเทิร์นนี้"""
+        if not self._guided_flows:
+            return None
+        active = self._guided_flows.active_flow(conversation_id)
+        if active is not None:
+            turn = active.advance(
+                conversation_id,
+                request.message,
+                request.selected_prompt_id,
+                request.selected_value,
+            )
+        else:
+            # การกดปุ่มที่ไม่มี flow ค้างอยู่ถือว่าหมดอายุ ให้เดินเส้นทางปกติแทน
+            turn = self._guided_flows.start(conversation_id, request.message)
+        if turn is None:
+            return None
+
+        self._traces.append(
+            trace_id,
+            TraceEventKind.LLM_RESPONDED,
+            {"guided": True, "promptId": turn.prompt.prompt_id if turn.prompt else None},
+        )
+        results: list[ToolResult] = []
+        pending: PendingAction | None = None
+        if turn.has_tool_call:
+            call = ToolCall(
+                call_id=uuid4(),
+                name=turn.tool_name,
+                action=turn.tool_action,
+                input=turn.tool_input or {},
+            )
+            result = await self._execute_chat_call(call, conversation_id, trace_id)
+            results.append(result)
+            pending = self._create_pending_from_results(conversation_id, trace_id, results)
+
+        message = turn.message
+        if results and pending is None:
+            # เตรียมรายการไม่สำเร็จ ต้องบอกด้วยข้อเท็จจริงของ error ไม่ใช่ข้อความชวนยืนยัน
+            message = "\n\n".join(
+                _result_facts(
+                    results,
+                    user_message=request.message,
+                    response_policies=self._response_policies,
+                )
+            ) or message
+        elif pending is not None:
+            message = f"{message}\n\nกรุณายืนยันรายการที่เสนอนี้อย่างชัดเจนเพื่อส่งรายการครับ"
+
+        self._conversations.append(conversation_id, LLMMessage("user", request.message))
+        self._conversations.append(conversation_id, LLMMessage("assistant", message))
+        return ChatResponse(
+            conversation_id=conversation_id,
+            trace_id=trace_id,
+            message=message,
+            pending_action=pending,
+            tool_results=tuple(results),
+            choice_prompt=turn.prompt,
+        )
 
     async def _execute_chat_call(self, call: ToolCall, conversation_id: UUID, trace_id: UUID) -> ToolResult:
         if call.action in _SUBMIT_ACTIONS:
@@ -420,6 +519,41 @@ def _calls_from_response(
         return calls, payload["message"], direct_response, False
     except (json.JSONDecodeError, KeyError, TypeError, ValueError, ValidationError):
         return (), response.text, None, _looks_like_planner_json(response.text)
+
+
+def _repeats_delivered_facts(
+    results: list[ToolResult],
+    pending: PendingAction | None,
+    delivered_assistant_messages: tuple[str, ...],
+    *,
+    user_message: str,
+    response_policies: ResponsePolicies,
+) -> bool:
+    """ตรวจว่ารอบนี้อ่านข้อมูลเดิมซ้ำ โดยไม่มีข้อเท็จจริงใหม่ที่ผู้ใช้ยังไม่เคยเห็น
+
+    ใช้เพื่อไม่ให้ผลอ่านซ้ำกลบคำถามขอข้อมูลของ planner เงื่อนไขถูกจำกัดให้แคบที่สุด
+    คือต้องไม่มีรายการรอยืนยัน ต้องเป็นการอ่านที่สำเร็จทั้งหมด
+    และทุกข้อเท็จจริงต้องเคยถูกส่งให้ผู้ใช้ไปแล้วจริง
+    """
+    if pending is not None or not results or not delivered_assistant_messages:
+        return False
+    if any(
+        result.status is not ToolResultStatus.SUCCESS
+        # Knowledge มีคำตอบและ citation ที่ต้องคงไว้เสมอ จึงไม่เข้าเงื่อนไขนี้
+        or result.name is ToolName.KNOWLEDGE
+        # การเตรียมหรือส่งรายการเปลี่ยนสถานะจริง ห้ามถูกมองว่าเป็นการอ่านซ้ำ
+        or result.action in PREPARE_TO_SUBMIT
+        or result.action in _SUBMIT_ACTIONS
+        for result in results
+    ):
+        return False
+    facts = _result_facts(results, user_message=user_message, response_policies=response_policies)
+    if not facts:
+        return False
+    return all(
+        any(fact in delivered for delivered in delivered_assistant_messages)
+        for fact in facts
+    )
 
 
 def _looks_like_planner_json(text: str) -> bool:

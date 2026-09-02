@@ -70,6 +70,8 @@ class Settings:
     voc_base_url: str = "http://127.0.0.1:8080/api/v1/voc"
     voc_timeout_seconds: float = 5.0
     voc_api_key: str | None = field(default=None, repr=False)
+    # รุ่นของประกาศ PDPA ที่ผู้ใช้กดยอมรับ ต้องมาจากการตั้งค่า ไม่ใช่ให้โมเดลเดา
+    voc_consent_notice_version: str = "VOC-PDPA-DEMO-1.0"
     line_channel_secret: str | None = field(default=None, repr=False)
     line_channel_access_token: str | None = field(default=None, repr=False)
 
@@ -96,6 +98,7 @@ class Settings:
         oms_api_key = _get("OMS_API_KEY")
         voc_base_url = (_get("VOC_BASE_URL") or "http://127.0.0.1:8080/api/v1/voc").rstrip("/")
         voc_api_key = _get("VOC_API_KEY")
+        voc_consent_notice_version = _get("VOC_CONSENT_NOTICE_VERSION") or "VOC-PDPA-DEMO-1.0"
         try:
             voc_timeout_seconds = float(env.get("VOC_TIMEOUT_SECONDS", "5"))
             if voc_timeout_seconds <= 0:
@@ -191,6 +194,7 @@ class Settings:
             voc_base_url=voc_base_url,
             voc_timeout_seconds=voc_timeout_seconds,
             voc_api_key=voc_api_key,
+            voc_consent_notice_version=voc_consent_notice_version,
             line_channel_secret=line_channel_secret,
             line_channel_access_token=line_channel_access_token,
         )

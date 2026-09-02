@@ -598,14 +598,58 @@ import { linkifySafeHtml } from './linkify.js';
         if (heading) heading.focus({ preventScroll: true });
       }
     }
+    if (resp.choicePrompt && Array.isArray(resp.choicePrompt.options) && resp.choicePrompt.options.length) {
+      stack.appendChild(renderChoiceCard(resp.choicePrompt));
+    }
 
     els.thread.appendChild(el);
     scrollThread();
   }
 
+  /* ---------- การ์ดตัวเลือกของโฟลว์ที่ระบบขับเอง ---------- */
+
+  function renderChoiceCard(prompt) {
+    const card = document.createElement('div');
+    card.className = 'choice-card';
+    card.setAttribute('role', 'group');
+    card.setAttribute('aria-label', prompt.question || 'ตัวเลือก');
+
+    prompt.options.forEach((option) => {
+      const btn = document.createElement('button');
+      btn.type = 'button';
+      btn.className = 'choice-btn';
+      btn.innerHTML = option.description
+        ? `<span class="choice-label">${escapeHtml(option.label)}</span>` +
+          `<span class="choice-desc">${escapeHtml(option.description)}</span>`
+        : `<span class="choice-label">${escapeHtml(option.label)}</span>`;
+      btn.addEventListener('click', () => {
+        // ปิดทั้งกลุ่มทันที กันกดซ้ำและกันตอบคำถามเก่าหลังโฟลว์เดินหน้าไปแล้ว
+        disableChoiceCard(card);
+        btn.classList.add('choice-selected');
+        sendMessage(option.label, {
+          selectedPromptId: prompt.promptId,
+          selectedValue: option.value,
+        });
+      });
+      card.appendChild(btn);
+    });
+    return card;
+  }
+
+  function disableChoiceCard(card) {
+    card.querySelectorAll('.choice-btn').forEach((btn) => {
+      btn.disabled = true;
+      btn.classList.add('choice-dimmed');
+    });
+  }
+
+  function disableStaleChoiceCards() {
+    els.thread.querySelectorAll('.choice-card').forEach(disableChoiceCard);
+  }
+
   /* ---------- การส่งแชต ---------- */
 
-  async function sendMessage(text) {
+  async function sendMessage(text, selection = null) {
     const message = (text || '').trim();
     if (!message || state.busy) return;
 
@@ -613,6 +657,9 @@ import { linkifySafeHtml } from './linkify.js';
       els.welcome.remove();
       els.welcome = null;
     }
+
+    // พิมพ์ตอบเองระหว่างมีการ์ดค้างอยู่ ให้ปิดการ์ดเก่าเพื่อไม่ให้ตอบคำถามที่ผ่านไปแล้ว
+    if (!selection) disableStaleChoiceCards();
 
     addUserMessage(message);
     setBusy(true);
@@ -628,6 +675,10 @@ import { linkifySafeHtml } from './linkify.js';
     };
     if (state.conversationId) body.conversationId = state.conversationId;
     if (state.clientLocation) body.clientLocation = state.clientLocation;
+    if (selection && selection.selectedPromptId && selection.selectedValue) {
+      body.selectedPromptId = selection.selectedPromptId;
+      body.selectedValue = selection.selectedValue;
+    }
 
     try {
       const resp = await api(API.chat, { method: 'POST', body });

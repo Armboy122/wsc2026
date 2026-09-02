@@ -13,6 +13,7 @@ from fastapi import Request
 from fastapi.responses import JSONResponse
 from fastapi.staticfiles import StaticFiles
 
+from app.agent.guided_flow import GuidedFlows
 from app.agent.main_agent import InvalidActionStateError, MainAgent, NotFoundError
 from app.agent.registry import ToolRegistry
 from app.api.live import router as live_router
@@ -98,7 +99,13 @@ tool_registry = ToolRegistry(
         policy for plugin in plugins if (policy := plugin.response_policy) is not None
     ),
 )
-main_agent = MainAgent(LLMClient(llm_adapter), tool_registry)
+main_agent = MainAgent(
+    LLMClient(llm_adapter),
+    tool_registry,
+    guided_flows=GuidedFlows(
+        tuple(flow for plugin in plugins if (flow := plugin.guided_flow) is not None)
+    ),
+)
 
 agent_service.set_agent(main_agent)
 adapter_service.set_llm(llm_adapter)
