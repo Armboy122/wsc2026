@@ -448,3 +448,70 @@ def test_answer_url_from_unselected_document_fails_closed(tmp_path: Path) -> Non
     assert evidence.result_count == 0
     assert evidence.answer_context == ""
     assert evidence.citations == ()
+
+
+def test_alias_rule_routes_meter_request_without_a_router_call(tmp_path: Path) -> None:
+    source_root = tmp_path / "source"
+    source_root.mkdir()
+    write_docx(
+        source_root / "new-service.docx",
+        "บริการขอใช้ไฟฟ้าใหม่รองรับการติดตั้งมิเตอร์",
+        title="ขอใช้ไฟฟ้าใหม่",
+    )
+    alias_root = tmp_path / "aliases"
+    alias_root.mkdir()
+    (alias_root / "new-electricity-connection.md").write_text(
+        "---\n"
+        "id: new-electricity-connection\n"
+        "aliases:\n"
+        "  - ขอมิเตอร์ใหม่\n"
+        "sourceIds:\n"
+        "  - new-service.docx\n"
+        "---\n\n"
+        "# ขอใช้ไฟฟ้าใหม่\n",
+        encoding="utf-8",
+    )
+    service, client = backend(
+        source_root,
+        [
+            '{"answer":"ยื่นขอใช้ไฟฟ้าใหม่ได้","citations":['
+            '{"sourceId":"new-service.docx",'
+            '"snippet":"บริการขอใช้ไฟฟ้าใหม่รองรับการติดตั้งมิเตอร์"}]}'
+        ],
+        alias_root=alias_root,
+    )
+
+    evidence = asyncio.run(service.search("ขอมิเตอร์ใหม่ต้องทำอย่างไร", 1))
+
+    assert evidence.result_count == 1
+    assert evidence.citations[0].source_id == "new-service.docx"
+    assert len(client.calls) == 1
+    assert "ขอมิเตอร์ใหม่ต้องทำอย่างไร" in client.calls[0]["contents"]
+    assert "บริการขอใช้ไฟฟ้าใหม่รองรับการติดตั้งมิเตอร์" in client.calls[0]["contents"]
+
+
+def test_alias_rule_with_unknown_source_fails_at_configuration_time(tmp_path: Path) -> None:
+    source_root = tmp_path / "source"
+    source_root.mkdir()
+    write_docx(source_root / "approved.docx", "หลักฐาน", title="เอกสารที่อนุมัติ")
+    alias_root = tmp_path / "aliases"
+    alias_root.mkdir()
+    (alias_root / "broken.md").write_text(
+        "---\n"
+        "id: broken-rule\n"
+        "aliases:\n"
+        "  - คำทดสอบ\n"
+        "sourceIds:\n"
+        "  - missing.docx\n"
+        "---\n",
+        encoding="utf-8",
+    )
+
+    try:
+        FullDocumentKnowledgeBackend(
+            api_key="test-key", source_root=source_root, alias_root=alias_root
+        )
+    except ValueError as exc:
+        assert "unknown source IDs" in str(exc)
+    else:
+        raise AssertionError("invalid alias rule must fail closed")

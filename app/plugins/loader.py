@@ -17,6 +17,7 @@ from pydantic import ValidationError
 
 from app.contracts import ToolName
 from app.llm.models import ToolDefinition
+from app.plugins.aliases import PluginAliasError, load_alias_guidance
 from app.plugins.manifest import PluginManifest
 from app.plugins.runtime import PluginRuntime
 
@@ -40,6 +41,7 @@ class LoadedPlugin:
 
     manifest: PluginManifest
     runtime: PluginRuntime
+    alias_guidance: str = ""
 
     @property
     def tool(self) -> Any:
@@ -58,7 +60,11 @@ class LoadedPlugin:
         """แค็ตตาล็อกที่ LLM เห็น โดยตัด operation ที่เป็น internal ออก"""
         return ToolDefinition(
             name=self.manifest.metadata.id,
-            description=" ".join(self.manifest.metadata.description.split()),
+            description=" ".join(
+                part
+                for part in (self.manifest.metadata.description, self.alias_guidance)
+                if part
+            ),
             actions=tuple(operation.action.value for operation in self.manifest.llm_actions),
         )
 
@@ -77,7 +83,22 @@ def load_plugins(settings: Any, *, plugin_root: Path | None = None) -> tuple[Loa
         if manifest.metadata.id in seen:
             raise PluginError(f"ปลั๊กอินซ้ำ: {manifest.metadata.id.value}")
         seen.add(manifest.metadata.id)
-        loaded.append(LoadedPlugin(manifest=manifest, runtime=_build_runtime(manifest, settings)))
+        try:
+            alias_guidance = load_alias_guidance(
+                manifest_path.parent,
+                {operation.action.value for operation in manifest.llm_actions},
+            )
+        except PluginAliasError as error:
+            raise PluginError(
+                f"plugin alias ไม่ถูกต้อง ({manifest_path.parent.name}): {error}"
+            ) from error
+        loaded.append(
+            LoadedPlugin(
+                manifest=manifest,
+                runtime=_build_runtime(manifest, settings),
+                alias_guidance=alias_guidance,
+            )
+        )
     return tuple(loaded)
 
 

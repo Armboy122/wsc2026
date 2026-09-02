@@ -166,3 +166,30 @@ def test_duplicate_plugin_id_fails_closed(tmp_path: Path) -> None:
 
     with pytest.raises(PluginError, match="ปลั๊กอินซ้ำ"):
         load_plugins(load_settings(), plugin_root=tmp_path)
+
+
+def test_plugin_aliases_are_compiled_into_llm_catalogue_guidance() -> None:
+    plugins = load_plugins(load_settings())
+    oms = next(plugin for plugin in plugins if plugin.manifest.metadata.id.value == "oms_tool")
+    voc = next(plugin for plugin in plugins if plugin.manifest.metadata.id.value == "voc_tool")
+
+    assert "เช็คไฟดับ" in oms.tool_definition.description
+    assert "prepare_anonymous_outage" in oms.tool_definition.description
+    assert "ดูประเภทเรื่องร้องเรียน" in voc.tool_definition.description
+    assert "list_categories" in voc.tool_definition.description
+
+
+def test_alias_file_cannot_advertise_an_unavailable_action(tmp_path: Path) -> None:
+    root = _write(tmp_path, _manifest_dict())
+    (root / "oms" / "aliases.md").write_text(
+        "---\n"
+        "rules:\n"
+        "  - action: submit_outage_with_ca\n"
+        "    phrases:\n"
+        "      - ส่งเลย\n"
+        "---\n",
+        encoding="utf-8",
+    )
+
+    with pytest.raises(PluginError, match="plugin alias ไม่ถูกต้อง"):
+        load_plugins(load_settings(), plugin_root=root)

@@ -20,6 +20,7 @@ from urllib.parse import quote
 from urllib.request import Request, urlopen
 from xml.etree import ElementTree
 
+from app.backends.knowledge_aliases import KnowledgeAliasRule, load_alias_rules, matching_rule
 from app.contracts import Citation, ToolErrorCode
 
 ENV_API_KEY = "GEMINI_API_KEY"
@@ -137,6 +138,7 @@ class FullDocumentKnowledgeBackend:
         *,
         api_key: str | None = None,
         source_root: Path | str = DEFAULT_SOURCE_ROOT,
+        alias_root: Path | str | None = None,
         model: str | None = None,
         provider: str = DEFAULT_PROVIDER,
         base_url: str | None = None,
@@ -155,6 +157,13 @@ class FullDocumentKnowledgeBackend:
                 ENV_FALLBACK_API_KEY
             )
         self._source_root = Path(source_root)
+        self._alias_root = (
+            Path(alias_root) if alias_root is not None else self._source_root.parent / "aliases"
+        )
+        known_source_ids = set(self._catalog()) if self._source_root.is_dir() else set()
+        self._alias_rules: tuple[KnowledgeAliasRule, ...] = load_alias_rules(
+            self._alias_root, known_source_ids
+        )
         self._model = model or (
             DEFAULT_MAXPLUS_MODEL if self._provider == "maxplus_openai" else DEFAULT_MODEL
         )
@@ -210,12 +219,20 @@ class FullDocumentKnowledgeBackend:
             if not catalog:
                 return GroundedEvidence("", 0, ())
             client = self._make_client()
-            selected_ids = await asyncio.wait_for(
-                asyncio.to_thread(self._route, client, query, catalog, max_results),
-                self._timeout_seconds,
-            )
-            if not selected_ids:
-                return GroundedEvidence("", 0, ())
+            alias_rule = matching_rule(query, self._alias_rules)
+            if alias_rule is not None:
+                selected_ids = list(alias_rule.source_ids)
+                if len(selected_ids) > max_results or any(
+                    source_id not in catalog for source_id in selected_ids
+                ):
+                    return GroundedEvidence("", 0, ())
+            else:
+                selected_ids = await asyncio.wait_for(
+                    asyncio.to_thread(self._route, client, query, catalog, max_results),
+                    self._timeout_seconds,
+                )
+                if not selected_ids:
+                    return GroundedEvidence("", 0, ())
 
             selected = [catalog[source_id] for source_id in selected_ids]
             texts: dict[str, str] = {}
