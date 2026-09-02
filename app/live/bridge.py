@@ -86,8 +86,11 @@ class VoiceBridge:
     ``MainAgent`` จริงมีคุณสมบัติครบ (ไม่ต้องมี wrapper เพิ่มเติม)
     """
 
-    def __init__(self, agent: MainAgentGateway) -> None:
+    def __init__(self, agent: MainAgentGateway, *, has_display: bool = True) -> None:
         self._agent = agent
+        # โหมดเว็บมีจอแสดงการ์ด เสียงจึงไม่ต้องอ่านตัวเลือกซ้ำ
+        # ช่องทางที่ไม่มีจอ เช่น สายโทรศัพท์ 1129 ต้องได้ยินตัวเลือกครบทุกข้อ
+        self._has_display = has_display
         self._conversation_id: UUID | None = None
         self._pending_action_id: UUID | None = None
         self._lock = asyncio.Lock()
@@ -128,7 +131,31 @@ class VoiceBridge:
             self._conversation_id = response.conversation_id
             if response.pending_action is not None:
                 self._pending_action_id = response.pending_action.pending_action_id
-            return response.model_dump(mode="json", by_alias=True)
+            payload = response.model_dump(mode="json", by_alias=True)
+            payload["voiceGuidance"] = self._voice_guidance(response)
+            return payload
+
+    def _voice_guidance(self, response: Any) -> str | None:
+        """บอกเสียงว่าต้องพูดอย่างไรกับคำถามแบบมีตัวเลือก
+
+        ถ้ามีจอ ผู้ใช้เห็นการ์ดอยู่แล้ว การอ่านทุกตัวเลือกทำให้ยาวเกินจำเป็น
+        ถ้าไม่มีจอ ต้องอ่านให้ครบ แล้วรับคำตอบเป็นคำพูดของผู้ใช้
+        """
+        prompt = getattr(response, "choice_prompt", None)
+        if prompt is None or not prompt.options:
+            return None
+        if self._has_display:
+            return (
+                f"ถามผู้ใช้ว่า: {prompt.question} "
+                "แจ้งสั้น ๆ ว่ามีตัวเลือกแสดงบนหน้าจอให้กดเลือก หรือจะพูดตอบก็ได้ "
+                "ห้ามอ่านรายการตัวเลือกทั้งหมด"
+            )
+        options = " / ".join(option.label for option in prompt.options)
+        return (
+            f"ถามผู้ใช้ว่า: {prompt.question} "
+            f"อ่านตัวเลือกให้ครบทุกข้อ: {options} "
+            "แล้วส่งคำตอบของผู้ใช้ต่อด้วย pea_agent_chat ตามคำพูดเดิม"
+        )
 
     async def confirm_current(self, confirmation_note: str | None = None) -> dict[str, Any]:
         """ยืนยัน pending action ปัจจุบันของเซสชัน (ไม่รับ id จากโมเดล)

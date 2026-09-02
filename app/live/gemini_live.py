@@ -33,6 +33,11 @@ _SYSTEM_INSTRUCTION = """คุณเป็นส่วนติดต่อด�
   เสมอ ห้ามตอบจากความเข้าใจของตนเอง
 
 หลักการตอบด้วยเสียงหลังได้รับคำตอบ:
+- ถ้าผลลัพธ์มี `voiceGuidance` ให้ทำตามนั้นก่อนเสมอ เพราะเป็นตัวกำหนดว่าช่องทางนี้มีหน้าจอหรือไม่
+  เมื่อมีหน้าจอห้ามอ่านตัวเลือกทั้งหมด ให้บอกสั้น ๆ ว่าเลือกจากที่แสดงอยู่บนหน้าจอ หรือจะพูดตอบก็ได้
+  เมื่อไม่มีหน้าจอให้อ่านตัวเลือกครบทุกข้อ
+- เมื่อผู้ใช้ตอบคำถามที่มีตัวเลือก ให้ส่งคำพูดของผู้ใช้ต่อด้วย pea_agent_chat ตามเดิม
+  ระบบจะจับคู่กับตัวเลือกที่ถูกต้องเอง ห้ามแปลงเป็นรหัสภายในหรือเดาตัวเลือกแทนผู้ใช้
 - พูดภาษาไทยให้เป็นธรรมชาติ กระชับ และมีสาระ ห้ามตอบเพียงว่า “รายละเอียดตามที่แสดงไว้”
 - ถ้ารายการมีไม่เกิน 6 ข้อ ให้อ่านสาระสำคัญครบทุกข้อ
 - ถ้ารายการยาวกว่านั้น ให้พูดสรุป 3–5 ประเด็นที่สำคัญที่สุด แจ้งว่ารายละเอียดและแหล่งอ้างอิง
@@ -106,11 +111,20 @@ def _function_declarations() -> list[types.FunctionDeclaration]:
 class GeminiLiveSession:
     """Run exactly one Gemini session, VoiceBridge, and audio queue per socket."""
 
-    def __init__(self, *, api_key: str, model: str, voice: str, agent: MainAgentGateway) -> None:
+    def __init__(
+        self,
+        *,
+        api_key: str,
+        model: str,
+        voice: str,
+        agent: MainAgentGateway,
+        has_display: bool = True,
+    ) -> None:
         self._client = genai.Client(api_key=api_key)
         self._model = model
         self._config = live_connect_config(voice)
-        self._bridge = VoiceBridge(agent)
+        # ผู้ใช้เบราว์เซอร์เห็นการ์ดตัวเลือกบนหน้าจออยู่แล้ว จึงไม่ต้องอ่านซ้ำทางเสียง
+        self._bridge = VoiceBridge(agent, has_display=has_display)
 
     async def serve(self, websocket: WebSocket) -> None:
         """Forward PCM and safe control events until a peer or sender stops."""

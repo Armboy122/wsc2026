@@ -46,6 +46,8 @@
 ```
 
 `pendingAction` จะไม่เป็น null เฉพาะหลังจากแอ็กชันเครื่องมือแบบ `prepare_*` สำเร็จเท่านั้น การสนทนาจะไม่ส่งคำสั่งเขียน
+ส่วนข้อความ `/ws/live` (voice) มี field เพิ่มคือ `voiceGuidance` (string/null): คำแนะนำ
+วิธีพูดคำถามนั้นตามช่องทาง — มีจอให้พูดสั้น ไม่มีจอให้อ่านตัวเลือกครบ — ไม่มี choicePrompt จึงเป็น null
 
 `choicePrompt` จะไม่เป็น null เมื่อ flow ที่ปลั๊กอินขับเองกำลังถามข้อมูลหนึ่งขั้น:
 
@@ -275,7 +277,7 @@ Tool จะปฏิเสธการเรียกที่ `name` ไม่�
 | `preparedInput` | object | เปิดเผยเฉพาะฟิลด์ที่ผู้ใช้ระบุเองเพื่อให้ตรวจทานก่อนยืนยัน ฟิลด์ภายในระบบเช่น `idempotencyKey` ถูกปกปิดเป็น `[redacted]` และไม่จัดเก็บ payment token |
 | `summary` | string | ผลที่เสนอในรูปแบบที่มนุษย์อ่านได้ สูงสุด 500 อักขระ |
 | `status` | `pending_confirmation`, `confirmed`, `submitted`, `rejected`, `failed` | ถูกจำกัดตาม state machine |
-| `idempotencyKey` | string | คัดลอกจากคำขอเขียน |
+| `idempotencyKey` | string | คีย์ภายในระบบ ถูกปกปิดเป็น `[redacted]` เสมอเมื่อออกจาก API และ trace เพราะข้อความของผู้ใช้กำหนดค่านี้ได้ ค่าจริงใช้ภายในเพื่อกันการส่งซ้ำ |
 | `createdAt`, `updatedAt` | UTC datetime | กำหนดโดย server |
 | `submissionResult` | `ToolResult`/null | กำหนดหลังการส่ง |
 

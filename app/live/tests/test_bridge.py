@@ -15,6 +15,8 @@ import httpx
 import pytest
 
 from app.contracts import (
+    ChoiceOption,
+    ChoicePrompt,
     ActionDecisionResponse,
     ChatRequest,
     ChatResponse,
@@ -493,7 +495,7 @@ async def test_chat_result_is_json_serializable_camel_case() -> None:
 
     result = await bridge.handle_text("เตรียมเรื่องร้องเรียน")
 
-    assert set(result) == {"conversationId", "traceId", "message", "citations", "pendingAction", "toolResults", "choicePrompt"}
+    assert set(result) == {"conversationId", "traceId", "message", "citations", "pendingAction", "toolResults", "choicePrompt", "voiceGuidance"}
     assert isinstance(result["pendingAction"], dict)
     assert json.dumps(result, ensure_ascii=False)  # JSON-safe
 
@@ -564,3 +566,60 @@ async def test_voice_flow_against_real_main_agent() -> None:
     # การยืนยันซ้ำ fail closed
     with pytest.raises(NoPendingActionError):
         await bridge.confirm_current()
+
+
+def _choice_prompt() -> ChoicePrompt:
+    return ChoicePrompt(
+        prompt_id="voc_journey",
+        question="ท่านต้องการแจ้งเรื่องประเภทใดครับ",
+        options=(
+            ChoiceOption(value="POWER_QUALITY", label="แจ้งปัญหาคุณภาพไฟฟ้า"),
+            ChoiceOption(value="SERVICE_ISSUE", label="แจ้งปัญหาด้านบริการ"),
+        ),
+    )
+
+
+def _gateway_with_choices() -> FakeGateway:
+    gateway = FakeGateway()
+    gateway.chat_responses.append(
+        ChatResponse(
+            conversation_id=uuid4(),
+            trace_id=uuid4(),
+            message="ท่านต้องการแจ้งเรื่องประเภทใดครับ",
+            choice_prompt=_choice_prompt(),
+        )
+    )
+    return gateway
+
+
+@pytest.mark.asyncio
+async def test_voice_guidance_avoids_reading_options_when_a_display_exists() -> None:
+    """บนเว็บผู้ใช้เห็นการ์ดอยู่แล้ว เสียงจึงต้องไม่อ่านตัวเลือกซ้ำทั้งหมด"""
+    bridge = VoiceBridge(_gateway_with_choices(), has_display=True)
+
+    result = await bridge.handle_text("ร้องเรียนบริการ")
+
+    guidance = result["voiceGuidance"]
+    assert "ห้ามอ่านรายการตัวเลือกทั้งหมด" in guidance
+    assert "แจ้งปัญหาด้านบริการ" not in guidance
+
+
+@pytest.mark.asyncio
+async def test_voice_guidance_reads_every_option_without_a_display() -> None:
+    """สายโทรศัพท์ไม่มีจอ ผู้ใช้ต้องได้ยินตัวเลือกครบทุกข้อ"""
+    bridge = VoiceBridge(_gateway_with_choices(), has_display=False)
+
+    result = await bridge.handle_text("ร้องเรียนบริการ")
+
+    guidance = result["voiceGuidance"]
+    assert "แจ้งปัญหาคุณภาพไฟฟ้า" in guidance
+    assert "แจ้งปัญหาด้านบริการ" in guidance
+
+
+@pytest.mark.asyncio
+async def test_turn_without_choices_has_no_voice_guidance() -> None:
+    bridge = VoiceBridge(FakeGateway())
+
+    result = await bridge.handle_text("สวัสดี")
+
+    assert result["voiceGuidance"] is None

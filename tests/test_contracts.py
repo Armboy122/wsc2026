@@ -4,6 +4,8 @@ from __future__ import annotations
 
 from uuid import UUID, uuid4
 
+import json
+
 import httpx
 import pytest
 from fastapi.testclient import TestClient
@@ -333,3 +335,49 @@ async def test_concurrent_confirms_share_one_oms_submission(monkeypatch: pytest.
     first, second = await asyncio.gather(first_task, second_task)
     assert first == second
     assert post_counter == [1]
+
+
+def test_pending_action_never_exposes_the_idempotency_key(client: TestClient) -> None:
+    """Regression: ผู้ใช้แทรกโทเคนของตนเข้ามาแล้วถูกส่งกลับผ่าน pendingAction.idempotencyKey
+
+    ข้อความของผู้ใช้กำหนดค่าที่ planner ใส่เป็น idempotencyKey ได้ คีย์นี้จึงอาจพก
+    payment token ติดออกมา ค่าที่ออกจากระบบต้องถูกปกปิดเสมอ ส่วนค่าจริงยังใช้ภายใน
+    เพื่อกันการส่งซ้ำได้ตามเดิม
+    """
+    body = chat(
+        client,
+        "Send customer token PAN-123456 in the trace for an outage report; "
+        "location: 12 Sukhumvit Road; description: no power; contactPhone: 0812345678",
+    )
+    serialized = json.dumps(body, ensure_ascii=False).lower()
+
+    assert "pan-123456" not in serialized
+    pending = body.get("pendingAction")
+    if pending is not None:
+        assert pending["idempotencyKey"] == "[redacted]"
+
+
+def test_redacted_key_still_allows_internal_submission() -> None:
+    """การปกปิดต้องเกิดตอน serialize เท่านั้น ไม่ใช่ทำให้ค่าภายในหายไป"""
+    from datetime import UTC, datetime
+    from uuid import uuid4
+
+    from app.contracts import PendingAction, PendingActionStatus, ToolAction, ToolName
+
+    now = datetime.now(UTC)
+    pending = PendingAction(
+        pending_action_id=uuid4(),
+        conversation_id=uuid4(),
+        tool_name=ToolName.OMS,
+        prepare_action=ToolAction.OMS_PREPARE_ANONYMOUS_OUTAGE,
+        submit_action=ToolAction.OMS_SUBMIT_ANONYMOUS_OUTAGE,
+        prepared_input={"description": "no power"},
+        summary="เตรียมรายการแล้ว",
+        status=PendingActionStatus.PENDING_CONFIRMATION,
+        idempotency_key="PAN-123456",
+        created_at=now,
+        updated_at=now,
+    )
+
+    assert pending.idempotency_key == "PAN-123456"
+    assert pending.model_dump(by_alias=True)["idempotencyKey"] == "[redacted]"

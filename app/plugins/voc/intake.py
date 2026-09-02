@@ -14,7 +14,8 @@ an issue changes the conversation without a code change.
 
 from __future__ import annotations
 
-from dataclasses import dataclass, field, replace
+import re
+from dataclasses import dataclass, field
 from datetime import UTC, datetime
 from typing import Any
 
@@ -26,6 +27,8 @@ STEP_SUBJECT = "voc_subject"
 STEP_REPORTER_NAME = "voc_reporter_name"
 STEP_REPORTER_PHONE = "voc_reporter_phone"
 STEP_LOCATION_TEXT = "voc_location_text"
+
+STEP_CA_NUMBER = "voc_ca_number"
 
 STEP_JOURNEY = "voc_journey"
 STEP_REQUEST_TYPE = "voc_request_type"
@@ -43,6 +46,7 @@ STEP_CONSENT = "voc_consent"
 
 CONSENT_ACCEPT = "accept"
 CONSENT_DECLINE = "decline"
+CA_SKIP = "skip"
 
 _CONSENT_QUESTION = (
     "เพื่อส่งเรื่องให้ PEA ระบบต้องเก็บและใช้ชื่อ เบอร์ติดต่อ และรายละเอียดที่ท่านให้ไว้ "
@@ -55,7 +59,15 @@ _MAX_TEXT = {
     STEP_REPORTER_NAME: 100,
     STEP_REPORTER_PHONE: 32,
     STEP_LOCATION_TEXT: 500,
+    STEP_CA_NUMBER: 32,
 }
+
+# รหัสพื้นที่ที่ใช้เมื่อจับคู่ข้อความของผู้ใช้กับ catalog ไม่ได้
+# VOC ปลายทาง map พื้นที่จาก locationText เองอยู่แล้ว จึงไม่ควรบล็อกผู้ใช้ที่อยู่นอกข้อมูลตัวอย่าง
+_UNRESOLVED_AREA_CODE = "UNSPECIFIED"
+
+# CA บนใบแจ้งค่าไฟเป็นตัวเลข 12 หลักตามสัญญาของ OMS
+_CA_PATTERN = re.compile(r"^[0-9]{12}$")
 
 
 class IntakeError(RuntimeError):
@@ -276,6 +288,19 @@ class VocIntakeFlow:
             if STEP_REPORTER_PHONE not in answers:
                 return state, _text_prompt(STEP_REPORTER_PHONE, "ขอเบอร์โทรที่สะดวกให้เจ้าหน้าที่ติดต่อกลับครับ")
 
+        # CA ช่วยให้ PEA ระบุจุดใช้ไฟได้แม่นขึ้น แต่ catalog ระบุว่า "supports" ไม่ใช่ required
+        # จึงต้องข้ามได้เสมอ ไม่ใช่เงื่อนไขกั้นการแจ้งเรื่อง
+        if journey.get("supportsCaNumber") and STEP_CA_NUMBER not in answers:
+            return state, ChoicePrompt(
+                prompt_id=STEP_CA_NUMBER,
+                question=(
+                    "หากมีหมายเลขผู้ใช้ไฟ (CA) 12 หลักบนใบแจ้งค่าไฟ พิมพ์ได้เลยครับ "
+                    "ถ้าไม่มีหรือไม่สะดวก กดข้ามได้ครับ"
+                ),
+                options=(ChoiceOption(value=CA_SKIP, label="ไม่มี / ข้ามขั้นตอนนี้"),),
+                allow_free_text=True,
+            )
+
         if STEP_CONSENT not in answers:
             return state, _prompt(
                 STEP_CONSENT,
@@ -288,37 +313,53 @@ class VocIntakeFlow:
         return state, None
 
     def _location_step(self, state: VocIntakeState) -> tuple[VocIntakeState, ChoicePrompt | None]:
-        """คืนคำถามพื้นที่ถัดไป หรือ state ที่เติมค่าที่มีทางเลือกเดียวให้แล้ว"""
+        """ถามสถานที่เป็นข้อความอิสระ แล้วจับคู่กับ catalog เท่าที่จับได้
+
+        พื้นที่เป็นข้อมูลอ้างอิงเปิดที่ผู้ใช้รู้ดีกว่าระบบ และ catalog ตัวอย่างครอบคลุมไม่ครบทุกจังหวัด
+        การบังคับเลือกจากรายการจึงกันผู้ใช้จริงออกจากบริการ ที่นี่จึงเก็บข้อความไว้เสมอ
+        และเติมรหัสพื้นที่ให้เมื่อจับคู่ได้เท่านั้น
+        """
         answers = state.answers
-        areas = self._service_areas()
-        if STEP_PROVINCE not in answers:
-            return state, _prompt(
-                STEP_PROVINCE,
-                "เหตุเกิดที่จังหวัดใดครับ",
-                _unique_options(areas, "provinceCode", "provinceName"),
-            )
-        in_province = [a for a in areas if a.get("provinceCode") == answers[STEP_PROVINCE]]
-        if STEP_DISTRICT not in answers:
-            return state, _prompt(
-                STEP_DISTRICT, "อำเภอหรือเขตใดครับ",
-                _unique_options(in_province, "districtCode", "districtName"),
-            )
-        in_district = [a for a in in_province if a.get("districtCode") == answers[STEP_DISTRICT]]
-        if STEP_SUBDISTRICT not in answers:
-            return state, _prompt(
-                STEP_SUBDISTRICT, "ตำบลหรือแขวงใดครับ",
-                _unique_options(in_district, "subdistrictCode", "subdistrictName"),
-            )
-        in_subdistrict = [a for a in in_district if a.get("subdistrictCode") == answers[STEP_SUBDISTRICT]]
-        if STEP_OFFICE not in answers:
-            options = _unique_options(in_subdistrict, "peaOfficeCode", "peaOfficeName")
-            # ตำบลที่มีสำนักงานเดียวไม่ต้องถาม เลือกให้เลยเพื่อลดขั้นตอนที่ไม่มีทางเลือกจริง
-            if len(options) == 1:
-                return state.with_answer(STEP_OFFICE, options[0].value), None
-            return state, _prompt(STEP_OFFICE, "ต้องการแจ้งผ่านสำนักงาน PEA ใดครับ", options)
         if STEP_LOCATION_TEXT not in answers:
-            return state, _text_prompt(STEP_LOCATION_TEXT, "ขอจุดเกิดเหตุหรือที่อยู่โดยละเอียดครับ")
+            return state, _text_prompt(
+                STEP_LOCATION_TEXT,
+                "เหตุเกิดที่ใดครับ ระบุจังหวัด อำเภอ และจุดสังเกตได้เลย",
+            )
+        if STEP_PROVINCE not in answers:
+            return self._resolve_area(state, answers[STEP_LOCATION_TEXT]), None
         return state, None
+
+    def _resolve_area(self, state: VocIntakeState, location_text: str) -> VocIntakeState:
+        """เติมรหัสพื้นที่จากข้อความ โดยเลือกได้เฉพาะแถวที่มีอยู่จริงใน catalog"""
+        matched = self._match_service_area(location_text)
+        if matched is None:
+            # ส่ง locationText ให้ VOC map เอง ดีกว่าปฏิเสธผู้ใช้ที่อยู่นอกข้อมูลตัวอย่าง
+            return (
+                state.with_answer(STEP_PROVINCE, _UNRESOLVED_AREA_CODE)
+                .with_answer(STEP_DISTRICT, _UNRESOLVED_AREA_CODE)
+                .with_answer(STEP_SUBDISTRICT, _UNRESOLVED_AREA_CODE)
+                .with_answer(STEP_OFFICE, _UNRESOLVED_AREA_CODE)
+            )
+        return (
+            state.with_answer(STEP_PROVINCE, matched["provinceCode"])
+            .with_answer(STEP_DISTRICT, matched["districtCode"])
+            .with_answer(STEP_SUBDISTRICT, matched["subdistrictCode"])
+            .with_answer(STEP_OFFICE, matched["peaOfficeCode"])
+        )
+
+    def _match_service_area(self, location_text: str) -> dict[str, Any] | None:
+        """จับคู่ข้อความกับ serviceAreas โดยให้แถวที่ตรงละเอียดที่สุดชนะ"""
+        text = " ".join(location_text.casefold().split())
+        best: tuple[int, dict[str, Any]] | None = None
+        for area in self._service_areas():
+            score = sum(
+                1
+                for key in ("subdistrictName", "districtName", "provinceName")
+                if isinstance(area.get(key), str) and area[key].casefold() in text
+            )
+            if score and (best is None or score > best[0]):
+                best = (score, area)
+        return best[1] if best is not None else None
 
     # ------------------------------------------------------------------ answering
 
@@ -327,14 +368,17 @@ class VocIntakeFlow:
         value = raw_value.strip()
         if not value:
             raise IntakeError("กรุณาระบุข้อมูลครับ")
-        if prompt.options:
-            allowed = {option.value for option in prompt.options}
-            if value not in allowed:
-                raise IntakeError("กรุณาเลือกจากตัวเลือกที่ระบบเสนอครับ")
-        else:
+        allowed = {option.value for option in prompt.options}
+        if allowed and value not in allowed and not prompt.allow_free_text:
+            raise IntakeError("กรุณาเลือกจากตัวเลือกที่ระบบเสนอครับ")
+        if value not in allowed:
             limit = _MAX_TEXT.get(prompt.prompt_id, 500)
             if len(value) > limit:
                 raise IntakeError(f"ข้อความยาวเกิน {limit} ตัวอักษรครับ")
+            if prompt.prompt_id == STEP_CA_NUMBER and not _CA_PATTERN.fullmatch(value):
+                raise IntakeError(
+                    "หมายเลขผู้ใช้ไฟต้องเป็นตัวเลข 12 หลักครับ หากไม่มีให้กดข้ามได้"
+                )
         return state.with_answer(prompt.prompt_id, value)
 
     # ------------------------------------------------------------------ payload
@@ -379,6 +423,9 @@ class VocIntakeFlow:
                 "channel": "CHAT",
             },
         }
+        ca_number = answers.get(STEP_CA_NUMBER)
+        if ca_number == CA_SKIP:
+            ca_number = None
         if journey.get("reporterMode") == "REQUIRED":
             first_name, _, last_name = answers[STEP_REPORTER_NAME].partition(" ")
             payload["reporter"] = {
@@ -387,6 +434,11 @@ class VocIntakeFlow:
                 "lastName": last_name.strip() or first_name,
                 "phone": answers[STEP_REPORTER_PHONE],
             }
+            if ca_number:
+                payload["reporter"]["caNumber"] = ca_number
+        elif ca_number:
+            # journey แบบไม่ระบุตัวตนยังแนบ CA ได้ถ้าผู้ใช้ให้มาเอง
+            payload["reporter"] = {"caNumber": ca_number}
         if STEP_FREQUENCY in answers:
             payload["frequencyCode"] = answers[STEP_FREQUENCY]
         if STEP_SEVERITY in answers:

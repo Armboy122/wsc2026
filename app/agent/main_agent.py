@@ -360,7 +360,7 @@ class MainAgent:
             return None
         active = self._guided_flows.active_flow(conversation_id)
         if active is not None:
-            turn = active.advance(
+            turn = await active.advance(
                 conversation_id,
                 request.message,
                 request.selected_prompt_id,
@@ -368,7 +368,7 @@ class MainAgent:
             )
         else:
             # การกดปุ่มที่ไม่มี flow ค้างอยู่ถือว่าหมดอายุ ให้เดินเส้นทางปกติแทน
-            turn = self._guided_flows.start(conversation_id, request.message)
+            turn = await self._guided_flows.start(conversation_id, request.message)
         if turn is None:
             return None
 

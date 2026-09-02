@@ -6,7 +6,9 @@ import pytest
 
 from app.contracts import VocExternalCasePayload
 from app.plugins.voc.intake import (
+    CA_SKIP,
     CONSENT_ACCEPT,
+    STEP_CA_NUMBER,
     STEP_CONSENT,
     STEP_JOURNEY,
     STEP_SUB_ISSUE,
@@ -33,11 +35,13 @@ def _catalog() -> dict:
                 "code": "SERVICE_ISSUE", "label": "แจ้งปัญหาด้านบริการ", "reporterMode": "REQUIRED",
                 "classificationRootCodes": ["REQUEST_1"], "requiresFrequency": True,
                 "requiresSeverity": True, "requiresSubIssue": True, "requiresIncidentLocation": True,
+                "supportsCaNumber": True,
             },
             {
                 "code": "TIP_OFF", "label": "แจ้งเบาะแส", "reporterMode": "OPTIONAL",
                 "classificationRootCodes": ["REQUEST_4"], "requiresFrequency": False,
                 "requiresSeverity": False, "requiresSubIssue": False, "requiresIncidentLocation": True,
+                "supportsCaNumber": False,
             },
         ],
         "requestTypes": [
@@ -189,3 +193,82 @@ def test_single_option_steps_are_not_asked() -> None:
     assert resolved.answers["voc_topic"] == "SERVICE"
     assert resolved.answers["voc_issue"] == "SERVICE_DELAY"
     assert prompt is not None and prompt.prompt_id == STEP_SUB_ISSUE
+
+
+def test_out_of_catalog_location_is_accepted_as_free_text() -> None:
+    """จังหวัดนอกข้อมูลตัวอย่างต้องแจ้งเรื่องได้ ไม่ใช่ถูกกันออกจากบริการ
+
+    catalog สาธิตมี serviceAreas เพียงแถวเดียว การบังคับเลือกจากรายการ
+    จึงทำให้ผู้ใช้ต่างจังหวัดใช้งานไม่ได้เลย
+    """
+    flow = _flow()
+    state = VocIntakeState()
+    for _ in range(40):
+        state, prompt = flow.resolve(state)
+        if prompt is None:
+            break
+        if prompt.prompt_id == STEP_JOURNEY:
+            answer = "SERVICE_ISSUE"
+        elif prompt.prompt_id == STEP_CONSENT:
+            answer = CONSENT_ACCEPT
+        elif prompt.prompt_id == "voc_location_text":
+            answer = "บ้านเลขที่ 45 ต.เขารูปช้าง อ.เมือง จ.สงขลา"
+        elif prompt.prompt_id == STEP_CA_NUMBER:
+            answer = CA_SKIP
+        elif prompt.options:
+            answer = prompt.options[0].value
+        else:
+            answer = _TEXT_ANSWERS.get(prompt.prompt_id, "ข้อมูลทดสอบ")
+        state = flow.apply(state, prompt, answer)
+
+    payload = flow.build_external_payload(state)
+
+    VocExternalCasePayload.model_validate(payload)
+    assert payload["incident"]["locationText"].endswith("สงขลา")
+    # ส่ง locationText ให้ VOC map เอง แทนการยัดรหัสพื้นที่ที่ไม่ตรงความจริง
+    assert payload["incident"]["provinceCode"] == "UNSPECIFIED"
+
+
+def test_location_matching_the_catalog_still_resolves_real_codes() -> None:
+    flow = _flow()
+    state = VocIntakeState().with_answer(STEP_JOURNEY, "SERVICE_ISSUE")
+    state, prompt = flow.resolve(state)
+    while prompt is not None and prompt.prompt_id != "voc_location_text":
+        answer = CONSENT_ACCEPT if prompt.prompt_id == STEP_CONSENT else prompt.options[0].value
+        state = flow.apply(state, prompt, answer)
+        state, prompt = flow.resolve(state)
+
+    state = flow.apply(state, prompt, "แถวพระบรมมหาราชวัง เขตพระนคร กรุงเทพมหานคร")
+    state, _ = flow.resolve(state)
+
+    assert state.answers["voc_province"] == "10"
+    assert state.answers["voc_office"] == "PEA-BKK-01"
+
+
+def test_ca_number_is_optional_and_validated_when_given() -> None:
+    """CA ช่วยระบุจุดใช้ไฟ แต่ catalog บอกว่า supports ไม่ใช่ required"""
+    flow = _flow()
+    state = VocIntakeState().with_answer(STEP_JOURNEY, "SERVICE_ISSUE")
+    state, prompt = flow.resolve(state)
+    while prompt is not None and prompt.prompt_id != STEP_CA_NUMBER:
+        if prompt.options:
+            answer = CONSENT_ACCEPT if prompt.prompt_id == STEP_CONSENT else prompt.options[0].value
+        else:
+            answer = _TEXT_ANSWERS.get(prompt.prompt_id, "ข้อมูลทดสอบ")
+        state = flow.apply(state, prompt, answer)
+        state, prompt = flow.resolve(state)
+
+    assert prompt is not None and prompt.allow_free_text is True
+    with pytest.raises(IntakeError):
+        flow.apply(state, prompt, "12345")  # สั้นเกินไป
+    assert flow.apply(state, prompt, CA_SKIP).answers[STEP_CA_NUMBER] == CA_SKIP
+    assert flow.apply(state, prompt, "100000000003").answers[STEP_CA_NUMBER] == "100000000003"
+
+
+def test_skipped_ca_is_not_sent_to_the_gateway() -> None:
+    flow = _flow()
+    state = _walk(flow, "SERVICE_ISSUE")
+
+    payload = flow.build_external_payload(state)
+
+    assert "caNumber" not in payload.get("reporter", {})

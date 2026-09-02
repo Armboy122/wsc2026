@@ -8,7 +8,7 @@ from enum import Enum
 from typing import Any, ClassVar, Literal
 from uuid import UUID
 
-from pydantic import BaseModel, ConfigDict, Field, TypeAdapter, model_validator
+from pydantic import BaseModel, ConfigDict, Field, TypeAdapter, field_serializer, model_validator
 
 
 def to_camel(value: str) -> str:
@@ -168,6 +168,17 @@ class PendingAction(FrozenModel):
     created_at: datetime = Field(serialization_alias="createdAt")
     updated_at: datetime = Field(serialization_alias="updatedAt")
     submission_result: ToolResult | None = Field(default=None, serialization_alias="submissionResult")
+
+    @field_serializer("idempotency_key")
+    def redact_idempotency_key(self, value: str) -> str:
+        """ปกปิดคีย์ภายในระบบเสมอเมื่อออกจากขอบเขตแอปพลิเคชัน
+
+        ผู้ใช้กำหนดข้อความของคำขอได้ คีย์นี้จึงอาจมีค่าที่ผู้ใช้แทรกมา เช่น payment token
+        การส่งกลับตรง ๆ ทำให้ข้อมูลอ่อนไหวรั่วผ่าน API และ trace ได้ ค่าเดิมยังใช้ภายใน
+        เพื่อกันการส่งซ้ำได้ตามปกติ
+        """
+        del value
+        return "[redacted]"
 
     @model_validator(mode="after")
     def validate_action_pair(self) -> "PendingAction":

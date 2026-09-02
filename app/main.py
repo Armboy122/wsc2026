@@ -99,13 +99,13 @@ tool_registry = ToolRegistry(
         policy for plugin in plugins if (policy := plugin.response_policy) is not None
     ),
 )
-main_agent = MainAgent(
-    LLMClient(llm_adapter),
-    tool_registry,
-    guided_flows=GuidedFlows(
-        tuple(flow for plugin in plugins if (flow := plugin.guided_flow) is not None)
-    ),
+main_llm_client = LLMClient(llm_adapter)
+guided_flows = GuidedFlows(
+    tuple(flow for plugin in plugins if (flow := plugin.guided_flow) is not None)
 )
+# flow ใช้ LLM เพื่อเลือกจากตัวเลือกที่ catalog ให้มาเท่านั้น ไม่ใช่เพื่อสร้างรหัสเอง
+guided_flows.attach_llm(main_llm_client)
+main_agent = MainAgent(main_llm_client, tool_registry, guided_flows=guided_flows)
 
 agent_service.set_agent(main_agent)
 adapter_service.set_llm(llm_adapter)

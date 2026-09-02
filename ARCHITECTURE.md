@@ -64,6 +64,12 @@ LLM ไม่เคยเห็น YAML ดิบ: loader อ่าน manifest 
 VOC offline demo รองรับการอ่าน category/สถานะเท่านั้น; การเตรียมเคสไม่ผ่านการวางแผนของโมเดลเลย
 แต่ใช้ guided flow ที่อ่าน catalog จาก gateway แล้วถามทีละขั้น จึงได้ `externalPayload` ที่มี taxonomy,
 location และ consent จากคำตอบจริงของผู้ใช้ ไม่มีรหัสใดถูกเดาขึ้น
+ขั้น taxonomy เป็น closed enum (กดปุ่มเท่านั้น) ส่วน location เป็น free text เพราะ
+catalog สาธิตมีพื้นที่ให้เลือกไม่ครบทุกจังหวัด ระบบจึงส่ง `locationText` ให้ VOC map เอง
+แทนการบังคับเลือก และหมายเลขผู้ใช้ไฟ (CA) ถามเฉพาะ journey ที่รองรับและข้ามได้เสมอ
+flow ใช้ LLM ได้ผ่าน `attach_llm` เพื่อสองอย่างเท่านั้น: เติมคำตอบที่ผู้ใช้บอกมาแล้ว
+ในข้อความเปิดเรื่อง และจับคู่คำพูดกับตัวเลือกในโหมดเสียง โดยเลือกได้เฉพาะ value
+ที่อยู่ใน catalog รอบนั้น ห้ามเติม consent และ CA แทนผู้ใช้เด็ดขาด
 
 ความปลอดภัยของ loader: manifest เป็น trusted config ที่ commit ใน repo เท่านั้น,
 `runtime.factory` ต้องอยู่ใต้ `app.plugins.` เท่านั้น, ไม่มี `eval`/`exec`,
@@ -170,6 +176,10 @@ LINE Reply/Push Message (fallback เป็น push เมื่อ reply token 
 - ไมโครโฟนของเบราว์เซอร์ถูก downsample เป็น **PCM16 16kHz** ส่งเป็น binary ผ่าน WebSocket; เสียงตอบกลับเป็น **PCM16 24kHz** เล่นแบบ gap-free scheduling และ flush ทันทีเมื่อมี `audio.interrupted` (ผู้พูดแทรก)
 - **ฟังก์ชันที่โมเดลเรียกได้มีสามตัวเท่านั้น**: `pea_agent_chat`, `pea_confirm_pending_action`, `pea_reject_pending_action` — ไม่มีฟังก์ชันใดรับ/ส่ง `pendingActionId`; การยืนยัน/ปฏิเสธผูกกับรายการปัจจุบันของเซสชัน และ fail closed เมื่อไม่มีรายการ (`no_pending_action`)
 - **โมเดลเป็นเพียงส่วนติดต่อเสียง**: system instruction บังคับให้ส่งต่อทุกคำขอ PEA ไปยัง Main Agent, ห้ามสร้างข้อเท็จจริง/สถานะเรื่องขึ้นเอง, ห้ามตัดสินใจเมื่อคำตอบกำกวม (ถามย้ำก่อน), และห้ามขอ/รับ/ส่ง pending action id
+- **คำถามแบบมีตัวเลือก (choicePrompt) มีคำแนะนำเสียงต่างกันตามช่องทาง**: `VoiceBridge` แนบ
+  `voiceGuidance` ให้ผลลัพธ์ทุกครั้งที่มี choicePrompt — ช่องทางมีจอ (`has_display`) ให้พูดสั้น
+  ว่ามีตัวเลือกบนหน้าจอให้กดหรือพูดตอบ ห้ามอ่านรายการซ้ำ ส่วนช่องทางไม่มีจอ (สายโทรศัพท์
+  1129) ต้องอ่านตัวเลือกครบทุกข้อ แล้วรับคำพูดของผู้ใช้ส่งต่อเป็นข้อความเดิมให้ flow จับคู่
 - สถานะการเขียนยังเป็นไปตามกลไก `prepare → human confirm → submit` เดิม — เสียงเป็นเพียงวิธีบอก "ยืนยัน/ปฏิเสธ" เท่านั้น
 
 ### โมดูล LINE (Messaging API webhook)

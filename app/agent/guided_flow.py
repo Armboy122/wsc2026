@@ -39,7 +39,7 @@ class GuidedTurn:
 class GuidedFlow(Protocol):
     """A plugin-owned deterministic intake flow bound to one conversation."""
 
-    def start(self, conversation_id: UUID, message: str) -> GuidedTurn | None:
+    async def start(self, conversation_id: UUID, message: str) -> GuidedTurn | None:
         """เริ่ม flow เมื่อข้อความบ่งชี้เจตนาที่ปลั๊กอินนี้รับผิดชอบ"""
         ...
 
@@ -47,7 +47,7 @@ class GuidedFlow(Protocol):
         """True เมื่อบทสนทนานี้กำลังอยู่ระหว่างการถามตอบของ flow"""
         ...
 
-    def advance(
+    async def advance(
         self,
         conversation_id: UUID,
         message: str,
@@ -65,6 +65,10 @@ class GuidedFlow(Protocol):
         """ล้างสถานะทั้งหมดสำหรับการรันเดโมใหม่"""
         ...
 
+    def attach_llm(self, llm_client: Any) -> None:
+        """รับ LLM client ไว้ช่วยตีความคำตอบ (ไม่บังคับ; flow ที่ไม่ใช้ไม่ต้องมี method นี้)"""
+        ...
+
 
 class GuidedFlows:
     """Route a turn to the first enabled flow that claims it."""
@@ -75,9 +79,9 @@ class GuidedFlows:
     def active_flow(self, conversation_id: UUID) -> GuidedFlow | None:
         return next((flow for flow in self._flows if flow.is_active(conversation_id)), None)
 
-    def start(self, conversation_id: UUID, message: str) -> GuidedTurn | None:
+    async def start(self, conversation_id: UUID, message: str) -> GuidedTurn | None:
         for flow in self._flows:
-            turn = flow.start(conversation_id, message)
+            turn = await flow.start(conversation_id, message)
             if turn is not None:
                 return turn
         return None
@@ -85,6 +89,13 @@ class GuidedFlows:
     def reset(self) -> None:
         for flow in self._flows:
             flow.reset()
+
+    def attach_llm(self, llm_client: Any) -> None:
+        """แจก LLM ให้ flow ที่ประกาศว่าใช้ได้ โดยไม่บังคับให้ทุก flow ต้องรองรับ"""
+        for flow in self._flows:
+            attach = getattr(flow, "attach_llm", None)
+            if callable(attach):
+                attach(llm_client)
 
     def __bool__(self) -> bool:
         return bool(self._flows)
