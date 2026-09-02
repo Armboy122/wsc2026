@@ -81,6 +81,7 @@ def test_committed_tou_tariff_document_is_catalogued_with_verifiable_rates() -> 
     assert document.title == "อัตราค่าไฟฟ้า TOU (Time of Use) ปี 2569"
     assert "Peak 5.1135 บาท/หน่วย" in text
     assert "Off-Peak 2.6037 บาท/หน่วย" in text
+    assert "วันแรงงานแห่งชาติ วันพืชมงคล" in text
     assert "https://www.pea.co.th/sites/default/files/documents/tariff/electricity_tariff.pdf" in text
 
 
