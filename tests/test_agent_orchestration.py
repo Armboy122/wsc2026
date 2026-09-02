@@ -207,6 +207,66 @@ def test_unsafe_operational_wrapper_uses_deterministic_fact() -> None:
     assert "10 นาที" not in message
 
 
+@pytest.mark.asyncio
+async def test_operational_presentation_fact_reaches_final_llm_turn() -> None:
+    class ExistingOutageOms:
+        name = ToolName.OMS
+
+        async def execute(self, call: ToolCall, context: object) -> ToolResult:
+            return ToolResult(
+                call_id=call.call_id,
+                name=call.name,
+                action=call.action,
+                status=ToolResultStatus.SUCCESS,
+                data={
+                    "caNumber": "020008084480",
+                    "customerFound": True,
+                    "network": {"meterId": "M", "transformerId": "T", "feederId": "F"},
+                    "activeEvent": {
+                        "eventId": "OMS-EVENT-1",
+                        "level": "METER",
+                        "status": "RECEIVED",
+                        "message": "ไฟฟ้าดับ",
+                        "startedAt": "2026-01-01T00:00:00Z",
+                        "estimatedRestoreAt": None,
+                        "location": None,
+                    },
+                    "recommendedAction": "CREATE_METER_EVENT",
+                },
+                simulation=True,
+            )
+
+        def reset(self) -> None:
+            return None
+
+    probe_call = ToolCall(
+        call_id=uuid4(),
+        name=ToolName.OMS,
+        action=ToolAction.OMS_GET_OUTAGE_BY_CA,
+        input={"caNumber": "020008084480"},
+    )
+    fact = OmsResponsePolicy().result_fact(
+        await ExistingOutageOms().execute(probe_call, object())
+    )
+    assert fact is not None
+    adapter = ScriptedLLMAdapter([
+        LLMResponse(tool_calls=(probe_call,)),
+        LLMResponse(text=f"ตรวจสอบแล้วครับ {fact}"),
+    ])
+    registry = ToolRegistry(
+        [KnowledgeTool(FakeKnowledgeBackend()), ExistingOutageOms()],
+        catalogue=(ToolDefinition(ToolName.OMS, "OMS", ("get_outage_by_ca",)),),
+        response_policies=(OmsResponsePolicy(),),
+    )
+
+    response = await MainAgent(LLMClient(adapter), registry).handle_chat(
+        ChatRequest(message="ตรวจสอบไฟดับ 020008084480")
+    )
+
+    assert "presentationFact" in adapter.requests[1].messages[-1].content
+    assert response.message == f"ตรวจสอบแล้วครับ {fact}"
+
+
 def test_invalid_ca_error_tells_user_the_rule_and_how_to_retry() -> None:
     """Regression: CA ผิดรูปแบบต้องบอกกติกา 12 หลักและทางเลือกแจ้งแบบไม่มี CA แทนข้อความกลาง ๆ"""
     from app.agent.main_agent import _operational_error_fact

@@ -454,7 +454,15 @@ def _result_message(result: ToolResult, response_policies: ResponsePolicies) -> 
             {**identity, "status": "error", "errorPresentation": presentation.llm_payload()},
             ensure_ascii=False,
         )
-    return json.dumps({**identity, "status": "success", "data": result.data, "citations": [citation.model_dump(by_alias=True) for citation in result.citations]}, default=str)
+    payload: dict[str, object] = {
+        **identity,
+        "status": "success",
+        "data": result.data,
+        "citations": [citation.model_dump(by_alias=True) for citation in result.citations],
+    }
+    if presentation_fact := response_policies.result_fact(result):
+        payload["presentationFact"] = presentation_fact
+    return json.dumps(payload, default=str, ensure_ascii=False)
 
 
 def _knowledge_context_from_result(

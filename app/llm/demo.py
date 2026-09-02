@@ -303,6 +303,10 @@ def _generic_grounded_message(results: tuple[dict[str, Any], ...]) -> str:
                     continue
             messages.append("บริการที่ร้องขอไม่พร้อมใช้งาน กรุณาลองใหม่ภายหลังครับ")
             continue
+        presentation_fact = result.get("presentationFact")
+        if isinstance(presentation_fact, str):
+            messages.append(f"ตรวจสอบแล้วครับ {presentation_fact}")
+            continue
         data = result.get("data")
         if not isinstance(data, dict):
             continue
