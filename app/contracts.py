@@ -202,10 +202,23 @@ class TraceEvent(FrozenModel):
     data: dict[str, Any] = Field(max_length=20)
 
 
+class ChatClientLocation(FrozenModel):
+    """พิกัดโดยประมาณจาก IP ของผู้ใช้ (ipwho.is, ระดับอำเภอ/จังหวัด ไม่ใช่ GPS จริง
+    — เลี่ยง navigator.geolocation เพราะพึ่ง OS Location Services ที่บางเครื่อง
+    fail แม้ตั้งค่าถูก) — ใช้เป็น fallback
+    เมื่อไม่มี CA ให้ค้นพิกัดจาก MST GIS ได้ (ดู OmsPrepareAnonymousOutageInput)"""
+
+    lat: float = Field(ge=-90, le=90)
+    lon: float = Field(ge=-180, le=180)
+
+
 class ChatRequest(FrozenModel):
     conversation_id: UUID | None = Field(default=None, serialization_alias="conversationId")
     message: str = Field(min_length=1, max_length=4000)
     request_id: UUID | None = Field(default=None, serialization_alias="requestId")
+    # เสริมนอกสัญญาเดิม (optional, backward-compatible) — ไม่ผ่าน LLM เพราะเป็น
+    # device state ไม่ใช่เนื้อหาการสนทนา ดู main_agent._inject_client_location
+    client_location: ChatClientLocation | None = Field(default=None, serialization_alias="clientLocation")
 
 
 class ChatResponse(FrozenModel):
@@ -380,6 +393,10 @@ class OmsPrepareAnonymousOutageInput(FrozenModel):
     location: str = Field(min_length=1, max_length=1000)
     contact_phone: str = Field(min_length=8, max_length=32, serialization_alias="contactPhone")
     idempotency_key: str = Field(min_length=1, max_length=128, serialization_alias="idempotencyKey")
+    # ไม่มี CA จึงหา MST GIS ไม่ได้ — เติมจาก ChatRequest.clientLocation แทน
+    # (main_agent._inject_client_location) ไม่ใช่ค่าที่ LLM สร้างเอง
+    lat: float | None = Field(default=None, ge=-90, le=90)
+    lon: float | None = Field(default=None, ge=-180, le=180)
 
 
 class SubmitPreparedActionInput(FrozenModel):

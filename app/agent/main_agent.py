@@ -190,6 +190,7 @@ class MainAgent:
                         duplicate_knowledge_call = True
                         break
                     seen_knowledge_calls.add(key)
+                _inject_client_location(call, request)
                 result = await self._execute_chat_call(call, conversation_id, trace_id)
                 all_results.append(result)
                 history += (LLMMessage("tool", _result_message(result, self._response_policies)),)
@@ -376,6 +377,21 @@ class MainAgent:
         if trace_id is None:
             raise NotFoundError("ไม่พบ trace ของรายการที่รอดำเนินการ")
         return trace_id
+
+
+def _inject_client_location(call: ToolCall, request: ChatRequest) -> None:
+    """เติมพิกัดเบราว์เซอร์ให้ tool call แจ้งเหตุแบบไม่ทราบ CA — ไม่มี CA จึง
+    หาพิกัดจาก MST GIS ไม่ได้ (ดู OmsTool + oms.enrichAnonymousLocation ฝั่ง
+    Go BE) เป็น device state ไม่ใช่เนื้อหาสนทนา จึงเติมนอกรอบ LLM ไม่ใช่ให้
+    โมเดลสร้างพิกัดเอง (ป้องกันพิกัดหลอน) และไม่ overwrite ถ้า LLM ใส่มาเองแล้ว"""
+    if (
+        call.name is not ToolName.OMS
+        or call.action is not ToolAction.OMS_PREPARE_ANONYMOUS_OUTAGE
+        or request.client_location is None
+    ):
+        return
+    call.input.setdefault("lat", request.client_location.lat)
+    call.input.setdefault("lon", request.client_location.lon)
 
 
 def _calls_from_response(

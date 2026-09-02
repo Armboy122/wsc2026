@@ -31,6 +31,9 @@
         <span class="sim-badge" role="status">
           <span class="sim-dot" aria-hidden="true"></span>
           SIMULATED BACKEND · ข้อมูลจำลอง
+          <span class="be-sep" aria-hidden="true">·</span>
+          <span class="be-dot" id="be-status-dot" aria-hidden="true"></span>
+          <span id="be-status-label">กำลังตรวจสอบ BE…</span>
         </span>
         <div class="header-buttons">
           <a id="phone-btn" class="ghost-btn" href="phone.html" title="เปิดหน้าจำลองโทรศัพท์ 1129">
@@ -78,6 +81,9 @@
       <form id="composer-form" class="composer-form" novalidate>
         <label class="visually-hidden" for="message-input">ข้อความถึงผู้ช่วย</label>
         <textarea id="message-input" rows="1" maxlength="4000" placeholder="พิมพ์ข้อความ เช่น ค้นหาข้อมูลอัตราค่าไฟ…" autocomplete="off"></textarea>
+        <button type="button" id="geo-btn" class="voice-btn" aria-pressed="false" aria-label="ค้นหาตำแหน่งโดยประมาณจาก IP" title="ค้นหาตำแหน่งโดยประมาณจาก IP (ระดับอำเภอ/จังหวัด) — ใช้แนบพิกัดให้แจ้งเหตุที่ไม่ทราบหมายเลขผู้ใช้ไฟ">
+          <span aria-hidden="true">📍</span><span class="visually-hidden">ตำแหน่งโดยประมาณ</span>
+        </button>
         <button type="button" id="voice-toggle" class="voice-btn" aria-pressed="false" aria-label="เริ่มโหมดเสียง" title="เริ่มโหมดเสียง">
           <span aria-hidden="true">🎙</span><span class="visually-hidden">โหมดเสียง</span>
         </button>
