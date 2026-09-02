@@ -1,0 +1,332 @@
+<!DOCTYPE html>
+<html lang="th">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover">
+  <meta name="theme-color" content="#000000">
+  <title>PEA 1129 · Phone Dialer & Live Voice</title>
+  <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='7' fill='%232A1D52'/%3E%3Cpath d='M18 5 9.2 17.6h5.4L13.4 27l8.9-12.6h-5.4L18 5z' fill='%23FFD9A0'/%3E%3C/svg%3E">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Anuphan:wght@400;500;600;700&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="phone.css">
+</head>
+<body>
+
+  <!-- Top Desktop Navigation Bar -->
+  <header class="desktop-nav">
+    <a href="index.html" class="nav-back-btn">
+      <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
+        <path d="m15 18-6-6 6-6"/>
+      </svg>
+      <span>กลับไปหน้าหลัก PEA Agent</span>
+    </a>
+  </header>
+
+  <!-- iOS Phone Wrapper Mockup -->
+  <main class="phone-wrapper" id="phone-container">
+    
+    <!-- Dynamic Island -->
+    <div class="dynamic-island" id="dynamic-island">
+      <div class="island-camera"></div>
+      <div class="island-call-wave">
+        <span class="wave-bar"></span>
+        <span class="wave-bar"></span>
+        <span class="wave-bar"></span>
+      </div>
+      <div class="island-sensor"></div>
+    </div>
+
+    <!-- Status Bar -->
+    <header class="status-bar">
+      <div class="status-left">
+        <span class="status-time" id="status-time">09:34</span>
+      </div>
+      <div class="status-right">
+        <!-- Cellular Signal Icon -->
+        <div class="cellular-icon" aria-label="สัญญาณโทรศัพท์เต็ม">
+          <span class="signal-bar"></span>
+          <span class="signal-bar"></span>
+          <span class="signal-bar"></span>
+          <span class="signal-bar"></span>
+        </div>
+        <!-- 4G Network Indicator -->
+        <span class="network-type">4G</span>
+        <!-- Battery Pill -->
+        <div class="battery-pill" aria-label="แบตเตอรี่ 79 เปอร์เซ็นต์">
+          <div class="battery-fill"></div>
+          <span class="battery-text">79</span>
+        </div>
+      </div>
+    </header>
+
+    <!-- Main Screen Content Area -->
+    <div class="screen-content">
+      
+      <!-- 1. DIALER VIEW -->
+      <section class="view-dialer" id="view-dialer">
+        
+        <!-- Top Section: Header & Number Display (Top aligned) -->
+        <div class="dialer-top">
+          <div class="dialer-header">
+            <button class="add-contact-btn" id="add-contact-btn" title="เพิ่มรายชื่อ" aria-label="เพิ่มรายชื่อ">
+              <svg width="26" height="26" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
+                <circle cx="10" cy="8" r="4"/>
+                <path d="M2 20c0-3.3 2.7-6 6-6h4c3.3 0 6 2.7 6 6"/>
+                <path d="M19 8v6M16 11h6"/>
+              </svg>
+            </button>
+          </div>
+
+          <div class="number-display-container">
+            <div class="number-display" id="number-display">1129</div>
+            <div class="add-number-label" id="add-number-label"></div>
+          </div>
+        </div>
+
+        <!-- Bottom Section: 3x4 Keypad + Call Actions (Bottom aligned) -->
+        <div class="dialer-bottom">
+          <!-- 3x4 Keypad Grid -->
+          <div class="keypad-grid" role="group" aria-label="แป้นตัวเลขโทรศัพท์">
+            <button class="key-btn" data-key="1" type="button">
+              <span class="key-num">1</span>
+              <span class="key-letters">&nbsp;</span>
+            </button>
+            <button class="key-btn" data-key="2" type="button">
+              <span class="key-num">2</span>
+              <span class="key-letters">A B C</span>
+            </button>
+            <button class="key-btn" data-key="3" type="button">
+              <span class="key-num">3</span>
+              <span class="key-letters">D E F</span>
+            </button>
+
+            <button class="key-btn" data-key="4" type="button">
+              <span class="key-num">4</span>
+              <span class="key-letters">G H I</span>
+            </button>
+            <button class="key-btn" data-key="5" type="button">
+              <span class="key-num">5</span>
+              <span class="key-letters">J K L</span>
+            </button>
+            <button class="key-btn" data-key="6" type="button">
+              <span class="key-num">6</span>
+              <span class="key-letters">M N O</span>
+            </button>
+
+            <button class="key-btn" data-key="7" type="button">
+              <span class="key-num">7</span>
+              <span class="key-letters">P Q R S</span>
+            </button>
+            <button class="key-btn" data-key="8" type="button">
+              <span class="key-num">8</span>
+              <span class="key-letters">T U V</span>
+            </button>
+            <button class="key-btn" data-key="9" type="button">
+              <span class="key-num">9</span>
+              <span class="key-letters">W X Y Z</span>
+            </button>
+
+            <button class="key-btn" data-key="*" type="button">
+              <span class="key-num asterisk">*</span>
+              <span class="key-letters">&nbsp;</span>
+            </button>
+            <button class="key-btn" data-key="0" type="button">
+              <span class="key-num">0</span>
+              <span class="key-letters">+</span>
+            </button>
+            <button class="key-btn" data-key="#" type="button">
+              <span class="key-num hash">#</span>
+              <span class="key-letters">&nbsp;</span>
+            </button>
+          </div>
+
+          <!-- Action Row: Call Button & Backspace -->
+          <div class="dialer-actions">
+            <div class="action-spacer"></div>
+            
+            <!-- Green Call Button -->
+            <button class="call-btn" id="call-btn" type="button" aria-label="โทรออก 1129">
+              <svg class="call-icon" viewBox="0 0 24 24">
+                <path d="M20.01 15.38c-1.23 0-2.42-.2-3.53-.56a.977.977 0 0 0-1.01.24l-2.2 2.2a15.053 15.053 0 0 1-6.59-6.59l2.2-2.21a.96.96 0 0 0 .25-1A11.36 11.36 0 0 1 8.5 3.99c0-.55-.45-1-1-1H4c-.55 0-1 .45-1 1 0 9.39 7.61 17 17 17 .55 0 1-.45 1-1v-3.61c0-.55-.45-1-.99-1z"/>
+              </svg>
+            </button>
+
+            <!-- Backspace / Delete Button -->
+            <button class="delete-btn" id="delete-btn" type="button" aria-label="ลบตัวเลข">
+              <svg width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
+                <path d="M21 4H8l-7 8 7 8h13a2 2 0 0 0 2-2V6a2 2 0 0 0-2-2z"/>
+                <line x1="18" y1="9" x2="12" y2="15"/>
+                <line x1="12" y1="9" x2="18" y2="15"/>
+              </svg>
+            </button>
+          </div>
+        </div>
+
+      </section>
+
+      <!-- 2. IN-CALL LIVE VOICE VIEW (GEMINI LIVE STREAMING) -->
+      <section class="view-incall" id="view-incall">
+        <div class="incall-header">
+          <h2 class="incall-name" id="incall-name">1129</h2>
+          <p class="incall-sub">การไฟฟ้าส่วนภูมิภาค · PEA Contact Center</p>
+          <div class="incall-status-badge">
+            <span class="incall-status-dot connecting" id="incall-status-dot"></span>
+            <span id="incall-status-text">กำลังเชื่อมต่อระบบสายตรง...</span>
+            <span id="incall-timer" style="margin-left: 4px; font-family: var(--font-mono);">00:00</span>
+          </div>
+        </div>
+
+        <!-- Center Glowing Pulse / Audio Waves -->
+        <div class="incall-center">
+          <div class="avatar-pulse-container">
+            <div class="pulse-ring ring-1"></div>
+            <div class="pulse-ring ring-2"></div>
+            <div class="pulse-ring ring-3"></div>
+            <div class="center-avatar">
+              <svg viewBox="0 0 24 24">
+                <path d="M13.6 1.6 4.9 13.9h4.9L8.6 22.4l9.1-12.7h-5l.9-8.1z"/>
+              </svg>
+            </div>
+          </div>
+
+          <!-- Live Transcript Overlay -->
+          <div class="transcript-bubble" id="transcript-bubble">
+            <div class="transcript-label" id="transcript-label">PEA 1129:</div>
+            <div class="transcript-text" id="transcript-text">ยินดีต้อนรับสู่ศูนย์บริการลูกค้า กฟภ. 1129 พูดคุยสอบถามได้ทันทีครับ</div>
+          </div>
+        </div>
+
+        <!-- In-Call 6-Control Buttons -->
+        <div class="incall-controls-grid">
+          <div class="incall-btn-wrap">
+            <button class="incall-circle-btn" id="mute-btn" type="button" aria-label="ปิดเสียงไมค์">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                <path d="M12 2a3 3 0 0 0-3 3v7a3 3 0 0 0 6 0V5a3 3 0 0 0-3-3z"/>
+                <path d="M19 10v2a7 7 0 0 1-14 0v-2"/>
+                <line x1="12" y1="19" x2="12" y2="22"/>
+              </svg>
+            </button>
+            <span class="incall-btn-label">mute</span>
+          </div>
+
+          <div class="incall-btn-wrap">
+            <button class="incall-circle-btn" id="incall-keypad-btn" type="button" aria-label="แป้นตัวเลข">
+              <svg viewBox="0 0 24 24" fill="currentColor">
+                <circle cx="5" cy="5" r="2"/><circle cx="12" cy="5" r="2"/><circle cx="19" cy="5" r="2"/>
+                <circle cx="5" cy="12" r="2"/><circle cx="12" cy="12" r="2"/><circle cx="19" cy="12" r="2"/>
+                <circle cx="5" cy="19" r="2"/><circle cx="12" cy="19" r="2"/><circle cx="19" cy="19" r="2"/>
+              </svg>
+            </button>
+            <span class="incall-btn-label">keypad</span>
+          </div>
+
+          <div class="incall-btn-wrap">
+            <button class="incall-circle-btn active" id="speaker-btn" type="button" aria-label="ลำโพง">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                <polygon points="11 5 6 9 2 9 2 15 6 15 11 19 11 5"/>
+                <path d="M19.07 4.93a10 10 0 0 1 0 14.14M15.54 8.46a5 5 0 0 1 0 7.07"/>
+              </svg>
+            </button>
+            <span class="incall-btn-label">speaker</span>
+          </div>
+
+          <div class="incall-btn-wrap">
+            <button class="incall-circle-btn" type="button" aria-label="เพิ่มสาย">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                <line x1="12" y1="5" x2="12" y2="19"/>
+                <line x1="5" y1="12" x2="19" y2="12"/>
+              </svg>
+            </button>
+            <span class="incall-btn-label">add call</span>
+          </div>
+
+          <div class="incall-btn-wrap">
+            <button class="incall-circle-btn" type="button" aria-label="FaceTime">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                <polygon points="23 7 16 12 23 17 23 7"/>
+                <rect x="1" y="5" width="15" height="14" rx="2" ry="2"/>
+              </svg>
+            </button>
+            <span class="incall-btn-label">FaceTime</span>
+          </div>
+
+          <div class="incall-btn-wrap">
+            <button class="incall-circle-btn" type="button" aria-label="รายชื่อ">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                <path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/>
+                <circle cx="9" cy="7" r="4"/>
+                <path d="M23 21v-2a4 4 0 0 0-3-3.87"/>
+                <path d="M16 3.13a4 4 0 0 1 0 7.75"/>
+              </svg>
+            </button>
+            <span class="incall-btn-label">contacts</span>
+          </div>
+        </div>
+
+        <!-- End Call Action -->
+        <div class="incall-bottom-action">
+          <button class="end-call-btn" id="end-call-btn" type="button" aria-label="วางสาย">
+            <svg class="end-call-icon" viewBox="0 0 24 24">
+              <path d="M20.01 15.38c-1.23 0-2.42-.2-3.53-.56a.977.977 0 0 0-1.01.24l-2.2 2.2a15.053 15.053 0 0 1-6.59-6.59l2.2-2.21a.96.96 0 0 0 .25-1A11.36 11.36 0 0 1 8.5 3.99c0-.55-.45-1-1-1H4c-.55 0-1 .45-1 1 0 9.39 7.61 17 17 17 .55 0 1-.45 1-1v-3.61c0-.55-.45-1-.99-1z"/>
+            </svg>
+          </button>
+        </div>
+      </section>
+
+    </div>
+
+    <!-- Bottom Tab Bar -->
+    <nav class="tab-bar">
+      <button class="tab-item" type="button">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round">
+          <polygon points="12 2 15.09 8.26 22 9.27 17 14.14 18.18 21.02 12 17.77 5.82 21.02 7 14.14 2 9.27 8.91 8.26 12 2"/>
+        </svg>
+        <span>Favorites</span>
+      </button>
+
+      <button class="tab-item" type="button">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round">
+          <circle cx="12" cy="12" r="10"/>
+          <polyline points="12 6 12 12 16 14"/>
+        </svg>
+        <span>Recents</span>
+      </button>
+
+      <button class="tab-item" type="button">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round">
+          <path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"/>
+          <circle cx="12" cy="7" r="4"/>
+        </svg>
+        <span>Contacts</span>
+      </button>
+
+      <button class="tab-item active" type="button">
+        <svg viewBox="0 0 24 24" fill="currentColor">
+          <circle cx="5" cy="5" r="2.2"/><circle cx="12" cy="5" r="2.2"/><circle cx="19" cy="5" r="2.2"/>
+          <circle cx="5" cy="12" r="2.2"/><circle cx="12" cy="12" r="2.2"/><circle cx="19" cy="12" r="2.2"/>
+          <circle cx="5" cy="19" r="2.2"/><circle cx="12" cy="19" r="2.2"/><circle cx="19" cy="19" r="2.2"/>
+        </svg>
+        <span>Keypad</span>
+      </button>
+
+      <button class="tab-item" type="button">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round">
+          <circle cx="6" cy="12" r="4"/>
+          <circle cx="18" cy="12" r="4"/>
+          <line x1="6" y1="16" x2="18" y2="16"/>
+        </svg>
+        <span>Voicemail</span>
+      </button>
+    </nav>
+
+    <!-- Home Bar Indicator -->
+    <div class="home-indicator"></div>
+
+    <!-- Notification Toast -->
+    <div class="ios-toast" id="ios-toast"></div>
+  </main>
+
+  <script type="module" src="phone.js"></script>
+</body>
+</html>

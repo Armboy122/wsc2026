@@ -228,6 +228,7 @@ button { font: inherit; color: inherit; }
   font-size: 0.85rem;
   font-weight: 600;
   cursor: pointer;
+  text-decoration: none;
   transition: background 0.15s ease, border-color 0.15s ease;
 }
 .ghost-btn:hover { background: rgba(255, 255, 255, 0.16); border-color: rgba(255, 255, 255, 0.6); }
