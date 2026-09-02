@@ -44,6 +44,9 @@ from app.llm import (
 
 # Keep the loop bounded while allowing a short clarification/tool chain.
 _MAX_TOOL_STEPS = 12
+# planner มักขยายถ้อยคำค้นหาภาษาไทยเล็กน้อยทุกรอบ ทำให้ guard กัน input ซ้ำตรง ๆ จับไม่ได้
+# จึงจำกัดจำนวนค้นหาความรู้ต่อเทิร์น แล้วใช้ผลที่ค้นได้แล้วไปเรียบเรียงคำตอบต่อ
+_MAX_KNOWLEDGE_SEARCHES_PER_TURN = 2
 _SUBMIT_ACTIONS = frozenset({
     ToolAction.OMS_SUBMIT_OUTAGE_WITH_CA,
     ToolAction.OMS_SUBMIT_ANONYMOUS_OUTAGE,
@@ -58,6 +61,8 @@ _FINAL_ONLY_MESSAGE = "ผมสามารถตอบคำถามแบบ
 _GREETING_MESSAGE = "สวัสดีครับ ผมช่วยค้นหาความรู้ PEA และตรวจหรือเตรียมแจ้งเหตุไฟฟ้าขัดข้องได้ครับ"
 _THANKS_MESSAGE = "ยินดีครับ หากต้องการค้นหาข้อมูล PEA หรือตรวจสอบเหตุไฟฟ้าขัดข้อง เรียกใช้ผมได้เลยครับ"
 _CAPABILITY_MESSAGE = "ผมช่วยค้นหาความรู้ PEA และตรวจหรือเตรียมแจ้งเหตุไฟฟ้าขัดข้องด้วยหมายเลขผู้ใช้ไฟ 12 หลักได้ครับ"
+# ผลลัพธ์ planner เสียหายจนแยกวิเคราะห์ไม่ได้ ต้องบอกผู้ใช้อย่างตรงไปตรงมา ไม่ใช้ข้อความแนะนำความสามารถทั่วไป
+_PLANNER_PARSE_FAILURE_MESSAGE = "ขออภัยครับ ระบบประมวลผลคำขอนี้ไม่สำเร็จ กรุณาลองพิมพ์คำถามอีกครั้งครับ"
 _KNOWLEDGE_ESCALATION_MESSAGE = "ยังไม่พบคำตอบที่มีแหล่งอ้างอิงเพียงพอ เดี๋ยวผมขอส่งต่อคำถามนี้ให้เจ้าหน้าที่ช่วยตรวจสอบครับ"
 _DIRECT_RESPONSE_MESSAGES = {
     DirectResponseKind.GREETING: _GREETING_MESSAGE,
@@ -142,6 +147,9 @@ class MainAgent:
         direct_response_kind: DirectResponseKind | None = None
         seen_knowledge_calls: set[tuple[str, str]] = set()
         duplicate_knowledge_call = False
+        knowledge_searches = 0
+        knowledge_search_limit_reached = False
+        planner_retried = False
 
         for _ in range(_MAX_TOOL_STEPS):
             self._traces.append(trace_id, TraceEventKind.LLM_REQUESTED, {"messageCount": len(history), "toolCount": len(self._tool_catalogue)})
@@ -159,8 +167,16 @@ class MainAgent:
                 final_text = "ขณะนี้ไม่สามารถดำเนินการตามคำขอได้ เนื่องจากบริการผู้ช่วยไม่พร้อมใช้งานครับ"
                 break
 
-            calls, planner_text, parsed_direct_response = _calls_from_response(response)
+            calls, planner_text, parsed_direct_response, planner_malformed = _calls_from_response(response)
             self._traces.append(trace_id, TraceEventKind.LLM_RESPONDED, {"toolCallCount": len(calls), "hasText": bool(response.text or planner_text)})
+            if planner_malformed:
+                # ผลลัพธ์ planner เสียหาย ไม่ใช่การตอบตรงโดยตั้งใจ — บันทึก trace แล้วลองใหม่ครั้งเดียว
+                self._traces.append(trace_id, TraceEventKind.ERROR, {"stage": "planner_parse"})
+                if planner_retried:
+                    final_text = _PLANNER_PARSE_FAILURE_MESSAGE
+                    break
+                planner_retried = True
+                continue
             final_text = planner_text or response.text or final_text
             if not calls:
                 direct_completion_text = final_text
@@ -180,6 +196,14 @@ class MainAgent:
                 call for call in calls if call.action in PREPARE_TO_SUBMIT
             )
             for call in ordered_calls:
+                # planner ขยายถ้อยคำค้นหาใหม่ทุกรอบ ทำให้ guard กัน input ซ้ำจับไม่ได้
+                # จึงตัดการค้นหาที่เกินโควตาต่อเทิร์น แล้วใช้ผลที่ค้นได้แล้วไปตอบแทน
+                if call.name is ToolName.KNOWLEDGE:
+                    if knowledge_searches >= _MAX_KNOWLEDGE_SEARCHES_PER_TURN:
+                        self._traces.append(trace_id, TraceEventKind.ERROR, {"stage": "knowledge_search_limit", "maximum": _MAX_KNOWLEDGE_SEARCHES_PER_TURN})
+                        knowledge_search_limit_reached = True
+                        break
+                    knowledge_searches += 1
                 # การเรียกอ่านข้อมูลด้วย input ชุดเดิมซ้ำย่อมให้ผลเหมือนเดิม
                 # จึงหยุดทันที เพื่อไม่ให้ผู้ใช้เห็นข้อความล้มเหลวซ้ำหลายรอบ
                 if call.name is ToolName.KNOWLEDGE or call.action not in PREPARE_TO_SUBMIT:
@@ -195,7 +219,7 @@ class MainAgent:
                 if result.status is ToolResultStatus.SUCCESS and result.action in PREPARE_TO_SUBMIT:
                     prepared = True
                     break
-            if prepared or duplicate_knowledge_call:
+            if prepared or duplicate_knowledge_call or knowledge_search_limit_reached:
                 break
         else:  # pragma: no cover - มีเงื่อนไขป้องกันไว้ด้านบน เพื่อระบุขีดจำกัดตายตัวให้ชัดเจน
             final_text = "ไม่สามารถดำเนินการตามคำขอได้ภายในขีดจำกัดขั้นตอนเครื่องมือครับ"
@@ -372,9 +396,14 @@ class MainAgent:
 
 def _calls_from_response(
     response: LLMResponse,
-) -> tuple[tuple[ToolCall, ...], str, DirectResponseKind | None]:
+) -> tuple[tuple[ToolCall, ...], str, DirectResponseKind | None, bool]:
+    """แยกวิเคราะห์คำตอบของ planner
+
+    ค่าตอบคืนลำดับที่สี่ (malformed) สื่อว่าข้อความของโมเดล "ตั้งใจ" เป็น JSON ของ planner
+    แต่แยกวิเคราะห์ไม่ได้ ต่างจากข้อความตรงธรรมดาที่ไม่ใช่ JSON ซึ่งไม่ถือว่าเสียหาย
+    """
     if response.tool_calls:
-        return response.tool_calls, "", None
+        return response.tool_calls, "", None, False
     try:
         payload = json.loads(response.text)
         allowed_keys = {"message", "toolCalls", "directResponse"}
@@ -384,16 +413,21 @@ def _calls_from_response(
             or not isinstance(payload["message"], str)
             or not isinstance(payload["toolCalls"], list)
         ):
-            return (), response.text, None
+            return (), response.text, None, _looks_like_planner_json(response.text)
         direct_response = DirectResponseKind(payload["directResponse"]) if payload["directResponse"] is not None else None
         calls = tuple(ToolCall(call_id=uuid4(), name=item["name"], action=item["action"], input=item["input"]) for item in payload["toolCalls"] if isinstance(item, dict) and set(item) == {"name", "action", "input"})
         if len(calls) != len(payload["toolCalls"]):
-            return (), "ไม่สามารถตีความการดำเนินการของเครื่องมือที่ร้องขอได้อย่างปลอดภัยครับ", None
+            return (), "ไม่สามารถตีความการดำเนินการของเครื่องมือที่ร้องขอได้อย่างปลอดภัยครับ", None, False
         if calls and direct_response is not None:
-            return (), "ไม่สามารถใช้ข้อความตรงร่วมกับการเรียกเครื่องมือได้ครับ", None
-        return calls, payload["message"], direct_response
+            return (), "ไม่สามารถใช้ข้อความตรงร่วมกับการเรียกเครื่องมือได้ครับ", None, False
+        return calls, payload["message"], direct_response, False
     except (json.JSONDecodeError, KeyError, TypeError, ValueError, ValidationError):
-        return (), response.text, None
+        return (), response.text, None, _looks_like_planner_json(response.text)
+
+
+def _looks_like_planner_json(text: str) -> bool:
+    """แยก JSON ของ planner ที่พยายามสร้างแต่เสียหาย ออกจากข้อความตรงธรรมดา"""
+    return text.lstrip().startswith("{")
 
 
 def _requires_final_only_output(text: str) -> bool:
@@ -563,13 +597,18 @@ def _result_facts(results: list[ToolResult], *, user_message: str = "") -> list[
 
 
 def _knowledge_fact(answer_context: str, user_message: str) -> str:
-    """Ask one useful follow-up when grounded evidence spans distinct applicant types."""
+    """ตอบด้วยหลักฐานที่ยืนยันแล้วเสมอ และเติมคำถามต่อเนื่องเมื่อเป็นเอกสารที่ขึ้นกับประเภทผู้ขอ"""
     question = user_message.casefold()
+    # คำถามเรื่องช่องทาง/ลิงก์/สถานที่ต้องการคำตอบที่มี URL อยู่ในหลักฐาน ไม่ใช่คำถามขอเอกสาร
+    channel_terms = ("ที่ไหน", "ช่องทาง", "ออนไลน์", "เว็บ", "ลิงก์", "link", "สมัครที่ไหน")
+    asks_about_channel = any(term in question for term in channel_terms)
     spans_applicant_types = "บุคคลธรรมดา" in answer_context and "นิติบุคคล" in answer_context
     user_selected_type = any(term in question for term in ("บุคคลธรรมดา", "นิติบุคคล", "บริษัท", "ธุรกิจ"))
-    if spans_applicant_types and not user_selected_type:
-        return (
-            "เอกสารที่ต้องเตรียมแตกต่างกันตามประเภทผู้ขอครับ "
+    asks_about_documents = any(term in question for term in ("เอกสาร", "หลักฐาน", "เตรียม", "แนบ"))
+    if spans_applicant_types and not user_selected_type and not asks_about_channel and asks_about_documents:
+        # ห้ามทิ้งคำตอบที่มี citation เดิม — เติมคำถามต่อเนื่องท้ายคำตอบแทนการแทนที่
+        return answer_context + (
+            " และเอกสารที่ต้องเตรียมแตกต่างกันตามประเภทผู้ขอครับ "
             "ขอทราบว่าเป็นการขอในนามบุคคลธรรมดาหรือนิติบุคคลครับ?"
         )
     return answer_context

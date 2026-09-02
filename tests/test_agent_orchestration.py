@@ -7,7 +7,12 @@ from uuid import uuid4
 import httpx
 import pytest
 
-from app.agent.main_agent import MainAgent
+from app.agent.main_agent import (
+    MainAgent,
+    _MAX_KNOWLEDGE_SEARCHES_PER_TURN,
+    _MAX_TOOL_STEPS,
+    _knowledge_fact,
+)
 from app.agent.registry import ToolRegistry
 from app.backends.full_document_knowledge import GroundedEvidence, KnowledgeBackendError
 from app.contracts import (
@@ -395,7 +400,7 @@ async def test_unsupported_intent_does_not_call_unrelated_knowledge_tool() -> No
 
 
 @pytest.mark.asyncio
-async def test_agent_loop_is_bounded_to_twelve_tool_calls() -> None:
+async def test_knowledge_searches_are_bounded_before_the_tool_step_limit() -> None:
     from app.llm import LLMResponse, ScriptedLLMAdapter
 
     citation = Citation(
@@ -424,8 +429,35 @@ async def test_agent_loop_is_bounded_to_twelve_tool_calls() -> None:
 
     response = await agent.handle_chat(ChatRequest(message="ทดสอบขอบเขตลูป"))
 
-    assert len(backend.calls) == 12
-    assert len(response.tool_results) == 12
+    # การค้นหาความรู้ถูกจำกัดต่อเทิร์น จึงเหลือเท่าเพดาน ไม่ใช่ขีดจำกัดลูปเครื่องมือเต็ม
+    assert len(backend.calls) == _MAX_KNOWLEDGE_SEARCHES_PER_TURN
+    assert len(response.tool_results) == _MAX_KNOWLEDGE_SEARCHES_PER_TURN
+
+
+@pytest.mark.asyncio
+async def test_agent_loop_is_still_bounded_by_the_tool_step_limit() -> None:
+    """เพดานค้นหาความรู้ไม่ได้แทนขีดจำกัดลูปเครื่องมือ เครื่องมืออื่นยังต้องถูกจำกัดที่ ``_MAX_TOOL_STEPS``"""
+    from app.llm import LLMResponse, ScriptedLLMAdapter
+
+    # OMS อ่านสถานะไม่ติดเพดาน Knowledge จึงใช้ตรวจขีดจำกัดลูปเครื่องมือที่แท้จริงได้
+    responses = [
+        LLMResponse(
+            tool_calls=(
+                ToolCall(
+                    call_id=uuid4(),
+                    name=ToolName.OMS,
+                    action=ToolAction.OMS_GET_OUTAGE_BY_CA,
+                    input={"caNumber": f"10000000{index:04d}"},
+                ),
+            )
+        )
+        for index in range(_MAX_TOOL_STEPS + 5)
+    ]
+    agent = MainAgent(LLMClient(ScriptedLLMAdapter(responses)), _registry())
+
+    response = await agent.handle_chat(ChatRequest(message="ทดสอบขีดจำกัดลูปเครื่องมือ"))
+
+    assert len(response.tool_results) <= _MAX_TOOL_STEPS
 
 
 @pytest.mark.asyncio
@@ -468,6 +500,49 @@ async def test_repeated_identical_knowledge_call_uses_first_grounded_result_only
 
 
 @pytest.mark.asyncio
+async def test_knowledge_search_cap_stops_reworded_repeats_and_keeps_grounded_answer() -> None:
+    """Regression: planner ขยายถ้อยคำค้นหาใหม่ทุกรอบ ทำให้ guard กัน input ซ้ำจับไม่ได้
+
+    เทิร์นเดียวเคยยิง knowledge search ถึง 5 ครั้ง เปลืองโควตาและท่วมแผงอ้างอิง
+    ตอนนี้จึงจำกัดจำนวนค้นหาต่อเทิร์น แล้วเรียบเรียงคำตอบจากผลที่ค้นได้แล้ว
+    """
+    from app.llm import LLMResponse, ScriptedLLMAdapter
+
+    citation = Citation(
+        sourceId="PEA_NEW_SERVICE",
+        title="เอกสารขอใช้ไฟฟ้าใหม่",
+        uri="knowledge://source/new-service.docx",
+        snippet="ขอใช้ไฟฟ้าใหม่ยื่นได้ที่สำนักงานการไฟฟ้าเขตพื้นที่บริการ",
+    )
+    backend = FakeKnowledgeBackend(
+        [GroundedEvidence("ขอใช้ไฟฟ้าใหม่ยื่นได้ที่สำนักงานการไฟฟ้าเขตพื้นที่บริการ", 1, (citation,))]
+    )
+    # คำค้นต่างกันทุกครั้ง จึงไม่โดน guard กัน input ซ้ำตรง ๆ
+    responses = [
+        LLMResponse(
+            tool_calls=(
+                ToolCall(
+                    call_id=uuid4(),
+                    name=ToolName.KNOWLEDGE,
+                    action=ToolAction.KNOWLEDGE_SEARCH,
+                    input={"query": f"ช่องทางขอใช้ไฟฟ้าใหม่ แบบที่ {index}", "maxResults": 3},
+                ),
+            )
+        )
+        for index in range(5)
+    ]
+    agent = MainAgent(LLMClient(ScriptedLLMAdapter(responses)), _registry(backend))
+
+    response = await agent.handle_chat(ChatRequest(message="ขอใช้ไฟฟ้าใหม่ทำได้ที่ไหน"))
+
+    assert len(backend.calls) == _MAX_KNOWLEDGE_SEARCHES_PER_TURN
+    assert len(response.tool_results) == _MAX_KNOWLEDGE_SEARCHES_PER_TURN
+    assert response.message == "ขอใช้ไฟฟ้าใหม่ยื่นได้ที่สำนักงานการไฟฟ้าเขตพื้นที่บริการ"
+    assert response.citations == (citation,)
+    assert "ยังไม่พบคำตอบ" not in response.message
+
+
+@pytest.mark.asyncio
 async def test_grounded_multi_applicant_answer_asks_useful_clarification() -> None:
     citation = Citation(
         sourceId="NEW_SERVICE",
@@ -491,7 +566,35 @@ async def test_grounded_multi_applicant_answer_asks_useful_clarification() -> No
 
     assert "บุคคลธรรมดาหรือนิติบุคคล" in response.message
     assert response.citations == (citation,)
-    assert "หนังสือรับรองบริษัท" not in response.message
+    # หลักฐานที่ยืนยันแล้วต้องไม่ถูกทิ้ง — คำถามต่อเนื่องเติมท้ายคำตอบเดิม
+    assert "หนังสือรับรองบริษัท" in response.message
+
+
+def test_channel_question_with_links_keeps_grounded_answer_unchanged() -> None:
+    """Regression: คำถามช่องทาง/ลิงก์เคยถูกแทนที่ด้วยคำถามขอประเภทผู้ขอ ทำให้ URL หายไป"""
+    answer = (
+        "ยื่นคำขอออนไลน์ได้ที่ https://sabuyservice.pea.co.th/ "
+        "ลิงก์บุคคลธรรมดา https://eservice.pea.co.th/cos/individual/ "
+        "ลิงก์นิติบุคคล https://eservice.pea.co.th/cos/Corporate/"
+    )
+    for question in (
+        "ขอมิเตอร์ใหม่ ยื่นเรื่องออนไลน์ได้ที่ไหน ขอลิงก์ด้วย",
+        "แล้วสามารถไปทำบริการที่ไหนได้บ้างหรือต้องไปที่การไฟฟ้าอย่างเดียวหล่ะ",
+    ):
+        assert _knowledge_fact(answer, question) == answer
+
+
+def test_documents_question_spans_applicant_types_appends_clarification() -> None:
+    answer = "เอกสารสำหรับบุคคลธรรมดาและนิติบุคคลแตกต่างกัน"
+    out = _knowledge_fact(answer, "ขอใช้ไฟใหม่ต้องเตรียมเอกสารอะไรบ้าง")
+
+    assert "เอกสารสำหรับบุคคลธรรมดาและนิติบุคคลแตกต่างกัน" in out
+    assert "บุคคลธรรมดาหรือนิติบุคคล" in out
+
+
+def test_user_already_named_applicant_type_passes_through() -> None:
+    answer = "บุคคลธรรมดาและนิติบุคคลใช้เอกสารต่างกัน"
+    assert _knowledge_fact(answer, "นิติบุคคลขอใช้ไฟใหม่ต้องใช้เอกสารอะไร") == answer
 
 
 @pytest.mark.asyncio
@@ -596,3 +699,87 @@ async def test_outage_report_asks_for_ca_before_anonymous_inputs() -> None:
     assert "หมายเลขผู้ใช้ไฟ" in first.message
     assert "(CA)" in first.message
     assert "3 อย่างนี้" in first.message  # บอกทางเลือกไว้เผื่อไม่มี CA
+
+
+_TRUNCATED_PLANNER_JSON = '{"message": "", "toolCalls": [{"name": "knowledge_tool", "action": "search", "input": {"query": "คำถาม"}]'
+
+
+@pytest.mark.asyncio
+async def test_malformed_planner_json_twice_returns_honest_limitation_message() -> None:
+    """Regression: planner JSON เสียหายซ้ำสองครั้ง ต้องบอกข้อจำกัดตรง ๆ ไม่ใช้ข้อความความสามารถทั่วไป"""
+    from app.agent.main_agent import _CAPABILITY_MESSAGE, _PLANNER_PARSE_FAILURE_MESSAGE
+    from app.llm import LLMResponse, ScriptedLLMAdapter
+
+    adapter = ScriptedLLMAdapter([LLMResponse(text=_TRUNCATED_PLANNER_JSON) for _ in range(2)])
+    agent = MainAgent(LLMClient(adapter), _registry())
+
+    response = await agent.handle_chat(ChatRequest(message="ขอใช้ไฟใหม่ใช้เอกสารอะไร"))
+
+    assert response.message == _PLANNER_PARSE_FAILURE_MESSAGE
+    assert response.message != _CAPABILITY_MESSAGE
+    trace = agent.get_trace(response.trace_id)
+    parse_errors = [event for event in trace.events if event.kind.value == "error" and event.data.get("stage") == "planner_parse"]
+    assert len(parse_errors) == 2
+
+
+@pytest.mark.asyncio
+async def test_malformed_planner_json_retries_once_and_runs_tool() -> None:
+    """planner เสียหายครั้งเดียวแล้วตอบถูกต้องในครั้งถัดไป ต้องเรียกเครื่องมือและตอบด้วยหลักฐานจริง"""
+    from app.llm import LLMResponse, ScriptedLLMAdapter
+
+    citation = Citation(
+        sourceId="PEA_NEW_SERVICE",
+        title="เอกสารขอใช้ไฟฟ้าใหม่",
+        uri="knowledge://source/new-service.docx",
+        snippet="ใช้สำเนาบัตรประชาชนและทะเบียนบ้าน",
+    )
+    backend = FakeKnowledgeBackend(
+        [GroundedEvidence("ใช้สำเนาบัตรประชาชนและทะเบียนบ้าน", 1, (citation,))]
+    )
+    adapter = ScriptedLLMAdapter(
+        [
+            LLMResponse(text=_TRUNCATED_PLANNER_JSON),
+            LLMResponse(
+                tool_calls=(
+                    ToolCall(
+                        call_id=uuid4(),
+                        name=ToolName.KNOWLEDGE,
+                        action=ToolAction.KNOWLEDGE_SEARCH,
+                        input={"query": "ขอใช้ไฟใหม่ใช้เอกสารอะไร", "maxResults": 1},
+                    ),
+                )
+            ),
+        ]
+    )
+    agent = MainAgent(LLMClient(adapter), _registry(backend))
+
+    response = await agent.handle_chat(ChatRequest(message="ขอใช้ไฟใหม่ใช้เอกสารอะไร"))
+
+    assert len(backend.calls) == 1
+    assert response.citations[0].source_id == "PEA_NEW_SERVICE"
+    assert "สำเนาบัตรประชาชน" in response.message
+    trace = agent.get_trace(response.trace_id)
+    parse_errors = [event for event in trace.events if event.kind.value == "error" and event.data.get("stage") == "planner_parse"]
+    assert len(parse_errors) == 1
+
+
+@pytest.mark.asyncio
+async def test_valid_json_direct_response_without_tool_calls_is_unchanged() -> None:
+    """JSON ของ planner ที่สมบูรณ์และไม่มี toolCalls ยังเดินเส้นทางข้อความตรงเดิม"""
+    from app.agent.main_agent import _CAPABILITY_MESSAGE
+    from app.llm import LLMResponse, ScriptedLLMAdapter
+
+    adapter = ScriptedLLMAdapter(
+        [
+            LLMResponse(
+                text='{"message": "ตรวจสอบเรียบร้อยแล้วครับ", "toolCalls": [], "directResponse": null}'
+            )
+        ]
+    )
+    agent = MainAgent(LLMClient(adapter), _registry())
+
+    response = await agent.handle_chat(ChatRequest(message="คำถามทั่วไป"))
+
+    # ข้อความอิสระจากโมเดลยังถูกบังคับเป็นแม่แบบปลอดภัยเหมือนเดิม ไม่ใช่ข้อความข้อจำกัดใหม่
+    assert response.message == _CAPABILITY_MESSAGE
+    assert response.tool_results == ()
