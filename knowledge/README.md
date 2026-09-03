@@ -114,12 +114,9 @@ citation ทุกตัวต้องผ่านกฎต่อไปนี�
 
 | ตัวแปร | ความหมาย |
 |---|---|
-| `KNOWLEDGE_PROVIDER` | `gemini` (ค่าเริ่มต้น) หรือ `maxplus_openai` |
-| `GEMINI_API_KEY` | คีย์ Google AI Studio เมื่อเลือก `gemini`; ห้ามบันทึกใน repository หรือ trace |
+| `KNOWLEDGE_PROVIDER` | `gemini` (ค่าเริ่มต้น) |
+| `GEMINI_API_KEY` | คีย์ Google AI Studio; ห้ามบันทึกใน repository หรือ trace |
 | `GEMINI_LONG_CONTEXT_MODEL` | โมเดล Google สำหรับ Document Router และ full-file answer; ค่าเริ่มต้นคือ `gemini-3.5-flash` |
-| `MAXPLUS_API_KEY` | inference key รูปแบบ `ccsk-…` เมื่อเลือก `maxplus_openai`; ห้ามใช้ management token `ccmk-…` |
-| `MAXPLUS_BASE_URL` | OpenAI-compatible base URL ที่ตรงกับ pool ของ key เช่น `https://api.maxplus-ai.cc/v1` |
-| `MAXPLUS_MODEL` | model id ที่ pool นั้นเปิดให้ key ใช้งาน เช่น `gpt-5.4-mini` |
 | `KNOWLEDGE_SOURCE_ROOT` | root ของ corpus; ค่าเริ่มต้นคือ `<repo>/knowledge/source` |
 
 runtime อ่านเอกสารจาก `KNOWLEDGE_SOURCE_ROOT` โดยไม่ต้องใช้ชื่อ store หรือขั้นตอนอัปโหลดเอกสาร

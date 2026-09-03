@@ -8,10 +8,9 @@ from app.llm.adapter import LLMAdapter
 from app.llm.demo import DemoLLMAdapter
 from app.llm.demo_behavior import DemoBehavior
 from app.llm.gemini import GeminiLLMAdapter
-from app.llm.maxplus import MaxPlusDeepSeekAdapter
 
 
-SUPPORTED_LLM_PROVIDERS = frozenset({"demo", "gemini", "maxplus_openai"})
+SUPPORTED_LLM_PROVIDERS = frozenset({"demo", "gemini"})
 
 
 @dataclass(frozen=True, slots=True)
@@ -39,12 +38,6 @@ def create_llm_adapter(
             api_key=config.api_key,
             model=_required(config.model, "*_LLM_MODEL"),
             **kwargs,
-        )
-    if provider == "maxplus_openai":
-        return MaxPlusDeepSeekAdapter(
-            api_key=config.api_key,
-            model=_required(config.model, "MAIN_LLM_MODEL/JUDGE_LLM_MODEL"),
-            base_url=_required(config.base_url, "MAIN_LLM_BASE_URL/JUDGE_LLM_BASE_URL"),
         )
     raise ValueError(f"ไม่รองรับ LLM provider: {config.provider}")
 

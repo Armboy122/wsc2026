@@ -2,7 +2,7 @@
 
 import pytest
 
-from app.llm import DemoLLMAdapter, GeminiLLMAdapter, MaxPlusDeepSeekAdapter
+from app.llm import DemoLLMAdapter, GeminiLLMAdapter
 from app.llm.factory import LLMProviderConfig, create_llm_adapter
 
 
@@ -20,18 +20,6 @@ def test_factory_creates_gemini_adapter() -> None:
         )
     )
     assert isinstance(adapter, GeminiLLMAdapter)
-
-
-def test_factory_creates_maxplus_adapter() -> None:
-    adapter = create_llm_adapter(
-        LLMProviderConfig(
-            provider="maxplus_openai",
-            api_key="maxplus-secret",
-            model="deepseek-v4-flash-0731",
-            base_url="https://api.maxplus-ai.cc/v1",
-        )
-    )
-    assert isinstance(adapter, MaxPlusDeepSeekAdapter)
 
 
 def test_provider_config_repr_redacts_api_key() -> None:

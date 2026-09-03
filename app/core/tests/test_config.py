@@ -16,9 +16,6 @@ def test_default_settings() -> None:
     assert settings.knowledge_backend_name == "full_document"
     assert settings.gemini_api_key is None
     assert settings.knowledge_provider == "gemini"
-    assert settings.maxplus_api_key is None
-    assert settings.maxplus_base_url == "https://api.maxplus-ai.cc/v1"
-    assert settings.maxplus_model == "deepseek-v4-flash-0731"
     assert settings.knowledge_source_root == (
         Path(__file__).resolve().parents[3] / "knowledge" / "source"
     )
@@ -34,10 +31,6 @@ def test_env_override() -> None:
             "LLM_ADAPTER_NAME": "judge",
             "KNOWLEDGE_BACKEND_NAME": "other",
             "GEMINI_API_KEY": "sk-test",
-            "KNOWLEDGE_PROVIDER": "maxplus_openai",
-            "MAXPLUS_API_KEY": "ccsk-test",
-            "MAXPLUS_BASE_URL": "https://api.maxplus-ai.cc/gpt-lite/v1/",
-            "MAXPLUS_MODEL": "gpt-5.4-mini-fast",
             "KNOWLEDGE_SOURCE_ROOT": "/srv/pea-knowledge",
             "GEMINI_LONG_CONTEXT_MODEL": "gemini-3.6-pro",
         }
@@ -48,10 +41,7 @@ def test_env_override() -> None:
     assert settings.llm_adapter_name == "judge"
     assert settings.knowledge_backend_name == "other"
     assert settings.gemini_api_key == "sk-test"
-    assert settings.knowledge_provider == "maxplus_openai"
-    assert settings.maxplus_api_key == "ccsk-test"
-    assert settings.maxplus_base_url == "https://api.maxplus-ai.cc/gpt-lite/v1"
-    assert settings.maxplus_model == "gpt-5.4-mini-fast"
+    assert settings.knowledge_provider == "gemini"
     assert settings.knowledge_source_root == Path("/srv/pea-knowledge")
     assert settings.gemini_long_context_model == "gemini-3.6-pro"
 
@@ -62,49 +52,47 @@ def test_main_knowledge_and_judge_llm_configs_are_independent() -> None:
             "MAIN_LLM_PROVIDER": "gemini",
             "MAIN_LLM_MODEL": "gemini-2.5-flash",
             "GEMINI_API_KEY": "gemini-secret",
-            "JUDGE_LLM_PROVIDER": "maxplus_openai",
+            "JUDGE_LLM_PROVIDER": "demo",
             "JUDGE_LLM_MODEL": "judge-model",
             "JUDGE_LLM_API_KEY": "judge-secret",
-            "JUDGE_LLM_BASE_URL": "https://api.maxplus-ai.cc/judge/v1/",
-            "KNOWLEDGE_LLM_PROVIDER": "maxplus_openai",
+            "JUDGE_LLM_BASE_URL": "https://judge.example/v1/",
+            "KNOWLEDGE_LLM_PROVIDER": "demo",
             "KNOWLEDGE_LLM_MODEL": "knowledge-model",
             "KNOWLEDGE_LLM_API_KEY": "knowledge-secret",
-            "KNOWLEDGE_LLM_BASE_URL": "https://api.maxplus-ai.cc/knowledge/v1/",
+            "KNOWLEDGE_LLM_BASE_URL": "https://knowledge.example/v1/",
         }
     )
 
     assert settings.main_llm.provider == "gemini"
     assert settings.main_llm.model == "gemini-2.5-flash"
     assert settings.main_llm.api_key == "gemini-secret"
-    assert settings.knowledge_llm.provider == "maxplus_openai"
+    assert settings.knowledge_llm.provider == "demo"
     assert settings.knowledge_llm.model == "knowledge-model"
     assert settings.knowledge_llm.api_key == "knowledge-secret"
-    assert settings.knowledge_llm.base_url == "https://api.maxplus-ai.cc/knowledge/v1"
-    assert settings.judge_llm.provider == "maxplus_openai"
+    assert settings.knowledge_llm.base_url == "https://knowledge.example/v1"
+    assert settings.judge_llm.provider == "demo"
     assert settings.judge_llm.model == "judge-model"
     assert settings.judge_llm.api_key == "judge-secret"
-    assert settings.judge_llm.base_url == "https://api.maxplus-ai.cc/judge/v1"
+    assert settings.judge_llm.base_url == "https://judge.example/v1"
 
 
 def test_legacy_main_llm_environment_is_still_supported() -> None:
     settings = Settings.from_env(
         {
-            "LLM_ADAPTER_NAME": "maxplus_openai",
-            "MAXPLUS_API_KEY": "legacy-secret",
-            "MAXPLUS_MODEL": "legacy-model",
-            "MAXPLUS_BASE_URL": "https://api.maxplus-ai.cc/v1",
+            "LLM_ADAPTER_NAME": "gemini",
+            "GEMINI_API_KEY": "legacy-secret",
+            "MAIN_LLM_MODEL": "legacy-model",
         }
     )
 
-    assert settings.main_llm.provider == "maxplus_openai"
+    assert settings.main_llm.provider == "gemini"
     assert settings.main_llm.api_key == "legacy-secret"
     assert settings.main_llm.model == "legacy-model"
 
 
 def test_empty_api_key_is_normalized_to_none() -> None:
-    settings = Settings.from_env({"GEMINI_API_KEY": "", "MAXPLUS_API_KEY": "  "})
+    settings = Settings.from_env({"GEMINI_API_KEY": ""})
     assert settings.gemini_api_key is None
-    assert settings.maxplus_api_key is None
 
 
 def test_load_dotenv(tmp_path: Path) -> None:
@@ -148,14 +136,12 @@ def test_settings_repr_does_not_expose_secrets() -> None:
     settings = Settings.from_env(
         {
             "GEMINI_API_KEY": "super-secret",
-            "MAXPLUS_API_KEY": "ccsk-also-secret",
             "KNOWLEDGE_SOURCE_ROOT": "/private/knowledge",
             "GEMINI_LONG_CONTEXT_MODEL": "gemini-3.6-pro",
         }
     )
     text = repr(settings)
     assert "super-secret" not in text
-    assert "ccsk-also-secret" not in text
     assert "/private/knowledge" in text
     assert "gemini-3.6-pro" in text
     assert "[REDACTED]" in text

@@ -14,7 +14,6 @@ def _comma_origins(raw: str) -> tuple[str, ...]:
 # ชื่อฟิลด์ที่ห้ามแสดงผ่าน repr/str/logging โดยเด็ดขาด
 _SECRET_FIELD_NAMES: frozenset[str] = frozenset({
     "gemini_api_key",
-    "maxplus_api_key",
     "oms_api_key",
     "voc_api_key",
     "line_channel_secret",
@@ -53,9 +52,6 @@ class Settings:
     knowledge_backend_name: str = "full_document"
     knowledge_provider: str = "gemini"
     gemini_api_key: str | None = None
-    maxplus_api_key: str | None = None
-    maxplus_base_url: str = "https://api.maxplus-ai.cc/v1"
-    maxplus_model: str = "deepseek-v4-flash-0731"
     knowledge_source_root: Path = field(
         default_factory=lambda: Path(__file__).resolve().parents[2]
         / "knowledge"
@@ -84,11 +80,6 @@ class Settings:
             return value if value is not None and value.strip() != "" else None
 
         gemini_api_key = _get("GEMINI_API_KEY")
-        maxplus_api_key = _get("MAXPLUS_API_KEY")
-        maxplus_base_url = env.get(
-            "MAXPLUS_BASE_URL", "https://api.maxplus-ai.cc/v1"
-        ).rstrip("/")
-        maxplus_model = env.get("MAXPLUS_MODEL", "deepseek-v4-flash-0731")
         gemini_long_context_model = env.get(
             "GEMINI_LONG_CONTEXT_MODEL", "gemini-3.5-flash-lite"
         )
@@ -128,10 +119,6 @@ class Settings:
                 default_model = gemini_model
                 default_key = gemini_api_key
                 default_base_url = None
-            elif provider == "maxplus_openai":
-                default_model = maxplus_model
-                default_key = maxplus_api_key
-                default_base_url = maxplus_base_url
             else:
                 default_model = None
                 default_key = None
@@ -176,9 +163,6 @@ class Settings:
             ).lower(),
             knowledge_provider=knowledge_llm.provider,
             gemini_api_key=gemini_api_key,
-            maxplus_api_key=maxplus_api_key,
-            maxplus_base_url=maxplus_base_url,
-            maxplus_model=maxplus_model,
             knowledge_source_root=Path(
                 env.get(
                     "KNOWLEDGE_SOURCE_ROOT",

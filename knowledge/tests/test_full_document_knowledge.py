@@ -12,7 +12,7 @@ from urllib.parse import unquote
 
 from app.backends.full_document_knowledge import (
     FullDocumentKnowledgeBackend,
-    _OpenAICompatibleClient,
+    _extract_document_text,
     _extract_docx_text,
     _json_response,
 )
@@ -75,8 +75,8 @@ def test_committed_tou_tariff_document_is_catalogued_with_verifiable_rates() -> 
     backend = FullDocumentKnowledgeBackend(api_key="test-key", source_root=source_root)
 
     catalog = backend._catalog()
-    document = catalog["PEA_อัตราค่าไฟฟ้า_TOU_2569.docx"]
-    text = _extract_docx_text(document.path)
+    document = catalog["PEA_อัตราค่าไฟฟ้า_TOU_2569.md"]
+    text = _extract_document_text(document.path)
 
     assert document.title == "อัตราค่าไฟฟ้า TOU (Time of Use) ปี 2569"
     assert "Peak 5.1135 บาท/หน่วย" in text
@@ -91,9 +91,9 @@ def test_committed_tou_tariff_document_returns_a_grounded_citation() -> None:
     service, _ = backend(
         source_root,
         [
-            '{"sourceIds":["PEA_อัตราค่าไฟฟ้า_TOU_2569.docx"]}',
+            '{"sourceIds":["PEA_อัตราค่าไฟฟ้า_TOU_2569.md"]}',
             '{"answer":"Peak คือวันจันทร์-วันศุกร์ เวลา 09.00-22.00 น.",'
-            '"citations":[{"sourceId":"PEA_อัตราค่าไฟฟ้า_TOU_2569.docx",'
+            '"citations":[{"sourceId":"PEA_อัตราค่าไฟฟ้า_TOU_2569.md",'
             f'"snippet":"{snippet}"}}]}}',
         ],
     )
@@ -101,7 +101,7 @@ def test_committed_tou_tariff_document_returns_a_grounded_citation() -> None:
     evidence = asyncio.run(service.search("อยากรู้อัตรค่าบริการ TOU", 3))
 
     assert evidence.result_count == 1
-    assert evidence.citations[0].source_id == "PEA_อัตราค่าไฟฟ้า_TOU_2569.docx"
+    assert evidence.citations[0].source_id == "PEA_อัตราค่าไฟฟ้า_TOU_2569.md"
     assert evidence.citations[0].snippet == snippet
 
 
@@ -118,50 +118,6 @@ def test_gemini_json_response_requests_json_without_unsupported_thinking_overrid
             "config": {"response_mime_type": "application/json"},
         }
     ]
-
-
-def test_maxplus_openai_client_posts_chat_completion_and_parses_json() -> None:
-    captured = {}
-
-    class Response:
-        def __enter__(self):
-            return self
-
-        def __exit__(self, *_args):
-            return None
-
-        def read(self, _size: int = -1) -> bytes:
-            return json.dumps(
-                {"choices": [{"message": {"content": '{"sourceIds":["rates.docx"]}'}}]}
-            ).encode()
-
-    def urlopen(request, timeout):
-        captured["url"] = request.full_url
-        captured["headers"] = dict(request.header_items())
-        captured["body"] = json.loads(request.data)
-        captured["timeout"] = timeout
-        return Response()
-
-    client = _OpenAICompatibleClient(
-        api_key="ccsk-secret",
-        base_url="https://api.maxplus-ai.cc/gpt-lite/v1/",
-        timeout_seconds=7,
-        urlopen=urlopen,
-    )
-
-    result = _json_response(client, "gpt-5.4-mini", "route this")
-
-    assert result == {"sourceIds": ["rates.docx"]}
-    assert captured["url"] == "https://api.maxplus-ai.cc/gpt-lite/v1/chat/completions"
-    assert captured["headers"]["Authorization"] == "Bearer ccsk-secret"
-    assert captured["body"] == {
-        "model": "gpt-5.4-mini",
-        "max_tokens": 4096,
-        "temperature": 0,
-        "stream": False,
-        "messages": [{"role": "user", "content": "route this"}],
-    }
-    assert captured["timeout"] == 7
 
 
 def test_search_sends_only_selected_complete_file_and_safe_citation(tmp_path: Path) -> None:

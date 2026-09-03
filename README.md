@@ -75,8 +75,8 @@ knowledge/source/qa/       คำถาม-คำตอบที่อนุม�
 
 - ตั้งค่าใน `.env`:
   ```dotenv
-  KNOWLEDGE_LLM_PROVIDER=gemini        # หรือ maxplus_openai
-  GEMINI_API_KEY=your-google-ai-key    # เมื่อใช้ gemini
+  KNOWLEDGE_LLM_PROVIDER=gemini
+  GEMINI_API_KEY=your-google-ai-key
   ```
 - ตรวจสอบความพร้อมได้ที่ `http://127.0.0.1:8000/health` — ต้องเห็น
   `"knowledge_backend": "ready"` (ถ้าเป็น `unavailable` แปลว่า key/ไฟล์ไม่พร้อม)
@@ -149,8 +149,8 @@ uv run pytest -q
 
 | บทบาท | ตัวแปร | ค่าที่รองรับ |
 |---|---|---|
-| Main Agent | `MAIN_LLM_PROVIDER` / `MAIN_LLM_MODEL` | `demo`, `gemini`, `maxplus_openai` |
-| Knowledge | `KNOWLEDGE_LLM_PROVIDER` / `KNOWLEDGE_LLM_MODEL` | `gemini`, `maxplus_openai` |
+| Main Agent | `MAIN_LLM_PROVIDER` / `MAIN_LLM_MODEL` | `demo`, `gemini` |
+| Knowledge | `KNOWLEDGE_LLM_PROVIDER` / `KNOWLEDGE_LLM_MODEL` | `gemini` |
 | Judge | `JUDGE_LLM_PROVIDER` | `demo` (สำหรับการพัฒนาทั่วไป) |
 
 ตัวอย่างการตั้งค่า Gemini:
@@ -163,18 +163,6 @@ KNOWLEDGE_LLM_MODEL=gemini-3.5-flash-lite
 GEMINI_API_KEY=your-google-ai-key
 JUDGE_LLM_PROVIDER=demo
 ```
-
-ตัวอย่างการตั้งค่า MaxPlus (OpenAI-compatible):
-
-```dotenv
-MAIN_LLM_PROVIDER=maxplus_openai
-KNOWLEDGE_LLM_PROVIDER=maxplus_openai
-MAXPLUS_API_KEY=your-ccsk-key
-MAXPLUS_BASE_URL=https://api.maxplus-ai.cc/v1
-MAXPLUS_MODEL=deepseek-v4-flash-0731
-```
-
-> ⚠️ ใช้ `ccsk-…` key สำหรับ inference เท่านั้น — ห้ามใช้ `ccmk-…` management token
 
 ### ตัวแปรอื่น ๆ ที่น่าสนใจ
 

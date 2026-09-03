@@ -5,7 +5,6 @@ from app.llm.client import JudgeLLMClient, LLMClient
 from app.llm.demo import DemoLLMAdapter
 from app.llm.factory import LLMProviderConfig, create_llm_adapter
 from app.llm.gemini import GeminiLLMAdapter
-from app.llm.maxplus import MaxPlusDeepSeekAdapter
 from app.llm.models import (
     KnowledgeConversationContext,
     LLMMessage,
@@ -27,7 +26,6 @@ __all__ = [
     "LLMResponse",
     "LLMProviderConfig",
     "LLMUnavailableError",
-    "MaxPlusDeepSeekAdapter",
     "create_llm_adapter",
     "ScriptedLLMAdapter",
     "ToolDefinition",
