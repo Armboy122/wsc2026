@@ -10,6 +10,8 @@ dependencies = [
   "httpx>=0.27",
   # ใช้อ่าน plugin manifest ตอน startup (เดิมติดมากับ uvicorn[standard] โดยบังเอิญ)
   "pyyaml>=6.0,<7.0",
+  # ใช้ validate declarative tool schema/definition
+  "jsonschema[format]>=4.23,<5.0",
 ]
 
 [project.optional-dependencies]
