@@ -121,8 +121,23 @@ shape ตาม `ARCHITECTURE-V2.md` §3.4 · `source` ห้ามใช้ต�
 - `TOOL_ACTIONS` / `PREPARE_TO_SUBMIT` เป็น data ต่อ tool
 - **คง enum เป็น alias** (ไม่ลบใน 3 วันนี้ เพราะ voc/knowledge ยังใช้)
 
-### D2.6 ย้าย `sabuy` เป็น declarative (**ตัวพิสูจน์**)
-สร้างจาก DB ล้วน · dormant อยู่แล้ว พังก็ไม่กระทบ
+### D2.6 ลบ `sabuy` ทิ้ง แล้วสร้าง declarative tool ตัวใหม่ (**ตัวพิสูจน์**)
+
+**ลบก่อน** — ตรวจแล้วเป็น dead code สมบูรณ์:
+- ไม่มี `app/plugins/sabuy/` (ไม่ใช่ plugin ด้วยซ้ำ)
+- ไม่ถูกลงทะเบียนใน `registry` หรือ `startup`
+- `simulated_sabuy.py` อ่าน JSON ในโปรเซส **ไม่มี HTTP call เลย** ⇒ ใช้พิสูจน์ declarative tool (ซึ่งคือ HTTP tool) ไม่ได้
+- `ToolName.SABUY` เหลือแค่ค่า enum ลอย ๆ ใน `contracts.py`
+
+ลบ: `app/tools/sabuy_tool.py` · `app/backends/simulated_sabuy.py` · เทสของทั้งสอง · `ToolName.SABUY` + `ToolAction.SABUY_*` · `data/mock/sabuy_accounts.json` · การอ้างอิงใน `contracts.py`
+
+**แล้วสร้าง declarative tool ตัวใหม่จากหน้า admin** ที่ยิงไปปลายทาง REST จริง (ใช้ OMS base URL ที่มีอยู่ หรือ endpoint สาธารณะที่ตอบ JSON ก็ได้)
+
+ดีกว่าการย้าย sabuy ตรงที่:
+- ไม่ต้องเขียน mock HTTP server ขึ้นมาเพื่อให้มีปลายทางให้ยิง
+- **เป็นภาพที่กรรมการจะได้เห็นพอดี** — สร้าง tool ใหม่จาก UI แล้วใช้ได้เลย
+- พิสูจน์ครบทั้งเส้น: form → schema validation → SSRF check → executor → agent เรียกได้
+
 **นี่คือจุดที่รู้ว่า contract ใช้ได้จริงไหม — ถ้าติดให้หยุดแล้วทบทวน อย่าดันต่อ**
 
 ### D2.7 ย้าย `oms`
@@ -199,7 +214,7 @@ ls app/prompts/                                               # ต้องไ�
 
 ```
 1. D3.6 หน้าแก้ prompt        (แก้ผ่าน DB ตรง ๆ ในเดโมได้)
-2. D2.7 ย้าย oms              (sabuy อย่างเดียวก็พิสูจน์ contract แล้ว)
+2. D2.7 ย้าย oms              (tool ใหม่จาก admin อย่างเดียวก็พิสูจน์ contract แล้ว)
 3. D3.3 หน้ารายการ tool       (มีแค่ฟอร์มสร้างก็เดโมได้)
 ```
 
@@ -227,7 +242,7 @@ ls app/prompts/                                               # ต้องไ�
 | ความเสี่ยง | สัญญาณเตือน | ทำยังไง |
 |---|---|---|
 | **D1.5 ยากกว่าที่คิด** (`main_agent.py` 872 บรรทัด) | เย็นวันที่ 1 ยังเหลือ >4 จุด | ยอมเหลือจุด `clientContext` ไว้ ทำ 11/12 จุดพอ — ยังพูดได้ว่าเหลือจุดเดียว |
-| **D2.6 sabuy ติดปัญหา contract** | เที่ยงวันที่ 2 ยังรันไม่ได้ | **หยุดแล้วทบทวน contract** อย่าดันต่อไป oms — นี่คือสัญญาณว่าสเปกมีจุดบอด |
+| **D2.6 tool ใหม่ยิงไม่ออก** | เที่ยงวันที่ 2 ยังรันไม่ได้ | **หยุดแล้วทบทวน contract** อย่าดันต่อไป oms — นี่คือสัญญาณว่าสเปกมีจุดบอด |
 | **หน้า admin กินเวลาเกิน** | บ่ายวันที่ 3 ฟอร์มยังไม่เสร็จ | ตัด D3.3/D3.6 เหลือแค่ฟอร์มสร้าง + ปุ่มลองยิง |
 | **เดโมพังตอนซ้อม** | D3.7 ไม่ผ่าน | revert ไปคอมมิตล่าสุดที่ `evaluate` ผ่าน — **commit บ่อย ๆ ทุกงานย่อย** |
 

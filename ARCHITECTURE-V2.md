@@ -180,7 +180,7 @@ source       : "db" | "code"              ใช้แค่ตอน admin/heal
 | policy | รับประกันอะไร | ใครใช้ |
 |---|---|---|
 | `grounded_answer` | ผลต้องมี citation จริงถึงจะถูกส่งต่อ · ห้าม LLM เรียบเรียงเนื้อหาเอง · ไม่มี citation = แทนด้วยข้อความ escalation | knowledge |
-| `write_confirm` | บังคับ `prepare_* → confirm → submit_*` · `submit` ต้อง `exposure: internal` เสมอ · ผล prepare หยุด loop เพื่อรอมนุษย์ | oms, voc, sabuy |
+| `write_confirm` | บังคับ `prepare_* → confirm → submit_*` · `submit` ต้อง `exposure: internal` เสมอ · ผล prepare หยุด loop เพื่อรอมนุษย์ | oms, voc |
 | `guided_flow` | tool ยึดบทสนทนาชั่วคราวเพื่อเก็บข้อมูลทีละขั้น · agent ส่งต่อ turn ให้ flow แทนการวางแผนเอง | voc intake |
 | `plain_read` | อ่านแล้วจบ ไม่มีผลข้างเคียง | read operations ทั้งหมด |
 
@@ -380,7 +380,8 @@ maxButtons       : int      LINE quick reply 13
   voiceConfirm: false   # เงินจริง ฟังผิด = เงินหาย
 ```
 
-ติดธง `false` เฉพาะ operation ที่เกี่ยวกับ **เงิน** หรือ **ข้อมูลส่วนบุคคลที่เปิดเผยไม่ได้ทางเสียง** — ณ วันนี้มีตัวเดียวคือ Sabuy payment
+ติดธง `false` เฉพาะ operation ที่เกี่ยวกับ **เงิน** หรือ **ข้อมูลส่วนบุคคลที่เปิดเผยไม่ได้ทางเสียง**
+ณ วันนี้ **ยังไม่มี operation ไหนติดธงนี้** — กลไกเตรียมไว้สำหรับ tool ที่เกี่ยวกับเงินในอนาคต
 operation ที่ติดธงนี้ในช่องทางเสียง → ตกไปที่ handoff (§6.5)
 
 ### 6.3 คำยืนยันจับคู่ตายตัว ห้าม LLM ตีความ · ปฏิเสธ = เข้าโหมดแก้ไข
@@ -772,17 +773,19 @@ HTML/JS ธรรมดาต่อยอด `web/index.html` เดิม **ไ
 | `knowledge_tool` | **Python plugin** | full-document grounding + citation validation (23KB) เป็นโค้ดจริง |
 | `voc_tool` | **Python plugin** | guided flow derive คำถามจาก catalog + จับ pattern ภาษาไทย |
 | `oms_tool` | **Python plugin** | มี `clientContext` + prepare/submit |
-| `sabuy_tool` | **declarative** | dormant ไม่มีใครใช้ พังก็ไม่กระทบเดโม = เคสทดสอบที่สมบูรณ์แบบ |
+| ~~`sabuy_tool`~~ | **ลบทิ้ง** | ตรวจแล้วเป็น dead code: ไม่มี `app/plugins/sabuy/` · ไม่ถูกลงทะเบียนใน registry/startup · backend อ่าน JSON ในโปรเซสไม่มี HTTP call ⇒ ใช้เป็นตัวพิสูจน์ declarative tool ไม่ได้ |
+| **tool ใหม่จากหน้า admin** | **declarative (ตัวพิสูจน์)** | สร้างจาก UI จริง ยิงไป REST จริง — พิสูจน์ทั้งเส้น form → validation → SSRF → executor → agent |
 
 ⚠️ สิ่งที่เปลี่ยนสำหรับ Python plugin **ไม่ใช่ "ย้ายไป DB"** แต่คือ `plugin.yaml` ใช้ `inputSchema:` JSON Schema แทนชื่อคลาส
 
 ### 12.2 ลำดับ
 
 ```text
-1. sabuy      → พิสูจน์ contract ใหม่ทั้งชุด โดยไม่เสี่ยงอะไรเลย
-2. oms        → พิสูจน์ clientContext + write_confirm
-3. voc        → พิสูจน์ guided_flow
-4. knowledge  → พิสูจน์ grounded_answer (ยากสุด กระทบเดโมมากสุด)
+0. ลบ sabuy ทิ้ง        → dead code ไม่ต้องย้าย
+1. tool ใหม่จาก admin   → พิสูจน์ contract ใหม่ทั้งชุด โดยไม่แตะของเดิม
+2. oms                  → พิสูจน์ clientContext + write_confirm
+3. voc                  → พิสูจน์ guided_flow
+4. knowledge            → พิสูจน์ grounded_answer (ยากสุด กระทบเดโมมากสุด)
 ```
 
 เรียงจาก "พังแล้วไม่มีใครเดือดร้อน" ไป "พังแล้วเดโมล่ม" ⇒ ถ้า contract ผิดจะรู้ตั้งแต่ขั้นที่ 1

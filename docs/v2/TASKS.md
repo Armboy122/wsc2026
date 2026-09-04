@@ -156,8 +156,12 @@
 > **ห้ามข้ามลำดับ** — เรียงจาก "พังแล้วไม่มีใครเดือดร้อน" ไป "พังแล้วเดโมล่ม"
 > ทุกขั้นต้องผ่าน `pytest` + `evaluate` ก่อนไปขั้นถัดไป
 
-### T5.1 `sabuy_tool` → declarative (ตัวพิสูจน์)
-- สร้างจาก DB ล้วน · dormant อยู่แล้ว พังก็ไม่กระทบ
+### T5.0 ลบ `sabuy` ทิ้ง (dead code)
+ลบ `app/tools/sabuy_tool.py` · `app/backends/simulated_sabuy.py` · เทสของทั้งสอง · `ToolName.SABUY` และ action ที่เกี่ยวข้องใน `contracts.py` · `data/mock/sabuy_accounts.json`
+ตรวจแล้วว่าไม่มี `app/plugins/sabuy/` · ไม่ถูกลงทะเบียนใน registry/startup · backend อ่าน JSON ในโปรเซสไม่มี HTTP call
+
+### T5.1 สร้าง declarative tool ตัวใหม่จากหน้า admin (ตัวพิสูจน์)
+- สร้างจาก UI จริง ยิงไป REST จริง ไม่แตะ tool เดิมเลย
 - **นี่คือจุดที่จะรู้ว่า contract ใหม่ใช้ได้จริงหรือไม่** — ถ้าติดตรงไหนให้หยุดแล้วทบทวน อย่าดันต่อ
 
 ### T5.2 `oms_tool`
@@ -194,7 +198,7 @@
 - **เทสบังคับ**: action เดิมยัง terminal หลังเข้าโหมดแก้ไข
 
 ### T6.3 `voiceConfirm` + citation degrade
-- default `true` · Sabuy payment = `false`
+- default `true` · ยังไม่มี operation ไหนติดธง `false` (กลไกเตรียมไว้สำหรับ tool ที่เกี่ยวกับเงิน)
 - เสียง**ไม่พูดอ้างอิงเลย** แต่ trace บันทึก citation ครบ + `RESPONSE_DEGRADED`
 
 ### T6.4 หลักฐานการยืนยัน
