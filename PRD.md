@@ -93,7 +93,7 @@ MVP นี้ไม่ครอบคลุม:
 - ระบบเรียนรู้จากแชตหรือเผยแพร่คำตอบเจ้าหน้าที่โดยอัตโนมัติ
 - production-scale observability, availability หรือ performance hardening
 
-รายละเอียดงานเรียนรู้จากคำถามที่ตอบไม่ได้เป็น roadmap แยกใน `docs/plans/qa-learning-roadmap.md`
+รายละเอียดงานเรียนรู้จากคำถามที่ตอบไม่ได้เป็น roadmap แยกใน `docs/qa-learning-roadmap.md`
 
 ## 7. MVP Scope
 
@@ -403,5 +403,5 @@ Known gaps ณ baseline นี้:
 - Executable schemas: `app/contracts.py`
 - Setup and current headline status: `README.md`
 - Verification evidence: `docs/integration_report.md`
-- Optional QA learning roadmap: `docs/plans/qa-learning-roadmap.md`
+- Optional QA learning roadmap: `docs/qa-learning-roadmap.md`
 - Web demo behavior: `web/README.md`
