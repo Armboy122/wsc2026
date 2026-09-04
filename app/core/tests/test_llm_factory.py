@@ -2,7 +2,7 @@
 
 import pytest
 
-from app.llm import DemoLLMAdapter, GeminiLLMAdapter
+from app.llm import DemoLLMAdapter, GeminiLLMAdapter, OpenAICompatibleLLMAdapter
 from app.llm.factory import LLMProviderConfig, create_llm_adapter
 
 
@@ -20,6 +20,29 @@ def test_factory_creates_gemini_adapter() -> None:
         )
     )
     assert isinstance(adapter, GeminiLLMAdapter)
+
+
+def test_factory_creates_openai_compatible_adapter() -> None:
+    adapter = create_llm_adapter(
+        LLMProviderConfig(
+            provider="local",
+            api_key="local-secret",
+            model="qwen3.8-27b",
+            base_url="http://localhost:11434/v1",
+            thinking=True,
+            effort="high",
+        )
+    )
+    assert isinstance(adapter, OpenAICompatibleLLMAdapter)
+
+
+def test_factory_rejects_invalid_effort() -> None:
+    with pytest.raises(ValueError, match="effort"):
+        create_llm_adapter(
+            LLMProviderConfig(
+                provider="local", model="model", base_url="http://localhost/v1", effort="off"
+            )
+        )
 
 
 def test_provider_config_repr_redacts_api_key() -> None:

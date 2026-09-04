@@ -209,6 +209,8 @@ class LLMAdapter(Protocol):
 
 อะแดปเตอร์ต้องไม่มีนโยบายของ PEA, ข้อมูลลับในผลลัพธ์ trace หรือการเข้าถึงระบบหลังบ้านโดยตรง
 
+การเลือก LLM สำหรับ Main/Judge อยู่ใน `llm-settings.yaml` ที่ commit ได้ (provider, model, base URL, thinking และ effort) ส่วน `api_key_env` ชี้เพียง **ชื่อ** environment variable ที่ต้องมีค่าใน runtime และไม่มี credential ในไฟล์ settings. Factory รองรับ Gemini, demo และ OpenAI-compatible endpoint (`local`) สำหรับ Main/Judge; Knowledge และ Voice ยังคง Gemini-only ตามสัญญา grounding/voice ของระบบ.
+
 ### จุดเชื่อมต่อของโมดูล Tool
 
 แต่ละ tool มีส่วนเชื่อมต่อแบบจำกัดขอบเขตหนึ่งรายการ:

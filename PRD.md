@@ -228,7 +228,7 @@ Sabuy และ VOC ไม่ลงทะเบียนใน runtime catalogue
 
 ### FR-7 Configuration
 
-- Main, Knowledge และ Judge เลือก provider/model แยกกันผ่าน environment
+- Main, Knowledge และ Judge เลือก provider/model แยกกันผ่านไฟล์ LLM settings ที่ไม่มี credential; environment ใช้เก็บ key และ override ชั่วคราว
 - Credential ต้องไม่ปรากฏใน repository, health response, logs หรือ object representation
 - ห้ามอ้างว่า provider ทำงานจริงจนกว่าจะยืนยันด้วย real request
 

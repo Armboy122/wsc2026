@@ -143,26 +143,47 @@ uv run pytest -q
 
 ## ตั้งค่าเพิ่มเติม (ตัวแปร environment หลัก)
 
-ไฟล์ตั้งค่าอยู่ที่ `.env` (สร้างจาก `cp .env.example .env` — **ห้าม commit .env**)
+`llm-settings.yaml` เก็บเฉพาะค่าที่ไม่ลับของ LLM: provider, model, base URL, thinking และ effort จึง commit และแก้เพื่อสลับ runtime ได้อย่างปลอดภัย ส่วน credential อยู่ใน **system environment** เท่านั้น (หรือ `.env` ที่ถูก ignore สำหรับเครื่องพัฒนา) ห้าม commit `.env`.
 
-### Provider ของ LLM (เลือกแยกกันได้)
+### Provider ของ LLM
 
-| บทบาท | ตัวแปร | ค่าที่รองรับ |
+| บทบาท | ตั้งค่าใน `llm-settings.yaml` | รองรับ |
 |---|---|---|
-| Main Agent | `MAIN_LLM_PROVIDER` / `MAIN_LLM_MODEL` | `demo`, `gemini` |
-| Knowledge | `KNOWLEDGE_LLM_PROVIDER` / `KNOWLEDGE_LLM_MODEL` | `gemini` |
-| Judge | `JUDGE_LLM_PROVIDER` | `demo` (สำหรับการพัฒนาทั่วไป) |
+| Main Agent | `roles.main` | `gemini`, `local` (OpenAI-compatible), `demo` |
+| Judge | `roles.judge` | `gemini`, `local` (OpenAI-compatible), `demo` |
+| Knowledge | `roles.knowledge` | `gemini` เท่านั้น (Full-file Long Context ที่ตรวจสอบแล้ว) |
+| Live Voice | environment | Gemini เท่านั้น |
 
-ตัวอย่างการตั้งค่า Gemini:
+ตัวอย่างใช้ Gemini แบบตอบไว:
 
-```dotenv
-MAIN_LLM_PROVIDER=gemini
-MAIN_LLM_MODEL=gemini-3.5-flash-lite
-KNOWLEDGE_LLM_PROVIDER=gemini
-KNOWLEDGE_LLM_MODEL=gemini-3.5-flash-lite
-GEMINI_API_KEY=your-google-ai-key
-JUDGE_LLM_PROVIDER=demo
+```yaml
+roles:
+  main:
+    provider: gemini
+    model: gemini-3.5-flash-lite
+    thinking: false
+    effort: low
 ```
+
+ตัวอย่างสลับ Main Agent ไป endpoint OpenAI-compatible ใดก็ได้:
+
+```yaml
+providers:
+  local:
+    api: openai-compatible
+    api_key_env: LOCAL_LLM_API_KEY
+    base_url: http://localhost:11434/v1
+roles:
+  main:
+    provider: local
+    model: qwen3.8-27b
+    thinking: false
+    effort: low
+```
+
+จากนั้นตั้ง `LOCAL_LLM_API_KEY` ใน system environment (เว้นว่างได้หาก endpoint ไม่ต้อง auth) แล้ว restart API. `thinking: false` ส่ง `reasoning_effort: none`; เมื่อเปิดให้เลือก `effort: low`, `medium`, หรือ `high`. Endpoint ต้องรองรับ OpenAI Chat Completions และ `reasoning_effort`.
+
+ค่าสภาพแวดล้อม `MAIN_LLM_PROVIDER`, `MAIN_LLM_MODEL`, `MAIN_LLM_BASE_URL`, `MAIN_LLM_THINKING`, และ `MAIN_LLM_EFFORT` ใช้ override ชั่วคราวเหนือไฟล์ settings ได้.
 
 ### ตัวแปรอื่น ๆ ที่น่าสนใจ
 

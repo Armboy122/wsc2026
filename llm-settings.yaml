@@ -1,0 +1,33 @@
+# LLM configuration without credentials.
+# Change a role's `provider`, `model`, `thinking`, or `effort`, then restart the API.
+# The actual API keys are read only from the named SYSTEM environment variables.
+
+providers:
+  gemini:
+    api: gemini
+    api_key_env: GEMINI_API_KEY
+  local:
+    # Any OpenAI Chat Completions-compatible endpoint: Ollama, vLLM, LM Studio,
+    # a LAN inference server, or a hosted compatible gateway.
+    api: openai-compatible
+    api_key_env: LOCAL_LLM_API_KEY
+    base_url: http://localhost:11434/v1
+
+roles:
+  main:
+    provider: gemini
+    model: gemini-3.5-flash-lite
+    # false = ask the provider to minimize reasoning latency for customer chat.
+    thinking: false
+    effort: low
+  judge:
+    provider: demo
+    thinking: false
+    effort: low
+  # Knowledge remains Gemini-only because its verified FullDocument backend
+  # uses the Gemini Long Context contract. Live Voice is independently Gemini-only.
+  knowledge:
+    provider: gemini
+    model: gemini-3.5-flash-lite
+    thinking: false
+    effort: low

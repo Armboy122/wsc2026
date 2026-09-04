@@ -5,6 +5,9 @@ from __future__ import annotations
 import os
 from dataclasses import dataclass, field
 from pathlib import Path
+from typing import Any, Mapping
+
+import yaml
 
 
 def _comma_origins(raw: str) -> tuple[str, ...]:
@@ -19,6 +22,7 @@ _SECRET_FIELD_NAMES: frozenset[str] = frozenset({
     "line_channel_secret",
     "line_channel_access_token",
 })
+_ALLOWED_EFFORTS = frozenset({"low", "medium", "high"})
 
 
 @dataclass(frozen=True, slots=True)
@@ -29,11 +33,13 @@ class LLMRuntimeSettings:
     model: str | None = None
     api_key: str | None = field(default=None, repr=False)
     base_url: str | None = None
+    thinking: bool = False
+    effort: str = "low"
 
 
 @dataclass(frozen=True)
 class Settings:
-    """การตั้งค่า runtime แบบคงที่ซึ่งโหลดจาก environment"""
+    """การตั้งค่า runtime แบบคงที่ซึ่งโหลดจาก settings + environment"""
 
     app_env: str = "development"
     log_level: str = "info"
@@ -66,14 +72,20 @@ class Settings:
     voc_base_url: str = "http://127.0.0.1:8080/api/v1/voc"
     voc_timeout_seconds: float = 5.0
     voc_api_key: str | None = field(default=None, repr=False)
-    # รุ่นของประกาศ PDPA ที่ผู้ใช้กดยอมรับ ต้องมาจากการตั้งค่า ไม่ใช่ให้โมเดลเดา
     voc_consent_notice_version: str = "VOC-PDPA-DEMO-1.0"
     line_channel_secret: str | None = field(default=None, repr=False)
     line_channel_access_token: str | None = field(default=None, repr=False)
 
     @classmethod
-    def from_env(cls, environ: dict[str, str] | None = None) -> Settings:
+    def from_env(
+        cls,
+        environ: Mapping[str, str] | None = None,
+        llm_settings: Mapping[str, Any] | None = None,
+    ) -> Settings:
         env = environ or os.environ
+        llm_settings = llm_settings or {}
+        profiles = _mapping(llm_settings.get("providers"))
+        roles = _mapping(llm_settings.get("roles"))
 
         def _get(key: str) -> str | None:
             value = env.get(key)
@@ -105,42 +117,63 @@ class Settings:
 
         def _llm_settings(
             prefix: str,
+            role_name: str,
             *,
             default_provider: str = "demo",
             legacy_provider_key: str | None = None,
             gemini_model: str = "gemini-3.5-flash-lite",
         ) -> LLMRuntimeSettings:
-            provider = (
+            role = _mapping(roles.get(role_name))
+            profile_name = (
                 _get(f"{prefix}_LLM_PROVIDER")
                 or (_get(legacy_provider_key) if legacy_provider_key else None)
+                or _string(role.get("provider"))
                 or default_provider
             ).lower()
+            profile = _mapping(profiles.get(profile_name))
+            provider = (_string(profile.get("api")) or profile_name).lower()
             if provider == "gemini":
-                default_model = gemini_model
-                default_key = gemini_api_key
-                default_base_url = None
+                fallback_model, fallback_key, fallback_base_url = gemini_model, gemini_api_key, None
+            elif provider == "demo":
+                fallback_model, fallback_key, fallback_base_url = None, None, None
             else:
-                default_model = None
-                default_key = None
-                default_base_url = None
+                fallback_model, fallback_key, fallback_base_url = None, None, None
+            key_env = _string(role.get("api_key_env")) or _string(profile.get("api_key_env"))
+            configured_key = _get(key_env) if key_env else fallback_key
+            effort = (_get(f"{prefix}_LLM_EFFORT") or _string(role.get("effort")) or "low").lower()
+            if effort not in _ALLOWED_EFFORTS:
+                raise ValueError(f"{prefix}_LLM_EFFORT ต้องเป็น low, medium หรือ high")
+            thinking = _bool(
+                _get(f"{prefix}_LLM_THINKING"),
+                _bool(role.get("thinking"), False),
+                f"{prefix}_LLM_THINKING",
+            )
             return LLMRuntimeSettings(
                 provider=provider,
-                model=_get(f"{prefix}_LLM_MODEL") or default_model,
-                api_key=_get(f"{prefix}_LLM_API_KEY") or default_key,
+                model=(
+                    _get(f"{prefix}_LLM_MODEL")
+                    or _string(role.get("model"))
+                    or fallback_model
+                ),
+                api_key=_get(f"{prefix}_LLM_API_KEY") or configured_key,
                 base_url=(
-                    (_get(f"{prefix}_LLM_BASE_URL") or default_base_url or "").rstrip("/")
+                    (_get(f"{prefix}_LLM_BASE_URL") or _string(role.get("base_url"))
+                     or _string(profile.get("base_url")) or fallback_base_url or "").rstrip("/")
                     or None
                 ),
+                thinking=thinking,
+                effort=effort,
             )
 
-        main_llm = _llm_settings("MAIN", legacy_provider_key="LLM_ADAPTER_NAME")
+        main_llm = _llm_settings("MAIN", "main", legacy_provider_key="LLM_ADAPTER_NAME")
         knowledge_llm = _llm_settings(
             "KNOWLEDGE",
+            "knowledge",
             default_provider="gemini",
             legacy_provider_key="KNOWLEDGE_PROVIDER",
             gemini_model=gemini_long_context_model,
         )
-        judge_llm = _llm_settings("JUDGE")
+        judge_llm = _llm_settings("JUDGE", "judge")
 
         line_channel_secret = _get("LINE_CHANNEL_SECRET")
         line_channel_access_token = _get("LINE_CHANNEL_ACCESS_TOKEN")
@@ -158,17 +191,13 @@ class Settings:
             main_llm=main_llm,
             knowledge_llm=knowledge_llm,
             judge_llm=judge_llm,
-            knowledge_backend_name=env.get(
-                "KNOWLEDGE_BACKEND_NAME", "full_document"
-            ).lower(),
+            knowledge_backend_name=env.get("KNOWLEDGE_BACKEND_NAME", "full_document").lower(),
             knowledge_provider=knowledge_llm.provider,
             gemini_api_key=gemini_api_key,
-            knowledge_source_root=Path(
-                env.get(
-                    "KNOWLEDGE_SOURCE_ROOT",
-                    str(Path(__file__).resolve().parents[2] / "knowledge" / "source"),
-                )
-            ),
+            knowledge_source_root=Path(env.get(
+                "KNOWLEDGE_SOURCE_ROOT",
+                str(Path(__file__).resolve().parents[2] / "knowledge" / "source"),
+            )),
             gemini_long_context_model=gemini_long_context_model,
             live_model=live_model,
             live_voice=live_voice,
@@ -189,7 +218,6 @@ class Settings:
         return self.main_llm.provider
 
     def __repr__(self) -> str:
-        # แทนที่ __repr__ ของ dataclass โดยตั้งใจ เพื่อไม่ให้ข้อมูลลับถูกเปิดเผย
         fields = []
         for name in self.__dataclass_fields__:
             value = getattr(self, name)
@@ -202,6 +230,30 @@ class Settings:
         return self.__repr__()
 
 
+def _mapping(value: object) -> Mapping[str, Any]:
+    if not isinstance(value, Mapping):
+        return {}
+    return value
+
+
+def _string(value: object) -> str | None:
+    return value.strip() if isinstance(value, str) and value.strip() else None
+
+
+def _bool(value: object, default: bool, name: str = "thinking") -> bool:
+    if value is None:
+        return default
+    if isinstance(value, bool):
+        return value
+    if isinstance(value, str):
+        normalized = value.strip().lower()
+        if normalized in {"true", "1", "yes", "on"}:
+            return True
+        if normalized in {"false", "0", "no", "off"}:
+            return False
+    raise ValueError(f"{name} ต้องเป็น true หรือ false")
+
+
 def _load_dotenv_if_present(path: Path) -> dict[str, str]:
     """แยกวิเคราะห์ไฟล์ dotenv โดยข้ามคอมเมนต์และบรรทัดว่าง"""
     values: dict[str, str] = {}
@@ -209,23 +261,34 @@ def _load_dotenv_if_present(path: Path) -> dict[str, str]:
         return values
     for line in path.read_text(encoding="utf-8").splitlines():
         stripped = line.strip()
-        if not stripped or stripped.startswith("#"):
-            continue
-        if "=" not in stripped:
+        if not stripped or stripped.startswith("#") or "=" not in stripped:
             continue
         key, _, value = stripped.partition("=")
         values[key.strip()] = value.strip()
     return values
 
 
-def load_settings(dotenv_path: Path | None = None) -> Settings:
-    """โหลดการตั้งค่าจาก .env แล้วรวมกับ environment จริงของ process
+def _load_llm_settings(path: Path) -> Mapping[str, Any]:
+    if not path.exists():
+        return {}
+    try:
+        loaded = yaml.safe_load(path.read_text(encoding="utf-8"))
+    except yaml.YAMLError as error:
+        raise RuntimeError(f"อ่าน LLM settings ไม่สำเร็จ: {path}") from error
+    if not isinstance(loaded, Mapping):
+        raise RuntimeError(f"LLM settings ต้องเป็น YAML object: {path}")
+    return loaded
 
-    ตัวแปร environment จริงมีลำดับความสำคัญเหนือค่าจาก .env เพื่อให้การตั้งค่า
-    ที่ใช้ระหว่าง deploy/runtime มีผลเหนือกว่าค่าตัวอย่างที่ commit ไว้เสมอ
-    """
+
+def load_settings(
+    dotenv_path: Path | None = None,
+    llm_settings_path: Path | None = None,
+) -> Settings:
+    """โหลด LLM settings ที่ไม่ลับ แล้วรวม dotenv กับ environment (env ชนะเสมอ)."""
     path = dotenv_path or Path(".env")
     dotenv = _load_dotenv_if_present(path)
-    # รวมค่าโดยให้ environment จริงของ process มีผลเหนือกว่ารายการใน .env
     merged = {**dotenv, **os.environ}
-    return Settings.from_env(merged)
+    config_path = llm_settings_path or Path(
+        merged.get("LLM_SETTINGS_PATH", str(Path(__file__).resolve().parents[2] / "llm-settings.yaml"))
+    )
+    return Settings.from_env(merged, _load_llm_settings(config_path))

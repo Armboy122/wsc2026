@@ -94,6 +94,8 @@ async def test_gemini_adapter_calls_configured_model(monkeypatch: pytest.MonkeyP
     assert result.provider_metadata == {
         "provider": "gemini",
         "model": "gemini-2.5-flash",
+        "thinking": False,
+        "effort": "low",
     }
     assert result.text.startswith("{")
 

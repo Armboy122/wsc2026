@@ -24,11 +24,15 @@ class GeminiLLMAdapter:
         api_key: str | None,
         model: str,
         base_url: str = _DEFAULT_BASE_URL,
+        thinking: bool = False,
+        effort: str = "low",
         timeout_seconds: float = 45.0,
     ) -> None:
         self._api_key = api_key
         self._model = model.strip()
         self._base_url = base_url.rstrip("/")
+        self._thinking = thinking
+        self._effort = effort
         self._timeout = timeout_seconds
 
     async def ready(self) -> bool:
@@ -56,13 +60,18 @@ class GeminiLLMAdapter:
                 + " แหล่งข้อมูล: "
                 + ", ".join(request.knowledge_context.sources)
             )
+        generation_config: dict[str, object] = {
+            "temperature": 0,
+            "responseMimeType": "application/json",
+        }
+        if self._thinking:
+            generation_config["thinkingConfig"] = {
+                "thinkingBudget": _thinking_budget(self._effort)
+            }
         payload = {
             "systemInstruction": {"parts": [{"text": "\n\n".join(system_parts)}]},
             "contents": [_gemini_message(message) for message in request.messages],
-            "generationConfig": {
-                "temperature": 0,
-                "responseMimeType": "application/json",
-            },
+            "generationConfig": generation_config,
         }
         model_path = quote(self._model, safe="-._")
         try:
@@ -82,7 +91,12 @@ class GeminiLLMAdapter:
                 raise ValueError("empty model response")
             return LLMResponse(
                 text=text,
-                provider_metadata={"provider": "gemini", "model": self._model},
+                provider_metadata={
+                    "provider": "gemini",
+                    "model": self._model,
+                    "thinking": self._thinking,
+                    "effort": self._effort,
+                },
             )
         except (
             httpx.HTTPError,
@@ -93,6 +107,10 @@ class GeminiLLMAdapter:
             json.JSONDecodeError,
         ) as error:
             raise LLMUnavailableError("Gemini provider request failed") from error
+
+
+def _thinking_budget(effort: str) -> int:
+    return {"low": 1_024, "medium": 4_096, "high": 8_192}[effort]
 
 
 def _gemini_message(message: LLMMessage) -> dict[str, object]:

@@ -102,7 +102,7 @@ def test_load_dotenv(tmp_path: Path) -> None:
         "GEMINI_API_KEY=dotenv-key\nKNOWLEDGE_SOURCE_ROOT=/dotenv/knowledge\n"
         "GEMINI_LONG_CONTEXT_MODEL=gemini-3.6-pro\n"
     )
-    settings = load_settings(env_file)
+    settings = load_settings(env_file, tmp_path / "no-llm-settings.yaml")
     assert settings.app_env == "test"
     assert settings.log_level == "debug"
     assert settings.cors_origins == ("http://test.local",)
@@ -125,7 +125,7 @@ def test_real_environment_precedes_dotenv(
     monkeypatch.setenv("APP_ENV", "from-env")
     monkeypatch.setenv("GEMINI_API_KEY", "real-key")
 
-    settings = load_settings(env_file)
+    settings = load_settings(env_file, tmp_path / "no-llm-settings.yaml")
     assert settings.app_env == "from-env"
     assert settings.log_level == "debug"  # ไม่ถูกแทนค่า จึงใช้ค่าจาก dotenv
     assert settings.llm_adapter_name == "scripted"  # ใช้ค่าจาก dotenv
@@ -150,3 +150,48 @@ def test_settings_repr_does_not_expose_secrets() -> None:
 def test_settings_str_matches_repr() -> None:
     settings = Settings.from_env({"GEMINI_API_KEY": "another-secret"})
     assert str(settings) == repr(settings)
+
+
+def test_llm_settings_select_local_profile_and_keep_key_in_environment() -> None:
+    settings = Settings.from_env(
+        {"LOCAL_LLM_API_KEY": "local-secret"},
+        {
+            "providers": {
+                "local": {
+                    "api": "openai-compatible",
+                    "api_key_env": "LOCAL_LLM_API_KEY",
+                    "base_url": "https://gateway.example/v1",
+                }
+            },
+            "roles": {
+                "main": {
+                    "provider": "local",
+                    "model": "qwen3.8-27b",
+                    "thinking": False,
+                    "effort": "low",
+                }
+            },
+        },
+    )
+
+    assert settings.main_llm.provider == "openai-compatible"
+    assert settings.main_llm.model == "qwen3.8-27b"
+    assert settings.main_llm.base_url == "https://gateway.example/v1"
+    assert settings.main_llm.api_key == "local-secret"
+    assert settings.main_llm.thinking is False
+    assert settings.main_llm.effort == "low"
+    assert "local-secret" not in repr(settings)
+
+
+def test_llm_environment_overrides_settings_profile() -> None:
+    settings = Settings.from_env(
+        {"MAIN_LLM_PROVIDER": "local", "MAIN_LLM_THINKING": "true", "MAIN_LLM_EFFORT": "high"},
+        {
+            "providers": {"local": {"api": "openai-compatible", "base_url": "http://host/v1"}},
+            "roles": {"main": {"provider": "gemini", "model": "configured-model"}},
+        },
+    )
+
+    assert settings.main_llm.provider == "openai-compatible"
+    assert settings.main_llm.thinking is True
+    assert settings.main_llm.effort == "high"

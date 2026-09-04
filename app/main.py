@@ -64,6 +64,8 @@ def _provider_config(config: LLMRuntimeSettings) -> LLMProviderConfig:
         api_key=config.api_key,
         model=config.model,
         base_url=config.base_url,
+        thinking=config.thinking,
+        effort=config.effort,
     )
 
 

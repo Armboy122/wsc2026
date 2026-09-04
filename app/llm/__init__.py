@@ -5,6 +5,7 @@ from app.llm.client import JudgeLLMClient, LLMClient
 from app.llm.demo import DemoLLMAdapter
 from app.llm.factory import LLMProviderConfig, create_llm_adapter
 from app.llm.gemini import GeminiLLMAdapter
+from app.llm.openai_compatible import OpenAICompatibleLLMAdapter
 from app.llm.models import (
     KnowledgeConversationContext,
     LLMMessage,
@@ -26,6 +27,7 @@ __all__ = [
     "LLMResponse",
     "LLMProviderConfig",
     "LLMUnavailableError",
+    "OpenAICompatibleLLMAdapter",
     "create_llm_adapter",
     "ScriptedLLMAdapter",
     "ToolDefinition",
