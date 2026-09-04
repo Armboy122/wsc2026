@@ -27,6 +27,7 @@ operations:
     mode: read
     inputContract: OmsGetOutageByCaInput
     outputContract: OmsGetOutageByCaOutput
+    policy: plain_read
 
   - action: prepare_outage_with_ca
     description: >
@@ -37,6 +38,7 @@ operations:
     submitAction: submit_outage_with_ca
     inputContract: OmsPrepareOutageWithCaInput
     outputContract: OmsPrepareOutageOutput
+    policy: write_confirm
 
   - action: submit_outage_with_ca
     description: >
@@ -45,6 +47,7 @@ operations:
     mode: submit
     inputContract: SubmitPreparedActionInput
     outputContract: OmsCreateOutageWithCaOutput
+    policy: write_confirm
 
   - action: prepare_anonymous_outage
     description: >
@@ -55,6 +58,10 @@ operations:
     submitAction: submit_anonymous_outage
     inputContract: OmsPrepareAnonymousOutageInput
     outputContract: OmsPrepareOutageOutput
+    policy: write_confirm
+    clientContext:
+      lat: lat
+      lon: lon
 
   - action: submit_anonymous_outage
     description: >
@@ -63,3 +70,4 @@ operations:
     mode: submit
     inputContract: SubmitPreparedActionInput
     outputContract: OmsCreateAnonymousOutageOutput
+    policy: write_confirm

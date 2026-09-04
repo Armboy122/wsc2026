@@ -19,6 +19,11 @@ from app.contracts import (
     ToolAction,
     ToolName,
 )
+from app.agent.operation_policy import (
+    KNOWN_CLIENT_CONTEXT,
+    OperationLimits,
+    OperationPolicy,
+)
 
 # factory ต้องอยู่ใต้แพ็กเกจปลั๊กอินของ repository เท่านั้น ไม่รับ path จากภายนอก
 TRUSTED_FACTORY_ROOT = "app.plugins."
@@ -51,6 +56,11 @@ class PluginOperation(BaseModel):
     submit_action: ToolAction | None = Field(default=None, alias="submitAction")
     input_contract: str = Field(min_length=1, alias="inputContract")
     output_contract: str = Field(min_length=1, alias="outputContract")
+    # D1.4: policy 4 แบบ + limits + clientContext (ARCHITECTURE-V2.md §4, CONTRACTS-V2.md §3)
+    # ไม่ประกาศ policy => ค่าเริ่มต้น plain_read + ถูกบังคับเป็น exposure: internal (fail safe)
+    policy: OperationPolicy | None = None
+    limits: OperationLimits | None = None
+    client_context: dict[str, str] | None = Field(default=None, alias="clientContext")
 
     @model_validator(mode="after")
     def _check_contracts(self) -> PluginOperation:
@@ -78,6 +88,20 @@ class PluginOperation(BaseModel):
         # รายการเขียนต้องผ่านการยืนยันจากมนุษย์เสมอ จึงห้ามเปิดให้ LLM เรียกเอง
         if self.mode is OperationMode.SUBMIT and self.exposure is not OperationExposure.INTERNAL:
             raise ValueError(f"submit action ต้องเป็น internal เท่านั้น: {self.action.value}")
+        return self
+
+    @model_validator(mode="after")
+    def _check_client_context(self) -> PluginOperation:
+        """ตรวจว่า clientContext อ้างเฉพาะ context ที่ระบบรู้จัก (enum ปิด) — CONTRACTS-V2.md §3.4"""
+        if self.client_context is not None:
+            for key, field_name in self.client_context.items():
+                if key not in KNOWN_CLIENT_CONTEXT:
+                    raise ValueError(
+                        f"clientContext ของ {self.action.value} อ้างถึง context นอก enum ปิด "
+                        f"'{key}' (รู้จักเฉพาะ {sorted(KNOWN_CLIENT_CONTEXT)})"
+                    )
+                if not field_name:
+                    raise ValueError(f"clientContext ของ {self.action.value} ต้องมีชื่อ field ที่ไม่ว่าง")
         return self
 
 

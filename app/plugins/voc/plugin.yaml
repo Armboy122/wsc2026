@@ -25,6 +25,7 @@ operations:
     mode: read
     inputContract: EmptyInput
     outputContract: VocCategoryListOutput
+    policy: plain_read
 
   - action: prepare_case
     description: เตรียม draft เรื่อง VOC ในเครื่องโดยยังไม่ส่งข้อมูลออกไป
@@ -33,6 +34,7 @@ operations:
     submitAction: submit_case
     inputContract: VocPrepareCaseInput
     outputContract: VocPrepareCaseOutput
+    policy: write_confirm
 
   - action: submit_case
     description: ส่งเรื่อง VOC ไปยัง API หลังผู้ใช้ยืนยันอย่างชัดเจนแล้วเท่านั้น
@@ -40,6 +42,7 @@ operations:
     mode: submit
     inputContract: SubmitPreparedActionInput
     outputContract: VocCaseOutput
+    policy: write_confirm
 
   - action: get_case
     description: ติดตามเคสเดียวด้วย VOC Number และ Key Code
@@ -47,3 +50,4 @@ operations:
     mode: read
     inputContract: VocGetCaseInput
     outputContract: VocGetCaseOutput
+    policy: plain_read
