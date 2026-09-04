@@ -1,0 +1,550 @@
+<!DOCTYPE html>
+<html lang="th">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>PEA One Agent V2 — ทบทวนมติ</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Bai+Jamjuree:wght@400;500;600;700&family=IBM+Plex+Sans+Thai:wght@300;400;500;600&family=IBM+Plex+Mono:wght@400;500&display=swap" rel="stylesheet">
+<style>
+:root{
+  --ink:#0d0e12; --ink-2:#14161c; --ink-3:#1b1e26; --line:#2a2e3a;
+  --paper:#e8e4da; --paper-dim:#a8a49a; --paper-mute:#6f6c66;
+  --amber:#f0a52a; --amber-dim:#8a6118;
+  --cyan:#4fd6c4; --rose:#e8607a; --violet:#9b7bd4;
+  --ok:#5fbf8f;
+  --r:3px;
+}
+*{box-sizing:border-box;margin:0;padding:0}
+html{scroll-behavior:smooth}
+body{
+  background:var(--ink);
+  color:var(--paper);
+  font-family:'IBM Plex Sans Thai',sans-serif;
+  font-weight:300;
+  line-height:1.75;
+  -webkit-font-smoothing:antialiased;
+  background-image:
+    radial-gradient(ellipse 80% 50% at 50% -10%, rgba(240,165,42,.09), transparent 60%),
+    repeating-linear-gradient(0deg, transparent, transparent 2px, rgba(255,255,255,.008) 2px, rgba(255,255,255,.008) 3px);
+  padding-bottom:180px;
+}
+.wrap{max-width:1000px;margin:0 auto;padding:0 28px}
+
+/* ── header ── */
+header{padding:72px 0 40px;border-bottom:1px solid var(--line);position:relative}
+.eyebrow{
+  font-family:'IBM Plex Mono',monospace;font-size:11px;letter-spacing:.28em;
+  text-transform:uppercase;color:var(--amber);margin-bottom:20px;
+}
+h1{
+  font-family:'Bai Jamjuree',sans-serif;font-weight:700;
+  font-size:clamp(34px,5.5vw,58px);line-height:1.08;letter-spacing:-.02em;
+  margin-bottom:18px;
+}
+h1 em{font-style:normal;color:var(--amber);position:relative}
+.lede{font-size:16px;color:var(--paper-dim);max-width:64ch;font-weight:300}
+.meta{
+  margin-top:28px;display:flex;flex-wrap:wrap;gap:8px 26px;
+  font-family:'IBM Plex Mono',monospace;font-size:11.5px;color:var(--paper-mute);
+}
+.meta b{color:var(--paper-dim);font-weight:500}
+
+/* ── how to ── */
+.howto{
+  margin:36px 0 0;padding:22px 24px;border:1px solid var(--line);
+  border-left:2px solid var(--amber);background:linear-gradient(90deg,rgba(240,165,42,.05),transparent 70%);
+  border-radius:var(--r);
+}
+.howto h3{font-family:'Bai Jamjuree',sans-serif;font-size:14px;font-weight:600;letter-spacing:.02em;margin-bottom:10px}
+.howto ol{margin-left:18px;font-size:14px;color:var(--paper-dim)}
+.howto li{margin:5px 0}
+.howto code{font-family:'IBM Plex Mono',monospace;font-size:12px;background:var(--ink-3);padding:2px 6px;border-radius:2px;color:var(--amber)}
+
+/* ── progress ── */
+.bar{
+  position:sticky;top:0;z-index:50;background:rgba(13,14,18,.93);
+  backdrop-filter:blur(14px);border-bottom:1px solid var(--line);
+  padding:13px 0;margin-top:44px;
+}
+.bar .wrap{display:flex;align-items:center;gap:20px;flex-wrap:wrap}
+.track{flex:1;min-width:180px;height:3px;background:var(--ink-3);border-radius:99px;overflow:hidden}
+.fill{height:100%;width:0;background:linear-gradient(90deg,var(--amber),var(--cyan));transition:width .35s cubic-bezier(.4,0,.2,1)}
+.tally{font-family:'IBM Plex Mono',monospace;font-size:11.5px;color:var(--paper-mute);white-space:nowrap}
+.tally b{color:var(--paper)}
+.tally .e{color:var(--rose)}
+.bulk{display:flex;gap:8px}
+.bulk button{
+  font-family:'IBM Plex Mono',monospace;font-size:10.5px;letter-spacing:.08em;text-transform:uppercase;
+  background:transparent;border:1px solid var(--line);color:var(--paper-dim);
+  padding:5px 11px;border-radius:2px;cursor:pointer;transition:.18s;
+}
+.bulk button:hover{border-color:var(--amber);color:var(--amber)}
+
+/* ── section ── */
+section{margin-top:60px}
+.sec-head{display:flex;align-items:baseline;gap:14px;flex-wrap:wrap;padding-bottom:14px;border-bottom:1px solid var(--line)}
+.tid{
+  font-family:'IBM Plex Mono',monospace;font-size:12px;font-weight:500;
+  color:var(--ink);background:var(--amber);padding:2px 9px;border-radius:2px;
+}
+.tid.research{background:var(--paper-mute);color:var(--ink)}
+.sec-head h2{font-family:'Bai Jamjuree',sans-serif;font-weight:600;font-size:22px;letter-spacing:-.01em;flex:1;min-width:240px}
+.sec-head a{
+  font-family:'IBM Plex Mono',monospace;font-size:11px;color:var(--paper-mute);
+  text-decoration:none;border-bottom:1px dotted var(--line);
+}
+.sec-head a:hover{color:var(--cyan);border-color:var(--cyan)}
+.sec-note{
+  font-size:13.5px;color:var(--paper-mute);margin-top:12px;padding-left:14px;
+  border-left:1px solid var(--line);font-style:italic;
+}
+
+/* ── item ── */
+.item{
+  display:grid;grid-template-columns:34px 1fr auto;gap:0 16px;align-items:start;
+  padding:18px 16px 18px 12px;border-bottom:1px solid rgba(42,46,58,.5);
+  transition:background .18s;position:relative;
+}
+.item:hover{background:rgba(255,255,255,.014)}
+.item.ok{background:linear-gradient(90deg,rgba(95,191,143,.05),transparent 55%)}
+.item.edit{background:linear-gradient(90deg,rgba(232,96,122,.06),transparent 55%)}
+.item.ok::before,.item.edit::before{
+  content:'';position:absolute;left:0;top:0;bottom:0;width:2px;
+}
+.item.ok::before{background:var(--ok)}
+.item.edit::before{background:var(--rose)}
+
+.qid{
+  font-family:'IBM Plex Mono',monospace;font-size:11px;color:var(--paper-mute);
+  padding-top:3px;letter-spacing:.02em;
+}
+.body h4{
+  font-family:'Bai Jamjuree',sans-serif;font-weight:600;font-size:15.5px;
+  letter-spacing:-.005em;margin-bottom:5px;color:var(--paper);
+}
+.pick{
+  display:inline-block;font-family:'IBM Plex Mono',monospace;font-size:10.5px;
+  letter-spacing:.1em;text-transform:uppercase;color:var(--amber);
+  border:1px solid var(--amber-dim);padding:1px 7px;border-radius:2px;margin-right:9px;
+  vertical-align:1px;
+}
+.body p{font-size:14px;color:var(--paper-dim);line-height:1.7}
+.body code{font-family:'IBM Plex Mono',monospace;font-size:12.5px;color:var(--cyan);background:rgba(79,214,196,.07);padding:1px 5px;border-radius:2px}
+.why{margin-top:9px}
+.why summary{
+  font-family:'IBM Plex Mono',monospace;font-size:10.5px;letter-spacing:.08em;
+  text-transform:uppercase;color:var(--paper-mute);cursor:pointer;list-style:none;
+  display:inline-flex;align-items:center;gap:6px;
+}
+.why summary::-webkit-details-marker{display:none}
+.why summary::before{content:'▸';transition:transform .2s;display:inline-block}
+.why[open] summary::before{transform:rotate(90deg)}
+.why summary:hover{color:var(--amber)}
+.why p{margin-top:8px;font-size:13px;color:var(--paper-mute);padding-left:14px;border-left:1px solid var(--line)}
+
+.acts{display:flex;gap:6px;padding-top:2px}
+.acts button{
+  font-family:'IBM Plex Mono',monospace;font-size:10px;letter-spacing:.06em;
+  background:transparent;border:1px solid var(--line);color:var(--paper-mute);
+  padding:5px 9px;border-radius:2px;cursor:pointer;transition:.16s;white-space:nowrap;
+}
+.acts button:hover{border-color:var(--paper-dim);color:var(--paper)}
+.acts button.on-ok{background:var(--ok);border-color:var(--ok);color:var(--ink);font-weight:500}
+.acts button.on-ed{background:var(--rose);border-color:var(--rose);color:var(--ink);font-weight:500}
+
+.fix{grid-column:2/4;margin-top:12px;display:none}
+.item.edit .fix{display:block}
+.fix label{
+  display:block;font-family:'IBM Plex Mono',monospace;font-size:10.5px;
+  letter-spacing:.08em;text-transform:uppercase;color:var(--rose);margin-bottom:6px;
+}
+.fix textarea{
+  width:100%;min-height:74px;resize:vertical;background:var(--ink-2);
+  border:1px solid var(--line);border-left:2px solid var(--rose);color:var(--paper);
+  font-family:'IBM Plex Sans Thai',sans-serif;font-size:14px;font-weight:300;
+  padding:11px 13px;border-radius:2px;line-height:1.65;
+}
+.fix textarea:focus{outline:none;border-color:var(--rose)}
+.fix textarea::placeholder{color:var(--paper-mute);opacity:.55}
+
+/* ── research card ── */
+.rcard{padding:18px 20px;border:1px solid var(--line);border-radius:var(--r);margin-top:16px;background:var(--ink-2)}
+.rcard p{font-size:14px;color:var(--paper-dim)}
+.rcard p+p{margin-top:8px}
+
+/* ── submit ── */
+.submit{
+  position:fixed;left:0;right:0;bottom:0;z-index:60;
+  background:rgba(13,14,18,.96);backdrop-filter:blur(16px);
+  border-top:1px solid var(--line);padding:16px 0;
+}
+.submit .wrap{display:flex;align-items:center;gap:16px;flex-wrap:wrap}
+.submit .status{flex:1;min-width:200px;font-size:13px;color:var(--paper-dim)}
+.submit .status b{color:var(--amber);font-family:'IBM Plex Mono',monospace}
+.btn{
+  font-family:'Bai Jamjuree',sans-serif;font-weight:600;font-size:14px;letter-spacing:.01em;
+  background:var(--amber);border:none;color:var(--ink);padding:11px 26px;
+  border-radius:2px;cursor:pointer;transition:.18s;
+}
+.btn:hover{background:#ffb838;transform:translateY(-1px)}
+.btn.ghost{background:transparent;border:1px solid var(--line);color:var(--paper-dim)}
+.btn.ghost:hover{border-color:var(--paper-dim);color:var(--paper);transform:none}
+
+/* ── output modal ── */
+.modal{
+  position:fixed;inset:0;z-index:100;background:rgba(6,7,10,.88);
+  display:none;align-items:center;justify-content:center;padding:28px;
+}
+.modal.show{display:flex}
+.panel{
+  background:var(--ink-2);border:1px solid var(--line);border-radius:var(--r);
+  max-width:840px;width:100%;max-height:86vh;display:flex;flex-direction:column;
+  box-shadow:0 30px 80px rgba(0,0,0,.6);
+}
+.panel-h{padding:20px 24px;border-bottom:1px solid var(--line);display:flex;align-items:center;gap:14px}
+.panel-h h3{font-family:'Bai Jamjuree',sans-serif;font-size:17px;font-weight:600;flex:1}
+.panel-h button{background:transparent;border:none;color:var(--paper-mute);font-size:22px;cursor:pointer;line-height:1}
+.panel-b{padding:20px 24px;overflow:auto;flex:1}
+.panel-b textarea{
+  width:100%;height:46vh;background:var(--ink);border:1px solid var(--line);
+  color:var(--paper);font-family:'IBM Plex Mono',monospace;font-size:12.5px;
+  padding:14px;border-radius:2px;line-height:1.65;resize:none;
+}
+.panel-f{padding:16px 24px;border-top:1px solid var(--line);display:flex;gap:10px;align-items:center}
+.panel-f .hint{flex:1;font-size:12.5px;color:var(--paper-mute)}
+
+footer{margin-top:70px;padding-top:26px;border-top:1px solid var(--line);font-size:12.5px;color:var(--paper-mute)}
+@media(max-width:680px){
+  .item{grid-template-columns:1fr;gap:10px}
+  .qid{padding-top:0}
+  .acts{grid-column:1}
+  .fix{grid-column:1}
+}
+</style>
+</head>
+<body>
+
+<div class="wrap">
+<header>
+  <div class="eyebrow">Wayfinder · แผนที่ #1 · ทบทวนก่อนประกอบสเปก</div>
+  <h1>ยืนยันมติ <em>V2</em><br>ก่อนลงมือเขียนโค้ด</h1>
+  <p class="lede">
+    ทุกบรรทัดข้างล่างคือสิ่งที่ตัดสินไปแล้วใน 12 ticket — บางข้อคุณตอบแบบอ่านคร่าว ๆ
+    หน้านี้มีไว้ให้ยืนยันอีกครั้งว่ามันตรงกับที่คิดจริง ๆ ก่อนที่ทั้งหมดจะกลายเป็น
+    <code>ARCHITECTURE-V2.md</code> ที่คนอื่นเอาไปเขียนโค้ดตาม
+  </p>
+  <div class="meta">
+    <span><b>repo</b> Armboy122/wsc2026</span>
+    <span><b>branch</b> v2</span>
+    <span><b>ปิดแล้ว</b> 12 ticket</span>
+    <span><b>โค้ด production ที่แตะ</b> 0 บรรทัด</span>
+  </div>
+
+  <div class="howto">
+    <h3>วิธีใช้</h3>
+    <ol>
+      <li>อ่านทีละข้อ — ถ้าเห็นด้วยกด <code>ยืนยัน</code> (หรือกด "ยืนยันทั้งหมด" บนแถบด้านบนแล้วค่อยไล่แก้เฉพาะข้อที่ไม่โอเค)</li>
+      <li>ข้อไหนไม่โอเค กด <code>ขอแก้</code> แล้วพิมพ์สิ่งที่ต้องการลงในช่องที่เปิดขึ้นมา</li>
+      <li>กด <code>สร้างคำตอบ</code> ด้านล่าง → คัดลอกข้อความที่ได้ → วางกลับในแชท</li>
+    </ol>
+  </div>
+</header>
+</div>
+
+<div class="bar">
+  <div class="wrap">
+    <div class="track"><div class="fill" id="fill"></div></div>
+    <div class="tally" id="tally">ยังไม่ได้ตรวจ <b>0</b>/<b id="tot">0</b></div>
+    <div class="bulk">
+      <button onclick="all('ok')">ยืนยันทั้งหมด</button>
+      <button onclick="all(null)">ล้าง</button>
+    </div>
+  </div>
+</div>
+
+<div class="wrap" id="app"></div>
+
+<div class="wrap">
+<footer>
+  ผู้ช่วยยังไม่ได้แตะโค้ดใน <code>app/</code> · ทุกมติอยู่ใน GitHub Issues และอ่านย้อนหลังได้ตลอด ·
+  หน้านี้เก็บคำตอบไว้ในเบราว์เซอร์อัตโนมัติ ปิดแล้วเปิดใหม่ไม่หาย
+</footer>
+</div>
+
+<div class="submit">
+  <div class="wrap">
+    <div class="status" id="status">เลือกให้ครบทุกข้อก่อน แล้วค่อยสร้างคำตอบ</div>
+    <button class="btn ghost" onclick="jumpNext()">ข้อถัดไปที่ยังไม่ตรวจ ↓</button>
+    <button class="btn" onclick="build()">สร้างคำตอบ</button>
+  </div>
+</div>
+
+<div class="modal" id="modal">
+  <div class="panel">
+    <div class="panel-h">
+      <h3>คัดลอกข้อความนี้ไปวางในแชท</h3>
+      <button onclick="document.getElementById('modal').classList.remove('show')">✕</button>
+    </div>
+    <div class="panel-b"><textarea id="out" readonly></textarea></div>
+    <div class="panel-f">
+      <span class="hint" id="copyhint">กดปุ่มคัดลอก แล้ววางกลับในแชทได้เลย</span>
+      <button class="btn ghost" onclick="dl()">ดาวน์โหลด .md</button>
+      <button class="btn" onclick="cp()">คัดลอก</button>
+    </div>
+  </div>
+</div>
+
+<script>
+const DATA=[
+{t:"#2",cls:"",title:"สัญญา Tool v2 — schema เป็นข้อมูล ไม่ใช่คลาส Pydantic",url:"https://github.com/Armboy122/wsc2026/issues/2",
+ note:"ใบที่เป็นหัวใจของแผนที่ — ticket อื่นเกือบทั้งหมดต่อยอดจากใบนี้",
+ items:[
+ {id:"2.1",pick:"ข",h:"schema เก็บเป็น JSON Schema subset ที่ allowlist ไว้",d:"เก็บเป็น JSON ใน SQLite · รับเฉพาะ object ที่ root, primitive+enum+const, <code>additionalProperties:false</code>, ลึกไม่เกิน 5 ชั้น · <b>ปฏิเสธ</b> <code>oneOf</code>/<code>pattern</code>/<code>min</code>/<code>max</code>/<code>uniqueItems</code>/recursion ตั้งแต่ตอน save",why:"keyword นอกรายการนี้ทำให้ LLM ตอบ 400 หรือถูกกลืนเงียบ ถ้าปล่อยให้ admin กรอกได้จะได้ tool ที่ \"บันทึกผ่านแต่รันไม่ได้\""},
+ {id:"2.2",pick:"ก",h:"validate ด้วย jsonschema library ตัวเดียวทุก tool",d:"รับ dependency <code>jsonschema[format]</code> เพิ่ม (+4 deps) และเรียก <code>check_schema()</code> ตอน save",why:"พิสูจน์แล้วว่า Pydantic v2 สร้าง validator จาก JSON Schema ไม่ได้จริง — และถ้าเขียน converter เอง constraint อย่าง uniqueItems จะหายเงียบโดยไม่มี error = ช่องโหว่บน security boundary"},
+ {id:"2.3",pick:"ก",h:"registry เดียว shape เดียว executor ต่างกัน",d:"tool ทุกตัวลงทะเบียนด้วยรูปเดียว (slug/displayName/description/operations/policy/executor/source) · <code>plugin.yaml</code> เปลี่ยนจาก <code>inputContract: ชื่อคลาส</code> เป็น <code>inputSchema:</code> JSON Schema",why:"ถ้าแยก registry สองตัว agent จะต้องรู้จัก tool สองชนิด ซึ่งขัดกับเป้าหมาย \"agent ไม่รู้จัก tool\""},
+ {id:"2.4",pick:"ก",h:"ทิ้ง ToolName / ToolAction enum",d:"identity เป็น <code>tool_slug</code> + <code>action</code> string · slug ต้องผ่าน <code>^[a-z0-9_-]{1,64}$</code> · <b>ชื่อไทยอยู่ที่ displayName เท่านั้น</b>",why:"Anthropic/OpenAI บังคับ regex ของชื่อ tool — ชื่อไทยยิง API ไม่ผ่าน และ enum ปิดตายอยู่ไม่ได้เมื่อเพิ่ม tool ตอน runtime ได้"},
+ {id:"2.5",pick:"ก",h:"fail closed แบบแยก blast radius",d:"save ผิด = reject ไม่ persist · declarative tool พังตอน runtime = ปิดเฉพาะตัว + แจ้ง health · Python plugin พังตอน startup = ล้มทั้งระบบเหมือนเดิม",why:"ถ้า admin พิมพ์ผิดตัวเดียวแล้ว production ล่มคือรับไม่ได้ แต่ถ้า tool หายเงียบก็อันตรายกว่า เพราะ agent จะบอกผู้ใช้ว่าทำไม่ได้โดยไม่มีใครรู้"},
+]},
+
+{t:"#3",cls:"",title:"ชุด policy กลางของ Agent",url:"https://github.com/Armboy122/wsc2026/issues/3",
+ note:"ใบที่ตอบคำถามตั้งต้น \"agent ไม่ต้องรู้จัก tool เลย\" โดยตรง",
+ items:[
+ {id:"3.1",pick:"ก",h:"policy กลางมี 4 แบบเท่านั้น",d:"<code>grounded_answer</code> · <code>write_confirm</code> · <code>guided_flow</code> · <code>plain_read</code> — result/error presentation ไม่นับเป็น policy",why:"เพราะเป็นแค่การจัดถ้อยคำ ไม่ใช่กฎที่ละเมิดไม่ได้ ถ้ายกขึ้นมาจะปนกันระหว่างเรื่องความปลอดภัยกับเรื่องความสวยงาม"},
+ {id:"3.2",pick:"ก",h:"ประกาศที่ระดับ operation ไม่ใช่ระดับ tool",d:"เพิ่ม <code>limits.maxCallsPerTurn</code> / <code>limits.dedupeIdenticalInput</code> แทนเลขของ knowledge ที่ hardcode ไว้",why:"voc_tool ตัวเดียวมี 3 policy คนละแบบอยู่แล้ว (list/prepare/submit) การประกาศระดับ tool จึงผิดตั้งแต่ตั้งต้น"},
+ {id:"3.3",pick:"ก",h:"clientContext ปิดจุดสุดท้ายที่ agent รู้จัก tool",d:"จุด hardcode จริงมี <b>12 จุด</b> (ไม่ใช่ 16) ย้ายเข้า policy ได้ 11 จุด · จุดสุดท้าย (เติมพิกัดให้ oms) แก้ด้วยให้ operation ประกาศ <code>clientContext: {lat: lat, lon: lon}</code> เอง",why:"ผลคือเหลือ 0 จุดที่ agent รู้จักชื่อ tool ไม่ใช่แค่ \"เหลือน้อยลง\" ซึ่งเป็นเป้าจริงของแผนที่นี้"},
+ {id:"3.4",pick:"ก",h:"default = plain_read + exposure:internal",d:"operation ที่ไม่ประกาศ policy จะมองเห็นได้แต่ LLM เรียกไม่ได้จนกว่าจะประกาศชัด",why:"operation ที่ลืมประกาศ write_confirm ต้องไม่ยิง write ได้ทันที — ทิศเดียวกับ MCP ที่ตั้ง destructiveHint default = true"},
+ {id:"3.5",pick:"ก",h:"policy ที่ tool ประกาศเอง = untrusted ต้องตรวจสอบข้าม",d:"มี <code>submitAction</code> แต่บอก <code>plain_read</code> = reject ตอน save · <code>grounded_answer</code> ที่ผลไม่มี citation = <b>ปฏิเสธผลตอน runtime</b> ไม่ใช่แค่เตือน",why:"policy ที่บังคับใช้ไม่ได้คือ comment ราคาแพง — MCP spec เองก็บอกว่า annotation เป็น hint ที่ห้ามเชื่อ"},
+]},
+
+{t:"#4",cls:"",title:"สัญญา Channel Adapter",url:"https://github.com/Armboy122/wsc2026/issues/4",
+ note:"พบว่าสัญญาที่ต้องการมีอยู่แล้ว ~80% — ปัญหาคือ line/service.py ตีความมันเป็น UI เอง",
+ items:[
+ {id:"4.1",pick:"ก",h:"ใช้ ChatResponse เดิม ไม่สร้าง type ใหม่",d:"เติมแค่ 2 ฟิลด์: <code>simulation</code> (วันนี้ LINE hardcode เอง / web ไม่มีเลย) และ <code>actions[]</code> (บอกว่าปุ่มควรหายหลังกด)",why:"สร้าง AgentResponse คู่ขนานจะได้ type สองตัวที่เหมือนกัน 95% แล้วต้องซิงก์กันตลอดไป"},
+ {id:"4.2",pick:"ก",h:"pendingAction กับ choicePrompt แยกกันต่อไป",d:"แต่บังคับมี <b>helper กลางตัวเดียว</b> แปลงทั้งคู่เป็นโครงปุ่ม <code>{label,value,kind}</code>",why:"ตัวหนึ่งมี side effect + state machine อีกตัวไม่มี — ยุบรวมคือทิ้งการรับประกันของ type system ทั้งสองฝั่ง"},
+ {id:"4.3",pick:"ก",h:"adapter เป็นคนตัดข้อความ agent ส่งเต็มเสมอ",d:"LINE 1900 / Telegram 4096 / web+API ไม่จำกัด — แต่ <b>วิธีตัดเป็นสัญญากลาง</b> (ตัดที่ขอบคำ มีตัวบ่งชี้ว่ามีต่อ ห้ามตัดจน citation หาย)",why:"ถ้าให้ agent ตัดที่ค่าต่ำสุด ผู้ใช้ web และ API จะได้คำตอบสั้นลงเพราะข้อจำกัดของ LINE ซึ่งไม่มีเหตุผล"},
+ {id:"4.4",pick:"ก",h:"adapter ประกาศ capability ของตัวเอง",d:"<code>buttons</code> / <code>editableMessage</code> / <code>richLayout</code> / <code>maxTextLength</code> / <code>maxButtons</code> — agent ไม่เคยอ่าน adapter degrade เอง",why:"ทำให้เพิ่ม channel ใหม่ไม่ต้องแตะ agent เลย และเป็นที่เดียวที่บันทึกความรู้แบบ \"LINE ได้ 13 ปุ่ม / Telegram callback 64 bytes\""},
+ {id:"4.5",pick:"ก",h:"ผ่า line/service.py เป็นสองชั้น ไม่เขียนใหม่",d:"ยกขึ้นกลาง = <code>_split_text</code>, ตัดป้ายปุ่ม, logic ปุ่มยืนยัน, จัดรูป citation · เหลือกับ LINE = JSON ของ Flex/template (เป้า ~150 บรรทัดจาก 414)",why:"เขียนใหม่เสี่ยงทำ LINE ที่ทำงานได้อยู่พัง ซึ่งขัดกรอบข้อ 1 ที่ล็อกไว้ว่าให้เก็บของที่ทำงานได้"},
+]},
+
+{t:"#14",cls:"",title:"ช่องทางเสียง — ยืนยันด้วยเสียง",url:"https://github.com/Armboy122/wsc2026/issues/14",
+ note:"⚠️ ใบนี้คุณค้านข้อเสนอตั้งต้นของผู้ช่วย และค้านถูก — บันทึกไว้ใน ticket แล้ว",
+ items:[
+ {id:"14.1",pick:"★",h:"เสียงยืนยันด้วยเสียงได้ — read-back คือหลักฐานการรับรู้",d:"ผู้ใช้แจ้งข้อมูล → prepare → <b>ระบบอ่านทวนทั้งหมด</b> → พูดยืนยัน → submit · <code>write_confirm</code> ไม่ถูกยกเว้น เปลี่ยนแค่รูปของคำว่า \"confirm\"",why:"ข้อเสนอเดิมของผู้ช่วยคือบังคับไปยืนยันที่ช่องทางอื่น คุณค้านว่าประเด็นคือ \"ผู้ใช้ต้องรับรู้ว่ายืนยันอะไร\" ไม่ใช่ \"ต้องเห็นด้วยตา\" — และการบังคับไปกดลิงก์ทำให้เคสที่ควรจบใน 40 วินาทีกลายเป็นเคสที่ผู้ใช้ทิ้งกลางทาง"},
+ {id:"14.2",pick:"ก",h:"ธง voiceConfirm ระดับ operation — default = อนุญาต",d:"ติดธง <code>false</code> เฉพาะเรื่องเงิน/ข้อมูลอ่อนไหว — วันนี้มีตัวเดียวคือ Sabuy payment",why:"คุณระบุว่าไม่ต้องการกฎที่ fix ขนาดนั้น — การบังคับให้ทุก tool ใหม่มากรอกช่องนี้คือภาระที่ไม่ได้อะไรกลับมา"},
+ {id:"14.3",pick:"ก",h:"คำยืนยันจับคู่ตายตัว ห้าม LLM ตีความ",d:"ตรวจ<b>คำปฏิเสธก่อน</b>คำยืนยันเสมอ (ไม่งั้น \"ไม่ใช่ครับ\" ถูกนับเป็นยืนยันเพราะมีคำว่า \"ใช่\") · ไม่ตรง = ถามซ้ำ มีเพดานแล้วยกเลิก",why:"ถ้า LLM ตัดสินว่าคำนี้แปลว่ายืนยัน = LLM เป็นคนกด submit ซึ่งขัดกรอบข้อ 2 ของแผนที่ตรง ๆ"},
+ {id:"14.4",pick:"ก",h:"หลักฐาน = read-back text + ถอดเสียง ไม่เก็บไฟล์เสียง",d:"บันทึกลง trace ใน event ของ <code>ACTION_CONFIRMED</code>",why:"read-back text คือ \"สิ่งที่ผู้ใช้ได้ยินก่อนตัดสินใจ\" = เทียบเท่าภาพหน้าจอ ส่วนไฟล์เสียงเป็นข้อมูลชีวมิติที่ต้องมีนโยบายทั้งชุด ไม่คุ้มในเฟสนี้"},
+ {id:"14.5",pick:"ก",h:"handoff ส่งลิงก์ยังอยู่ แต่ไม่ใช่ทางหลัก",d:"เป็น <b>tool</b> (ไม่ใช่ฟิลด์ใน response) เหลือไว้ 3 เคส: ขอเอกสาร · operation ที่ห้ามยืนยันด้วยเสียง · ผู้ใช้ขอเอง · ลิงก์ต้อง \"หลุดแล้วไม่มีค่า\" ไม่ใช้ OTP",why:"ส่ง SMS = side effect จริง (เสียเงิน ส่งผิดเบอร์ได้ spam ได้) ทำเป็น tool จึงได้ policy layer + rate limit + trace ฟรีทันที"},
+ {id:"14.6",pick:"ก",h:"grounded_answer ไม่ยกเว้นให้เสียง",d:"พูดชื่อเอกสาร + ปีที่อ้าง แทนการอ่าน URL",why:"พอมีข้อยกเว้นแรกก็จะมีข้อที่สอง — citation แปลว่า \"มีที่มาที่ตรวจสอบได้\" ไม่ได้แปลว่า \"ต้องอ่าน URL\""},
+ {id:"14.7",pick:"ก",h:"VOICE_TOOLS ที่ hardcode → channel profile ใน DB",d:"ผู้ดูแลระบบเป็นคนตัดสินว่า channel ไหนใช้ tool อะไรได้ ไม่ใช่ tool ประกาศเอง",why:"เป็นการตัดสินใจเชิงนโยบาย ไม่ใช่คุณสมบัติของ tool — และ #2 ระบุแล้วว่าสิ่งที่ tool ประกาศเองเชื่อไม่ได้"},
+]},
+
+{t:"#12",cls:"",title:"สัญญา trace เมื่อ tool เป็นข้อมูล",url:"https://github.com/Armboy122/wsc2026/issues/12",
+ note:"",
+ items:[
+ {id:"12.1",pick:"ข",h:"อ้าง tool ด้วย tool_slug + config_version",d:"join กับ version history ⇒ <b>บังคับให้ tool config มี version history</b> และลบ tool = soft delete",why:"เก็บ snapshot เต็มทุก event ทำให้ตารางบวม / เก็บแค่ slug ทำให้ trace ไร้ค่าพอดีตอนที่ต้องการมันที่สุด"},
+ {id:"12.2",pick:"ก",h:"HTTP call เก็บแค่ method+host+path+status+เวลา",d:"<b>ไม่เก็บ</b> query string / header / body",why:"_SENSITIVE_KEYS รู้จักแค่ 8 คำ แต่ tool ที่ admin สร้างมี field ชื่ออะไรก็ได้ (nationalId, bankAccount) และ query string มักมี API key อยู่"},
+ {id:"12.3",pick:"ก",h:"/api/v1/traces/{id} ปิดสำหรับ public",d:"เปิดเฉพาะ admin ที่ล็อกอิน",why:"trace มีชื่อ tool + input + ลำดับการตัดสินใจ = ข้อมูลภายใน และ traceId โผล่ใน response ทุกครั้งอยู่แล้ว จะใช้ \"เดายาก\" เป็นการป้องกันไม่ได้"},
+ {id:"12.4",pick:"ก",h:"เก็บ 90 วัน ยกเว้น write สำเร็จ = ถาวร",d:"trace ที่มี <code>ACTION_SUBMITTED</code> หรือ <code>ACTION_REJECTED</code> เก็บตลอดไป",why:"trace การอ่าน 10,000 ครั้งไม่มีค่าหลังสามเดือน แต่ \"ใครสั่งอะไรเมื่อไหร่ ผ่านการยืนยันแบบไหน\" คือหลักฐานที่ต้องอยู่"},
+ {id:"12.5",pick:"ก",h:"ฟิลด์และ event kind ใหม่",d:"เพิ่ม <code>tool_slug</code>/<code>action</code>/<code>config_version</code>/<code>policy</code>/<code>channel</code> · kind ใหม่ <code>POLICY_REJECTED</code>, <code>RESPONSE_DEGRADED</code>, <code>TOOL_DISABLED</code>",why:"TOOL_DISABLED สำคัญมาก — กันไม่ให้ \"ปิดเฉพาะตัว\" ของ #2 กลายเป็น \"หายเงียบ\""},
+ {id:"12.6",pick:"ก",h:"ลำดับและความ immutable",d:"<code>UNIQUE(trace_id, sequence)</code> ที่ระดับตาราง · เขียนอย่างเดียว ห้าม UPDATE/DELETE รายแถว · อ่านเรียงตาม sequence ไม่ใช่ at",why:"เวลาซ้ำกันได้ในเหตุการณ์ที่เกิดถี่ และการลบต้องมีทางเดียวคือ retention job"},
+]},
+
+{t:"#13",cls:"",title:"นโยบาย SSRF และเครือข่ายขาออก",url:"https://github.com/Armboy122/wsc2026/issues/13",
+ note:"⚠️ ใบนี้คุณแก้ข้อเสนอตั้งต้นของผู้ช่วย (allowlist ตายตัว) และแก้ถูก",
+ items:[
+ {id:"13.1",pick:"★",h:"โหมดเครือข่ายสองระดับ ผูกกับ APP_ENV",d:"<b>development</b> ยิงได้ทุกโดเมน ทุก IP รวม localhost และ http:// · <b>production</b> allowlist + HTTPS + บล็อก private range โดย admin เพิ่มลบโดเมนจากหน้า UI ได้ <b>แต่ปิดโหมดไม่ได้</b>",why:"คุณชี้ว่าตอนพัฒนาปลายทางคือ mock บนเครื่องตัวเอง ถ้าบล็อกตั้งแต่วันแรกคนจะปิดการป้องกันทิ้งทั้งชุด · ส่วนที่ผู้ช่วยยืนยันคือโหมดต้องมาจาก env ไม่ใช่ปุ่มในหน้า admin เพราะจะมีวันที่มีคนกดปิดบน production แล้วลืมเปิดคืน"},
+ {id:"13.2",pick:"ก",h:"ตรวจด้วย ipaddress ใน stdlib ไม่เพิ่ม dependency",d:"stdlib จัดการ octal/hex/IPv4-mapped ให้แล้ว และมี <code>is_private</code>/<code>is_link_local</code>/<code>is_loopback</code>",why:"MCP เตือนว่า \"อย่าเขียน parser IP เอง\" ไม่ใช่ \"อย่าตรวจเอง\" — และ egress proxy เกินความจำเป็นสำหรับระบบที่ยังไม่มี DB ด้วยซ้ำ"},
+ {id:"13.3",pick:"ก",h:"ไม่ตาม redirect ทั้งสองโหมด",d:"<code>follow_redirects=False</code> · 3xx = ถือว่า config ผิด แจ้ง admin ให้แก้ URL",why:"API ที่ออกแบบดีไม่ redirect endpoint ตัวเอง — n8n เปิด redirect โดย default แล้วได้ SSRF แถมฟรี"},
+ {id:"13.4",pick:"ก",h:"ตรวจสองจังหวะ save + execute",d:"save: allowlist/HTTPS/รูปแบบ · execute: resolve DNS แล้วเทียบ IP <b>ทุกครั้งก่อนยิง</b>",why:"ตรวจแต่ตอน save จะโดน DNS rebinding ตรง ๆ (ตอน save ชี้ IP จริง ตอนยิงชี้ 169.254.169.254)"},
+ {id:"13.5",pick:"ก",h:"เพดานทรัพยากรแข็งที่แก้จาก UI ไม่ได้",d:"timeout 5 วิ (แข็งที่ 30) · response 1 MB (แข็งที่ 10 MB) · <b>retry = 0 เสมอ ตั้งค่าไม่ได้</b>",why:"tool ที่ทำ write แล้ว retry อัตโนมัติคือการสร้างรายการซ้ำ — ระบบมี prepare→submit ที่ให้ผู้ใช้ retry ในระดับที่ถูกต้องอยู่แล้ว"},
+ {id:"13.6",pick:"ก",h:"ถูกบล็อก = POLICY_REJECTED พร้อมเหตุผลที่อ่านเข้าใจ",d:"แสดงในหน้า admin ว่าโดนบล็อกเพราะอะไร ห้ามคืน error ลอย ๆ",why:"admin ต้องแก้ config ให้ถูกได้โดยไม่ต้องเดา"},
+]},
+
+{t:"#7",cls:"",title:"ชั้นข้อมูล SQLite และ hot-reload",url:"https://github.com/Armboy122/wsc2026/issues/7",
+ note:"⚠️ ใบนี้ผู้ช่วยพบว่า app/prompts/*.md ทั้ง 4 ไฟล์ไม่ถูกโหลดตอน runtime เลย",
+ items:[
+ {id:"7.1",pick:"ก",h:"ย้าย SYSTEM_PROMPT ลง DB แล้วลบ app/prompts/*.md ทิ้ง",d:"prompt จริงที่ระบบใช้คือ string ที่ hardcode ใน <code>app/llm/prompting.py</code> — 4 ไฟล์ .md ไม่มีใครอ่าน",why:"ไฟล์ที่ไม่ถูกโหลดคือหนี้ทางเอกสารที่หลอกทั้งคนและ AI · แก้ main_agent.md วันนี้ระบบไม่รู้เรื่องเลย"},
+ {id:"7.2",pick:"ก",h:"9 ตาราง",d:"<code>tool</code> · <code>tool_version</code> · <code>tool_operation</code> · <code>tool_auth</code> · <code>prompt</code> · <code>channel_profile</code> · <code>domain_allowlist</code> · <code>pending_action</code> · <code>trace_event</code>",why:"tool_version แยกเพราะ #12 บังคับให้ trace join กลับได้ · tool_auth แยกเพราะ OAuth มี refresh token/expiry/scope ที่ API key ไม่มี"},
+ {id:"7.3",pick:"ก",h:"secret แยกตามชนิด",d:"<code>api_key</code> → เก็บ <b>ชื่อ env var</b> (อยู่นอก DB) · <code>oauth2</code> → เข้ารหัสใน DB · <b>V2 ทำแค่ api_key</b> แต่แยกตารางไว้แล้ว",why:"API key เป็นค่าที่มนุษย์ถือ อยู่นอก DB ปลอดภัยกว่า / OAuth token เป็นค่าที่เครื่องได้มาเอง ต้องอยู่ใน DB ไม่มีทางเลือก ⇒ เติม Google ทีหลังคือเพิ่มแถว ไม่ใช่รื้อตาราง"},
+ {id:"7.4",pick:"ก",h:"hot-reload = cache + invalidate ตาม config_version",d:"<b>หนึ่งเทิร์นใช้ version เดียวตลอด</b>",why:"ถ้าโหลดใหม่ทันทีที่ save ผู้ใช้จะเห็น prepare จาก config เก่าแล้ว submit ด้วย config ใหม่ = พัง write_confirm ตรง ๆ"},
+ {id:"7.5",pick:"ก",h:"migration = raw SQL + ตาราง schema_version",d:"ไฟล์ <code>001_init.sql</code>, <code>002_*.sql</code> รันตามลำดับตอน startup — ไม่เอา alembic",why:"alembic ดึง SQLAlchemy มาทั้งตัวเพื่อระบบที่มี 9 ตารางและ deps 5 ตัว = หนักกว่าปัญหาที่แก้"},
+ {id:"7.6",pick:"ก",h:"sqlite3 stdlib + asyncio.to_thread",d:"ไม่เพิ่ม dependency ไม่ใช้ aiosqlite",why:"เรียก sqlite3 ตรง ๆ ใน async จะบล็อก event loop ทั้งเส้น ส่วน aiosqlite ข้างในก็ใช้ thread pool เหมือนกัน"},
+ {id:"7.7",pick:"ก",h:"redact() ทำงานตอนเขียน",d:"ข้อมูลอ่อนไหวไม่เคยแตะดิสก์",why:"ไฟล์ DB ที่ถูก backup/copy ออกไปต้องไม่มีข้อมูลลูกค้าดิบอยู่ข้างใน"},
+ {id:"7.8",pick:"ก",h:"DB_PATH + /reset ที่ปลอดภัย",d:"default <code>data/pea.db</code> · reset ล้างแค่ conversation + pending ที่ยังไม่ terminal <b>ไม่แตะ trace และไม่แตะ tool config</b>",why:"ถ้า reset ลบ config ที่ตั้งไว้ด้วย มันจะกลายเป็นปุ่มทำลายงานตัวเอง"},
+ {id:"7.9",pick:"ก",h:"WAL + connection เดียว + lock เดียว",d:"ประกาศชัดว่ารองรับ <b>single process</b>",why:"เขียนพร้อมกันคือที่มาของ database is locked ซึ่งจะโผล่ตอนสาธิตพอดี — ประกาศข้อจำกัดดีกว่าทำ pool ที่ซ่อนปัญหา"},
+ {id:"7.10",pick:"ก",h:"conversation history คงอยู่ RAM",d:"ตามที่แผนที่ล็อกไว้ตั้งแต่ต้น",why:"ตรวจแล้วไม่มีอะไรใน #14 บังคับให้เปลี่ยน — หลักฐานการยืนยันอยู่ใน trace และ pending action มี summary ของตัวเอง"},
+]},
+
+{t:"#10",cls:"",title:"แผนย้าย tool เดิม 4 ตัว",url:"https://github.com/Armboy122/wsc2026/issues/10",
+ note:"ใบที่พิสูจน์ว่ามติใน #2 และ #3 ใช้ได้จริง ไม่ใช่แค่สวยบนกระดาษ",
+ items:[
+ {id:"10.1",pick:"ก",h:"knowledge/voc/oms = Python plugin · sabuy = declarative",d:"sabuy dormant ไม่มีใครใช้ = เคสทดสอบที่สมบูรณ์แบบ · สิ่งที่เปลี่ยนสำหรับ Python plugin ไม่ใช่ย้ายไป DB แต่คือ <code>plugin.yaml</code> ใช้ <code>inputSchema:</code> แทนชื่อคลาส",why:"knowledge มี grounding 23KB / voc มี guided flow ที่จับ pattern ภาษาไทย — declarative ทำไม่ได้จริง"},
+ {id:"10.2",pick:"ก",h:"ลำดับ sabuy → oms → voc → knowledge",d:"เรียงจาก \"พังแล้วไม่มีใครเดือดร้อน\" ไป \"พังแล้วเดโมล่ม\" · แต่ละขั้นพิสูจน์ policy คนละตัว",why:"ถ้า contract ผิดจะรู้ตั้งแต่ขั้นที่ 1 ไม่ใช่ขั้นที่ 4"},
+ {id:"10.3",pick:"ก",h:"registry รับสองแบบพร้อมกันตลอดช่วงย้าย",d:"เก็บ enum เป็น alias แล้วลบเมื่อย้ายครบ",why:"ย้ายทีเดียวจบแปลว่าเดโมใช้ไม่ได้ระหว่างทาง ซึ่งขัดกับข้อกำหนดของ ticket เอง"},
+ {id:"10.4",pick:"ก",h:"ยอมเสีย BoundDemoBehavior",d:"แปลงเป็น seed data หรือปิดชั่วคราวแล้วเปิดคืนทีหลัง",why:"ไม่ใช่เหตุผลที่ดีพอจะค้าง ToolName enum ไว้ทั้งระบบ"},
+ {id:"10.5",pick:"ก",h:"ทุกขั้นต้องผ่าน pytest + ./scripts/evaluate",d:"ก่อนไปขั้นถัดไปเสมอ",why:"evaluate คือสิ่งเดียวที่พิสูจน์ว่า critical path ยังทำงาน ส่วน pytest พิสูจน์ contract"},
+ {id:"10.6",pick:"ก",h:"เทสที่ต้องเพิ่ม 3 กลุ่ม",d:"schema validation · policy enforcement · channel mapping",why:"นี่คือ 3 จุดที่ V2 จะพังจริง: tool ที่สร้างจาก UI แล้ว schema ไม่ตรง · policy ที่ประกาศแล้วไม่ถูกบังคับ · channel ที่แปล response ผิด"},
+]},
+
+{t:"#9",cls:"",title:"ต้นแบบหน้า Admin",url:"https://github.com/Armboy122/wsc2026/issues/9",
+ note:"หน้าที่คุณขอตั้งแต่ประโยคแรกของ effort นี้ — มติด้านล่างคือสเปกของต้นแบบ ตัวจริงจะสร้างตอน implement แล้วให้วิจารณ์อีกรอบ",
+ items:[
+ {id:"9.1",pick:"ก",h:"ต้นแบบ 3 หน้า",d:"รายการ tool · ฟอร์มแก้ tool · แก้ prompt",why:"หน้าที่เหลือ (channel profile, allowlist, trace viewer) เป็นตารางธรรมดาที่ไม่มีอะไรต้องตัดสินใจ"},
+ {id:"9.2",pick:"ก",h:"form builder ไม่ใช่ textarea JSON",d:"กดเพิ่ม field ทีละตัว (ชื่อ/ชนิด/จำเป็นไหม/คำอธิบาย) แล้วระบบ gen JSON Schema ให้ · JSON เป็น read-only preview",why:"#2 จำกัด schema เป็น subset ที่แคบมากอยู่แล้ว form builder จึงครอบคลุมเกือบ 100% ของสิ่งที่ระบบยอมรับ · textarea เปิดให้กรอกสิ่งที่ระบบจะ reject แล้วผู้ใช้ไม่รู้ว่าทำไม"},
+ {id:"9.3",pick:"ก",h:"prompt ระดับระบบแยกหน้า / description อยู่ในฟอร์ม tool",d:"หน้าแก้ description ต้อง<b>แสดงจำนวนตัวอักษร-ประมาณ token</b>",why:"tool description นับเป็น input token ทุก request — คำแนะนำ \"3-4 ประโยค\" ชนกับต้นทุน token ตรง ๆ"},
+ {id:"9.4",pick:"ก",h:"มีปุ่ม \"ลองยิงดู\" ที่ยิงจริง",d:"แสดง request ที่ส่ง (ซ่อน secret) + response + เวลา · <b>ต้องผ่าน SSRF policy ของ #13 เหมือนการเรียกปกติ ห้ามเป็นทางลัด</b>",why:"ถ้าไม่มี ผู้ใช้ต้องเปิด tool ให้ AI ใช้ก่อนถึงจะรู้ว่ากรอก URL ผิด = ทดสอบบนผู้ใช้จริง"},
+ {id:"9.5",pick:"ก",h:"มี draft / publish",d:"publish = สร้าง <code>tool_version</code> ใหม่ + ย้อนเวอร์ชันได้",why:"#12 บังคับให้มี tool_version อยู่แล้ว ⇒ แทบไม่มีต้นทุนเพิ่ม และตอบหมอกเรื่อง rollback ไปพร้อมกัน"},
+ {id:"9.6",pick:"ก",h:"Python plugin อยู่รายการเดียวกัน ช่องที่แก้ไม่ได้ถูก disable",d:"พร้อมข้อความบอกเหตุผล (\"schema มาจากโค้ด แก้ได้ที่ plugin.yaml\")",why:"ถ้าซ่อนไป คนจะงงว่าทำไม AI ตอบเรื่องความรู้ได้ทั้งที่ไม่เห็น knowledge tool ในรายการ"},
+ {id:"9.7",pick:"ก",h:"auth = ADMIN_PASSWORD + session cookie",d:"แยกจาก API key ของ public API",why:"หน้านี้แก้ prompt และสร้าง tool ที่ยิง HTTP ได้ = ยึดระบบได้ทั้งระบบ · และ \"ระบบภายนอกเรียก API\" กับ \"มนุษย์ล็อกอิน\" มีวงจรชีวิตต่างกัน"},
+ {id:"9.8",pick:"ก",h:"HTML/JS ธรรมดา ไม่มี build step",d:"ต่อยอดสไตล์ <code>web/index.html</code> เดิม ไม่เอา React/Vue",why:"การเพิ่ม framework แปลว่าต้องมี node/bundler/CI ใหม่ทั้งชุดเพื่อหน้า admin 3 หน้า"},
+]},
+
+{t:"#8",cls:"",title:"Public API — endpoint, auth, error",url:"https://github.com/Armboy122/wsc2026/issues/8",
+ note:"",
+ items:[
+ {id:"8.1",pick:"ก",h:"ปิด /traces และ /reset จาก public",d:"เปิด: <code>chat</code> · <code>confirm</code>/<code>reject</code> · <code>health</code> · ปิดสองตัวนั้นไปอยู่หลัง admin auth",why:"trace มีข้อมูลภายใน / reset ที่เปิดสาธารณะ = ใครก็ล้างระบบได้ระหว่างสาธิต"},
+ {id:"8.2",pick:"ก",h:"API key เก็บ hash ใน SQLite",d:"แสดงค่าจริงครั้งเดียวตอนสร้าง · เพิกถอนได้ · มี <code>name</code> เพื่อรู้ว่าระบบไหนยิงเข้ามา",why:"เก็บดิบ = ไฟล์ DB หลุดแล้ว key ทุกตัวหลุด · key เดียวจาก env = หมุนต้องรีสตาร์ตและถอดทีละรายไม่ได้"},
+ {id:"8.3",pick:"ก",h:"server ออก conversation id เสมอ",d:"client ส่งกลับได้เฉพาะ id ที่ผูกกับ key ตัวเอง · ส่ง id คนอื่น = <b>404 ไม่ใช่ 403</b>",why:"403 เท่ากับยืนยันว่า id นั้นมีอยู่จริง · ถ้า client ตั้งเองได้อิสระ ระบบภายนอกสองรายจะอ่านบทสนทนากันได้"},
+ {id:"8.4",pick:"ก",h:"ใช้ ChatResponse เดียวกับ channel อื่น",d:"API = channel ที่ <code>buttons:false</code> แล้ว degrade ตามนั้น",why:"ถ้ามีรูปของตัวเองจะกลายเป็น channel ที่ 4 ที่ต้องซิงก์กับอีก 3 ตัวตลอดไป"},
+ {id:"8.5",pick:"ก",h:"คง /api/v1 ไม่ขึ้น v2",d:"V2 เติมฟิลด์ (<code>simulation</code>, <code>actions[]</code>) ไม่ลบฟิลด์ ⇒ client เก่าไม่พัง · <b>แต่ endpoint ที่ปิดจะทำให้ web เดิมพัง ต้องแก้ใน #10</b>",why:"ขึ้น v2 ทำให้ต้องดูแลสองเส้นทางเพื่อความต่างที่ไม่มีจริง"},
+ {id:"8.6",pick:"ก",h:"error รูปเดียว {error:{code,message,traceId}}",d:"<b>ห้ามมี</b> stack trace / ชื่อ tool ภายใน / URL ปลายทาง",why:"traceId ทำให้ระบบภายนอกแจ้งปัญหาแล้ว admin ตามดูได้ โดยที่คนนอกไม่เห็น trace เอง = สะพานที่ปลอดภัย"},
+ {id:"8.7",pick:"ก",h:"rate limit ตัดออก แต่ใส่ตัวนับใน memory",d:"จำกัด request ต่อ key ต่อนาที ไม่ต้องมี Redis",why:"API key ที่หลุดหนึ่งตัวยิงจนโควตา LLM หมดได้ในไม่กี่นาที = ค่าใช้จ่ายจริง · ตัวนับใน memory กัน 95% ของกรณีจริง"},
+ {id:"8.8",pick:"ก",h:"tenant_id ในตาราง api_key ตั้งแต่ตอนนี้",d:"ทุกแถวเป็น <code>default</code> · ไม่ใส่ในตารางอื่น",why:"แผนที่ล็อกไว้ว่าต้องเติม tenant_id ทีหลังได้ด้วย migration เดียว — คอลัมน์ที่ค่าเดียวทั้งตารางมีต้นทุนเกือบศูนย์"},
+]},
+];
+
+const RESEARCH=[
+ {t:"#6",title:"ค้น: ระบบอื่นออกแบบ declarative HTTP tool จาก UI ยังไง",url:"https://github.com/Armboy122/wsc2026/issues/6",
+  lines:["<b>Pydantic v2 แปลง JSON Schema กลับเป็น model ไม่ได้</b> — TypeAdapter(dict) ตีความเป็นคนละภาษา และถ้าเขียน converter เอง constraint จะหายเงียบ",
+         "tool name ต้องตรง <code>^[a-zA-Z0-9_-]{1,64}$</code> ⇒ ชื่อไทยยิง API ไม่ผ่าน",
+         "declarative HTTP tool = เครื่อง SSRF โดยธรรมชาติ (LangChain RequestsToolkit = CVE-2025-2828 CVSS 8.4)",
+         "MCP ToolAnnotations = คำศัพท์ที่ยืมได้ แต่ spec เองบอกว่าเป็น hint ที่เชื่อไม่ได้"]},
+ {t:"#5",title:"ค้น: Telegram Bot API สำหรับ confirm flow",url:"https://github.com/Armboy122/wsc2026/issues/5",
+  lines:["<code>callback_data</code> จำกัด <b>1–64 bytes</b> ⇒ UUID ใส่ได้ (~44 bytes รวม prefix)",
+         "กดปุ่มแล้ว<b>ต้องเรียก answerCallbackQuery ทุกครั้ง</b> ไม่งั้น spinner ค้าง",
+         "webhook verify ด้วย static secret ที่<b>ไม่ผูก body</b> ⇒ อ่อนกว่า HMAC ของ LINE",
+         "ตัดข้อความที่ <b>4096</b> ตัวอักษร (LINE 5000) · ไม่เพิ่ม library ยิง httpx ตรง"]},
+];
+
+const KEY='pea-v2-review-v1';
+let state=JSON.parse(localStorage.getItem(KEY)||'{}');
+const app=document.getElementById('app');
+let total=0;
+
+DATA.forEach(sec=>{
+  const s=document.createElement('section');
+  let html=`<div class="sec-head">
+      <span class="tid ${sec.cls}">${sec.t}</span>
+      <h2>${sec.title}</h2>
+      <a href="${sec.url}" target="_blank">ดู ticket ↗</a>
+    </div>`;
+  if(sec.note) html+=`<div class="sec-note">${sec.note}</div>`;
+  sec.items.forEach(it=>{
+    total++;
+    const st=state[it.id]||{};
+    const cls=st.v==='ok'?'ok':st.v==='edit'?'edit':'';
+    html+=`<div class="item ${cls}" id="i-${it.id}" data-id="${it.id}">
+      <div class="qid">${it.id}</div>
+      <div class="body">
+        <h4><span class="pick">${it.pick==='★'?'คุณแก้เอง':'เลือก '+it.pick}</span>${it.h}</h4>
+        <p>${it.d}</p>
+        <details class="why"><summary>ทำไมถึงเลือกแบบนี้</summary><p>${it.why}</p></details>
+      </div>
+      <div class="acts">
+        <button class="b-ok ${st.v==='ok'?'on-ok':''}" onclick="set('${it.id}','ok')">✓ ยืนยัน</button>
+        <button class="b-ed ${st.v==='edit'?'on-ed':''}" onclick="set('${it.id}','edit')">✎ ขอแก้</button>
+      </div>
+      <div class="fix">
+        <label>อยากให้เปลี่ยนเป็นอะไร</label>
+        <textarea placeholder="พิมพ์สิ่งที่ต้องการ เช่น 'อย่าลบไฟล์ .md เก็บไว้เป็น reference' หรือ 'ขอ textarea JSON ด้วย ไม่เอา form builder อย่างเดียว'" oninput="note('${it.id}',this.value)">${(st.n||'').replace(/</g,'&lt;')}</textarea>
+      </div>
+    </div>`;
+  });
+  s.innerHTML=html;
+  app.appendChild(s);
+});
+
+const rs=document.createElement('section');
+let rh=`<div class="sec-head"><span class="tid research">ค้น</span><h2>ผลค้นข้อมูล — ไม่ต้องยืนยัน ใช้อ้างอิงอย่างเดียว</h2></div>`;
+RESEARCH.forEach(r=>{
+  rh+=`<div class="rcard"><h4 style="font-family:'Bai Jamjuree';font-size:15px;font-weight:600;margin-bottom:9px">
+    <span class="tid research" style="font-size:11px">${r.t}</span> ${r.title}
+    <a href="${r.url}" target="_blank" style="font-family:'IBM Plex Mono';font-size:11px;color:#6f6c66;text-decoration:none;margin-left:8px">↗</a></h4>`;
+  r.lines.forEach(l=>rh+=`<p>• ${l}</p>`);
+  rh+=`</div>`;
+});
+rs.innerHTML=rh;
+app.appendChild(rs);
+
+document.getElementById('tot').textContent=total;
+
+function set(id,v){
+  state[id]=state[id]||{};
+  state[id].v = state[id].v===v ? null : v;
+  save();render(id);tick();
+}
+function note(id,t){state[id]=state[id]||{};state[id].n=t;save();}
+function save(){localStorage.setItem(KEY,JSON.stringify(state))}
+function render(id){
+  const el=document.getElementById('i-'+id);const st=state[id]||{};
+  el.className='item '+(st.v==='ok'?'ok':st.v==='edit'?'edit':'');
+  el.querySelector('.b-ok').className='b-ok '+(st.v==='ok'?'on-ok':'');
+  el.querySelector('.b-ed').className='b-ed '+(st.v==='edit'?'on-ed':'');
+}
+function all(v){
+  DATA.forEach(s=>s.items.forEach(i=>{state[i.id]=state[i.id]||{};state[i.id].v=v;render(i.id)}));
+  save();tick();
+}
+function tick(){
+  let ok=0,ed=0;
+  DATA.forEach(s=>s.items.forEach(i=>{const v=(state[i.id]||{}).v;if(v==='ok')ok++;if(v==='edit')ed++}));
+  const done=ok+ed;
+  document.getElementById('fill').style.width=(done/total*100)+'%';
+  document.getElementById('tally').innerHTML=`ยืนยัน <b>${ok}</b> · <span class="e">ขอแก้ ${ed}</span> · เหลือ <b>${total-done}</b>`;
+  const st=document.getElementById('status');
+  st.innerHTML = done<total
+    ? `ยังเหลืออีก <b>${total-done}</b> ข้อ — กด "ยืนยันทั้งหมด" ได้ถ้าส่วนใหญ่โอเค แล้วค่อยไล่แก้เฉพาะข้อที่ติดใจ`
+    : (ed? `พร้อมส่งแล้ว — มี <b>${ed}</b> ข้อที่ขอแก้` : `พร้อมส่งแล้ว — ยืนยันครบทุกข้อ`);
+}
+function jumpNext(){
+  for(const s of DATA) for(const i of s.items){
+    if(!(state[i.id]||{}).v){document.getElementById('i-'+i.id).scrollIntoView({block:'center'});return}
+  }
+  document.querySelector('.submit').scrollIntoView();
+}
+function build(){
+  let ok=[],ed=[];
+  DATA.forEach(s=>s.items.forEach(i=>{
+    const st=state[i.id]||{};
+    if(st.v==='ok')ok.push(i.id);
+    if(st.v==='edit')ed.push({id:i.id,t:s.t,h:i.h,n:(st.n||'').trim()});
+  }));
+  let o='## ผลทบทวนมติ V2 (จากหน้า decision-review)\n\n';
+  if(ed.length===0){
+    o+=`**ยืนยันทุกข้อตามที่เสนอ** (${ok.length}/${total})\n\nไม่มีข้อไหนต้องแก้ — ประกอบสเปกได้เลย\n`;
+  }else{
+    o+=`ยืนยัน ${ok.length} ข้อ · **ขอแก้ ${ed.length} ข้อ**\n\n### ข้อที่ขอแก้\n\n`;
+    ed.forEach(e=>{o+=`**${e.id}** (${e.t}) — ${e.h}\n> ${e.n||'(ยังไม่ได้ระบุ — ถามกลับได้)'}\n\n`});
+    o+=`### ข้อที่เหลือยืนยันตามเดิม\n${ok.join(', ')||'—'}\n`;
+  }
+  const miss=total-ok.length-ed.length;
+  if(miss>0)o+=`\n_(ยังไม่ได้ตรวจ ${miss} ข้อ — ถือว่ายืนยันตามที่เสนอไปก่อน)_\n`;
+  document.getElementById('out').value=o;
+  document.getElementById('modal').classList.add('show');
+}
+function cp(){
+  const t=document.getElementById('out');t.select();
+  navigator.clipboard.writeText(t.value).then(()=>{
+    document.getElementById('copyhint').textContent='✓ คัดลอกแล้ว — วางในแชทได้เลย';
+  }).catch(()=>{document.execCommand('copy');document.getElementById('copyhint').textContent='✓ คัดลอกแล้ว'});
+}
+function dl(){
+  const b=new Blob([document.getElementById('out').value],{type:'text/markdown'});
+  const a=document.createElement('a');a.href=URL.createObjectURL(b);a.download='v2-review.md';a.click();
+}
+tick();
+</script>
+</body>
+</html>
