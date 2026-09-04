@@ -623,3 +623,167 @@ async def test_turn_without_choices_has_no_voice_guidance() -> None:
     result = await bridge.handle_text("สวัสดี")
 
     assert result["voiceGuidance"] is None
+
+
+# ---------------------------------------------------------------------------
+# ลิงก์บริการในคำตอบ: มีจอให้บอกว่าอยู่บนหน้าจอ ไม่มีจอให้บอกชื่อเว็บไซต์
+# ---------------------------------------------------------------------------
+
+
+def _gateway_answering_with_link(
+    message: str = (
+        "ยื่นคำร้องขอใช้ไฟฟ้าใหม่ได้ตลอด 24 ชั่วโมง\n"
+        "ดำเนินการออนไลน์: https://sabuyservice.pea.co.th/"
+    ),
+) -> FakeGateway:
+    gateway = FakeGateway()
+    gateway.chat_responses.append(
+        ChatResponse(conversation_id=uuid4(), trace_id=uuid4(), message=message)
+    )
+    return gateway
+
+
+@pytest.mark.asyncio
+async def test_link_guidance_points_at_the_screen_when_a_display_exists() -> None:
+    """เว็บ linkify ลิงก์ให้กดได้แล้ว เสียงจึงต้องไม่อ่าน URL เต็ม"""
+    bridge = VoiceBridge(_gateway_answering_with_link(), has_display=True)
+
+    result = await bridge.handle_text("มีลิงก์ไหมครับ")
+
+    guidance = result["voiceGuidance"]
+    assert "บนหน้าจอ" in guidance
+    assert "ห้ามรับปากว่าจะส่งลิงก์ให้ภายหลัง" in guidance
+    assert "https://" not in guidance
+
+
+@pytest.mark.asyncio
+async def test_link_guidance_speaks_the_hostname_without_a_display() -> None:
+    """สาย 1129 ไม่มีลิงก์ให้กด ผู้ใช้ต้องได้ยินชื่อเว็บไซต์เพื่อจดตาม"""
+    bridge = VoiceBridge(_gateway_answering_with_link(), has_display=False)
+
+    result = await bridge.handle_text("มีลิงก์ไหมครับ")
+
+    guidance = result["voiceGuidance"]
+    assert "sabuyservice.pea.co.th" in guidance
+    assert "https://" not in guidance
+    assert "ห้ามรับปากว่าจะส่งลิงก์ให้ภายหลัง" in guidance
+
+
+@pytest.mark.asyncio
+async def test_link_guidance_lists_every_distinct_host_in_order() -> None:
+    bridge = VoiceBridge(
+        _gateway_answering_with_link(
+            "บุคคลธรรมดา https://eservice.pea.co.th/cos/individual/ "
+            "และข้อมูลบริการ https://www.pea.co.th/faqs "
+            "ย้ำอีกครั้ง https://eservice.pea.co.th/cos/individual/"
+        ),
+        has_display=False,
+    )
+
+    result = await bridge.handle_text("ขอลิงก์ครับ")
+
+    guidance = result["voiceGuidance"]
+    assert "eservice.pea.co.th และ pea.co.th" in guidance
+    assert "cos/individual" not in guidance
+
+
+@pytest.mark.asyncio
+async def test_answer_without_a_link_keeps_guidance_empty() -> None:
+    bridge = VoiceBridge(
+        _gateway_answering_with_link("ใช้สำเนาบัตรประชาชนและสำเนาทะเบียนบ้านครับ"),
+        has_display=False,
+    )
+
+    result = await bridge.handle_text("ใช้เอกสารอะไรบ้าง")
+
+    assert result["voiceGuidance"] is None
+
+
+@pytest.mark.asyncio
+async def test_choice_prompt_wins_over_link_guidance() -> None:
+    """การ์ดตัวเลือกเป็นคำถามที่ต้องตอบ จึงสำคัญกว่าการบอกลิงก์"""
+    gateway = FakeGateway()
+    gateway.chat_responses.append(
+        ChatResponse(
+            conversation_id=uuid4(),
+            trace_id=uuid4(),
+            message="เลือกหัวข้อครับ https://sabuyservice.pea.co.th/",
+            choice_prompt=ChoicePrompt(
+                prompt_id="voc_category",
+                question="ต้องการแจ้งเรื่องประเภทใด",
+                options=(ChoiceOption(label="แจ้งปัญหาด้านบริการ", value="service"),),
+            ),
+        )
+    )
+    bridge = VoiceBridge(gateway, has_display=True)
+
+    result = await bridge.handle_text("ร้องเรียน")
+
+    assert "ตัวเลือก" in result["voiceGuidance"]
+
+
+# ---------------------------------------------------------------------------
+# ยกเลิกด้วยคำพูด: โมเดลมีแค่ chat กับ confirm การปฏิเสธจึงเข้าทางข้อความ
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    "refusal",
+    ["ยกเลิกครับ", "ไม่เอาแล้วครับ", "ไม่ต้องแล้วครับ", "cancel", "ขอยกเลิกครับ"],
+)
+async def test_spoken_refusal_rejects_the_pending_action(refusal: str) -> None:
+    """คำปฏิเสธชัดเจนต้องปิดรายการทันที ไม่ปล่อยให้ pending ค้าง"""
+    bridge, gateway = await _bridge_with_pending()
+
+    result = await bridge.handle_text(refusal)
+
+    assert len(gateway.reject_calls) == 1
+    assert gateway.reject_calls[0][1] == "ผู้ใช้ปฏิเสธรายการด้วยเสียง"
+    assert result["pendingAction"]["status"] == "rejected"
+    # รายการถูกปิดแล้ว การยืนยันภายหลังต้อง fail closed
+    assert bridge.has_pending_action is False
+    with pytest.raises(NoPendingActionError):
+        await bridge.confirm_current()
+
+
+@pytest.mark.asyncio
+async def test_refusal_does_not_reach_the_chat_path() -> None:
+    """ต้องไม่ส่งข้อความยกเลิกเข้า MainAgent ซ้ำ เพราะรายการถูกปิดแล้ว"""
+    bridge, gateway = await _bridge_with_pending()
+    chat_calls_before = len(gateway.chat_calls)
+
+    await bridge.handle_text("ไม่เอาแล้วครับ")
+
+    assert len(gateway.chat_calls) == chat_calls_before
+
+
+@pytest.mark.asyncio
+async def test_refusal_without_pending_is_an_ordinary_chat_turn() -> None:
+    """ไม่มีรายการรอยืนยัน คำว่ายกเลิกเป็นเพียงข้อความธรรมดา"""
+    gateway = FakeGateway()
+    bridge = VoiceBridge(gateway)
+
+    await bridge.handle_text("ยกเลิกครับ")
+
+    assert gateway.reject_calls == []
+    assert len(gateway.chat_calls) == 1
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    "message",
+    [
+        "ยืนยันครับ",
+        "ดำเนินการเลยครับ",
+        "ขอถามเพิ่มว่าไม่ต้องใช้ทะเบียนบ้านก็ได้ใช่ไหมครับ แล้วต้องเตรียมอะไรอีกบ้าง",
+    ],
+)
+async def test_non_refusal_keeps_the_pending_action(message: str) -> None:
+    """คำยืนยันและคำถามยาวที่บังเอิญมีคำปฏิเสธต้องไม่ยกเลิกรายการ"""
+    bridge, gateway = await _bridge_with_pending()
+
+    await bridge.handle_text(message)
+
+    assert gateway.reject_calls == []
+    assert bridge.has_pending_action is True

@@ -281,6 +281,8 @@ import { GeminiLiveClient } from './gemini-live-client.js';
 
     try {
       liveClient = new GeminiLiveClient({
+        // สาย 1129 เป็นเสียงล้วน ไม่มีลิงก์ให้กด ต้องได้ยินชื่อเว็บไซต์
+        channel: 'phone',
         onTranscript: renderVoiceTranscript,
         onAgentResponse: (op, resp) => console.log('Live Agent response:', op, resp),
         onTurnComplete: () => setVisualState('listening'),

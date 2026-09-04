@@ -3,7 +3,10 @@ import { MediaHandler } from './media-handler.js';
 
 export class GeminiLiveClient {
   constructor(handlers = {}) {
-    this.handlers = handlers;
+    const { channel, ...rest } = handlers;
+    // ช่องทางกำหนดว่ามีหน้าจอหรือไม่ เสียงล้วนแบบ 1129 ต้องได้ยินชื่อเว็บไซต์
+    this.channel = channel === 'phone' ? 'phone' : 'web';
+    this.handlers = rest;
     this.socket = null;
     this.media = new MediaHandler((chunk) => this.sendAudio(chunk));
     this.closed = false;
@@ -14,7 +17,7 @@ export class GeminiLiveClient {
 
   async connect() {
     const scheme = location.protocol === 'https:' ? 'wss:' : 'ws:';
-    const socket = new WebSocket(`${scheme}//${location.host}/ws/live`);
+    const socket = new WebSocket(`${scheme}//${location.host}/ws/live?channel=${this.channel}`);
     socket.binaryType = 'arraybuffer';
     this.socket = socket;
     const ready = new Promise((resolve, reject) => {

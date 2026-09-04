@@ -25,12 +25,23 @@ _SYSTEM_INSTRUCTION = """คุณเป็นส่วนติดต่อด�
   และบทสนทนาทั่วไปที่ไม่ต้องใช้ข้อมูลหรือการดำเนินการ
 - ห้ามสร้างข้อเท็จจริง แหล่งอ้างอิง สถานะเรื่อง หรือผลการดำเนินการของ PEA ขึ้นเอง และต้องรักษา
   ความหมาย ตัวเลข เงื่อนไข และข้อจำกัดจากคำตอบที่ MainAgent คืนมา
-- หากมี pending action ให้พูดสรุปที่ได้รับ แล้วถามอย่างชัดเจนว่าต้องการยืนยันหรือปฏิเสธ
-  เรียก pea_confirm_pending_action หรือ pea_reject_pending_action เฉพาะเมื่อผู้ใช้ตอบชัดเจนเท่านั้น
-  หากคำตอบกำกวมต้องถามย้ำและห้ามเรียกฟังก์ชันตัดสินใจ
+- คุณมีเครื่องมือเพียงสองอย่าง คือ pea_agent_chat และ pea_confirm_pending_action เท่านั้น
+- หากมี pending action ให้พูดสรุปที่ได้รับ แล้วถามอย่างชัดเจนว่าต้องการยืนยันหรือยกเลิก
+  เรียก pea_confirm_pending_action เฉพาะเมื่อผู้ใช้ตอบตกลงอย่างชัดเจนเท่านั้น
+  หากคำตอบกำกวมต้องถามย้ำและห้ามเรียกฟังก์ชันยืนยัน
+- ห้ามเรียก pea_confirm_pending_action เมื่อรอบก่อนหน้าไม่มี pendingAction จริง
+  หากผู้ใช้พูดคำที่ฟังดูเหมือนสั่งให้ทำต่อ เช่น “ดำเนินการเลย” แต่ยังไม่มีรายการรอยืนยัน
+  ให้ส่งคำพูดนั้นด้วย pea_agent_chat ตามปกติ
+- หากผู้ใช้ต้องการยกเลิกรายการ ให้ส่งคำพูดของผู้ใช้ด้วย pea_agent_chat ระบบจะยกเลิกให้เอง
+  ห้ามบอกผู้ใช้ว่าคุณยกเลิกให้ไม่ได้
 - ห้ามขอ รับ หรือส่ง pending action id; action ถูกผูกกับเซสชันโดยระบบ และผล OMS ระบุว่าเป็นข้อมูลจำลอง
 - คำถามเกี่ยวกับสถานะเหตุไฟฟ้าขัดข้อง เงื่อนไข ขั้นตอน หรือความสามารถของระบบ ต้องเรียก pea_agent_chat
   เสมอ ห้ามตอบจากความเข้าใจของตนเอง
+- ช่องทางเสียงนี้ให้บริการเพียงสองเรื่อง คือ การตอบคำถามข้อมูลและบริการของ PEA
+  กับงานไฟฟ้าขัดข้อง ทั้งการตรวจสอบสถานะและการแจ้งเหตุไฟดับ
+- เรื่องร้องเรียนคุณภาพบริการและการติดตามเรื่องร้องเรียนยังไม่รองรับในช่องทางเสียง
+  หากผู้ใช้ขอ ให้แจ้งอย่างสุภาพว่าช่องทางนี้ยังทำให้ไม่ได้ แล้วแนะนำให้ใช้แชตบนเว็บ
+  หรือติดต่อ PEA Contact Center 1129 ห้ามรับปากว่าจะบันทึกเรื่องร้องเรียนให้
 
 หลักการตอบด้วยเสียงหลังได้รับคำตอบ:
 - ถ้าผลลัพธ์มี `voiceGuidance` ให้ทำตามนั้นก่อนเสมอ เพราะเป็นตัวกำหนดว่าช่องทางนี้มีหน้าจอหรือไม่
@@ -74,7 +85,13 @@ def live_connect_config(voice: str) -> types.LiveConnectConfig:
 
 
 def _function_declarations() -> list[types.FunctionDeclaration]:
-    """Expose only the three safe session-bound bridge operations."""
+    """Expose only the two safe session-bound bridge operations.
+
+    Rejection is intentionally absent: the model cannot cancel a prepared
+    action directly.  VoiceBridge.handle_text detects an explicit spoken
+    refusal and rejects the pending action itself, so a refusal can never be
+    mistaken for a confirmation.
+    """
     return [
         types.FunctionDeclaration(
             name="pea_agent_chat",
@@ -92,16 +109,6 @@ def _function_declarations() -> list[types.FunctionDeclaration]:
             parameters_json_schema={
                 "type": "object",
                 "properties": {"confirmationNote": {"type": "string"}},
-                "additionalProperties": False,
-            },
-        ),
-        types.FunctionDeclaration(
-            name="pea_reject_pending_action",
-            description="ปฏิเสธรายการที่กำลังรอในเซสชันนี้เท่านั้น",
-            parameters_json_schema={
-                "type": "object",
-                "properties": {"reason": {"type": "string"}},
-                "required": ["reason"],
                 "additionalProperties": False,
             },
         ),
@@ -220,7 +227,6 @@ class GeminiLiveSession:
             operation = {
                 "pea_agent_chat": "chat",
                 "pea_confirm_pending_action": "confirm",
-                "pea_reject_pending_action": "reject",
             }.get(call.name, "unknown")
             logger.info("gemini_live_bridge_called", extra={"function_name": call.name})
             await websocket.send_json({"type": "agent.response", "operation": operation, "response": result})
@@ -234,8 +240,6 @@ class GeminiLiveSession:
                 return await self._bridge.handle_text(args.get("message", ""))
             if name == "pea_confirm_pending_action":
                 return await self._bridge.confirm_current(args.get("confirmationNote"))
-            if name == "pea_reject_pending_action":
-                return await self._bridge.reject_current(args.get("reason", ""))
             return {"error": {"code": "unknown_function", "message": "คำสั่งเสียงนี้ไม่รองรับครับ"}}
         except VoiceBridgeError as error:
             return error.to_dict()

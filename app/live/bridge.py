@@ -20,7 +20,9 @@
 from __future__ import annotations
 
 import asyncio
+import re
 from typing import Any
+from urllib.parse import urlparse
 from uuid import UUID
 
 from pydantic import ValidationError
@@ -37,6 +39,18 @@ _TERMINAL_STATUSES = frozenset({
 _MAX_MESSAGE_LENGTH = 4000
 _MAX_NOTE_LENGTH = 500
 _MAX_REASON_LENGTH = 500
+
+# URL ในคำตอบมาจากเอกสารที่ตรวจแล้วเท่านั้น (knowledge backend คัดลอกตรงตัวอักษร)
+# bridge จึงอ่านชื่อโฮสต์จากข้อความได้โดยไม่ต้องให้โมเดลสะกด URL เอง
+_URL_PATTERN = re.compile(r"https?://[^\s<>\"']+")
+
+# โมเดลเสียงมีเครื่องมือแค่ chat กับ confirm การยกเลิกจึงต้องเข้าทางข้อความ
+# ใช้คำที่ปฏิเสธชัดเจนเท่านั้น คำกำกวมอย่าง "เดี๋ยวก่อน" ต้องไม่เข้าเงื่อนไขนี้
+_CANCEL_PHRASES = (
+    "ยกเลิก", "ไม่เอาแล้ว", "ไม่เอา", "ไม่ต้องแล้ว", "ไม่ต้อง",
+    "ขอยกเลิก", "หยุดก่อน", "ไม่ทำแล้ว", "เลิกทำ", "cancel",
+)
+_CANCEL_REASON = "ผู้ใช้ปฏิเสธรายการด้วยเสียง"
 
 
 class VoiceBridgeError(RuntimeError):
@@ -121,6 +135,10 @@ class VoiceBridge:
             text = message.strip() if isinstance(message, str) else ""
             if not text:
                 raise InvalidTextError()
+            # ผู้ใช้ปฏิเสธรายการที่รอยืนยันได้ด้วยคำพูด เพราะโมเดลไม่มีเครื่องมือ reject
+            # ต้องปิดรายการก่อนส่งข้อความต่อ ไม่เช่นนั้น pending จะค้างและถูกยืนยันภายหลัง
+            if self._pending_action_id is not None and _is_cancellation(text):
+                return await self._reject_locked(_CANCEL_REASON)
             try:
                 request = ChatRequest(conversation_id=self._conversation_id, message=text)
             except ValidationError as exc:
@@ -136,11 +154,15 @@ class VoiceBridge:
             return payload
 
     def _voice_guidance(self, response: Any) -> str | None:
-        """บอกเสียงว่าต้องพูดอย่างไรกับคำถามแบบมีตัวเลือก
+        """บอกเสียงว่าต้องพูดอย่างไรกับตัวเลือกและลิงก์ในคำตอบรอบนี้
 
-        ถ้ามีจอ ผู้ใช้เห็นการ์ดอยู่แล้ว การอ่านทุกตัวเลือกทำให้ยาวเกินจำเป็น
-        ถ้าไม่มีจอ ต้องอ่านให้ครบ แล้วรับคำตอบเป็นคำพูดของผู้ใช้
+        ถ้ามีจอ ผู้ใช้เห็นการ์ดและลิงก์อยู่แล้ว การอ่านซ้ำทำให้ยาวเกินจำเป็น
+        ถ้าไม่มีจอ เช่น สายโทรศัพท์ 1129 ต้องอ่านตัวเลือกให้ครบ และบอกชื่อ
+        เว็บไซต์ให้ผู้ใช้จดตามได้ เพราะไม่มีลิงก์ให้กด
         """
+        return self._choice_guidance(response) or self._link_guidance(response)
+
+    def _choice_guidance(self, response: Any) -> str | None:
         prompt = getattr(response, "choice_prompt", None)
         if prompt is None or not prompt.options:
             return None
@@ -155,6 +177,24 @@ class VoiceBridge:
             f"ถามผู้ใช้ว่า: {prompt.question} "
             f"อ่านตัวเลือกให้ครบทุกข้อ: {options} "
             "แล้วส่งคำตอบของผู้ใช้ต่อด้วย pea_agent_chat ตามคำพูดเดิม"
+        )
+
+    def _link_guidance(self, response: Any) -> str | None:
+        """คำตอบรอบนี้มีลิงก์บริการแล้ว เสียงจึงต้องไม่รับปากว่าจะส่งให้ทีหลัง"""
+        hosts = _service_hosts(getattr(response, "message", None))
+        if not hosts:
+            return None
+        if self._has_display:
+            return (
+                "คำตอบรอบนี้มีลิงก์บริการแสดงเป็นลิงก์กดได้บนหน้าจอแล้ว "
+                "ให้บอกสั้น ๆ ว่าลิงก์อยู่บนหน้าจอและกดเปิดได้เลย "
+                "ห้ามอ่าน URL เต็ม และห้ามรับปากว่าจะส่งลิงก์ให้ภายหลัง"
+            )
+        spoken = " และ ".join(hosts)
+        return (
+            f"ช่องทางนี้ไม่มีหน้าจอ ให้บอกชื่อเว็บไซต์ด้วยเสียงว่า {spoken} "
+            "พูดช้า ๆ ให้ผู้ใช้จดตามได้ และเสนอให้จดหรือทวนซ้ำได้ "
+            "ห้ามอ่านเส้นทางหลังชื่อเว็บไซต์ และห้ามรับปากว่าจะส่งลิงก์ให้ภายหลัง"
         )
 
     async def confirm_current(self, confirmation_note: str | None = None) -> dict[str, Any]:
@@ -188,22 +228,26 @@ class VoiceBridge:
         หากไม่มี pending action จะ fail closed ด้วย ``NoPendingActionError``
         """
         async with self._lock:
-            pending_action_id = self._require_pending()
-            normalized_reason = self._normalize_optional_text(reason, _MAX_REASON_LENGTH, "reason")
-            if not normalized_reason:
-                raise InvalidTextError("ไม่ได้รับเหตุผลการปฏิเสธที่ชัดเจน กรุณาลองอีกครั้งครับ")
-            try:
-                decision = await self._agent.reject_pending_action(
-                    pending_action_id,
-                    reason=normalized_reason,
-                )
-            except LookupError as exc:
-                self._pending_action_id = None
-                raise NoPendingActionError() from exc
-            except RuntimeError as exc:
-                raise ActionConflictError() from exc
-            self._clear_if_terminal(decision)
-            return decision.model_dump(mode="json", by_alias=True)
+            return await self._reject_locked(reason)
+
+    async def _reject_locked(self, reason: str) -> dict[str, Any]:
+        """ตัวปฏิเสธจริง ผู้เรียกต้องถือ ``self._lock`` อยู่แล้ว"""
+        pending_action_id = self._require_pending()
+        normalized_reason = self._normalize_optional_text(reason, _MAX_REASON_LENGTH, "reason")
+        if not normalized_reason:
+            raise InvalidTextError("ไม่ได้รับเหตุผลการปฏิเสธที่ชัดเจน กรุณาลองอีกครั้งครับ")
+        try:
+            decision = await self._agent.reject_pending_action(
+                pending_action_id,
+                reason=normalized_reason,
+            )
+        except LookupError as exc:
+            self._pending_action_id = None
+            raise NoPendingActionError() from exc
+        except RuntimeError as exc:
+            raise ActionConflictError() from exc
+        self._clear_if_terminal(decision)
+        return decision.model_dump(mode="json", by_alias=True)
 
     def _require_pending(self) -> UUID:
         if self._pending_action_id is None:
@@ -232,3 +276,34 @@ class VoiceBridge:
                 f"{field_name} ยาวเกินกำหนด (สูงสุด {max_length} ตัวอักษร) กรุณาลองอีกครั้งครับ"
             )
         return normalized or None
+
+
+def _is_cancellation(text: str) -> bool:
+    """True เมื่อผู้ใช้ปฏิเสธรายการที่รอยืนยันอย่างชัดเจน
+
+    จำกัดที่ข้อความสั้นเท่านั้น เพื่อไม่ให้ประโยคยาวที่บังเอิญมีคำว่า
+    ``ไม่ต้อง`` เช่น การถามข้อมูลเพิ่ม ถูกตีความเป็นการยกเลิกรายการ
+    """
+    normalized = " ".join(text.casefold().split())
+    if len(normalized) > 40:
+        return False
+    return any(phrase in normalized for phrase in _CANCEL_PHRASES)
+
+
+def _service_hosts(message: Any) -> tuple[str, ...]:
+    """ชื่อโฮสต์ตามลำดับที่ปรากฏในคำตอบ ใช้บอกเว็บไซต์ด้วยเสียงเมื่อไม่มีจอ
+
+    คืนเฉพาะโฮสต์ที่อ่านออกเสียงได้ ตัด ``www.`` ทิ้งเพื่อไม่ให้เสียงยาวเกิน
+    และไม่ส่งเส้นทางหลังโฮสต์ เพราะผู้ใช้ทางโทรศัพท์จดตามไม่ทัน
+    """
+    if not isinstance(message, str) or not message:
+        return ()
+    hosts: list[str] = []
+    for url in _URL_PATTERN.findall(message):
+        hostname = urlparse(url.rstrip(".,)")).hostname
+        if not hostname:
+            continue
+        spoken = hostname.removeprefix("www.")
+        if spoken and spoken not in hosts:
+            hosts.append(spoken)
+    return tuple(hosts)
