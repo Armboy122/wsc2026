@@ -210,6 +210,7 @@ roles:
 - **VOC plugin** — เชื่อม VOC REST gateway แบบ simulation (catalog/สร้างเคส/ติดตามเคส) โดยต้องกด **ยืนยัน** ก่อนส่งเคสเสมอ; logic เฉพาะของ VOC อยู่ใน `app/plugins/voc/` และ `app/tools/voc_tool.py` เท่านั้น — MainAgent ไม่มี code เฉพาะ VOC
 - **ระบบปลั๊กอิน** — เพิ่มเครื่องมือใหม่ด้วยการเพิ่มโฟลเดอร์ + `plugin.yaml` โดยไม่ต้องแก้ Main Agent; MainAgent ถือ policy กลางเท่านั้น (prepare→confirm→submit, redaction, trace) และไม่ฝัง logic/ข้อความเฉพาะ plugin ใหม่ ๆ
 - **Trace (การตรวจสอบ)** — ดูเหตุการณ์ที่เรียงตามลำดับและปกปิดข้อมูลแล้ว
+  (ปุ่มถูกซ่อนไว้เป็นค่าเริ่มต้นในหน้าเว็บ — เปิดด้วย `index.html?trace=1`)
 - **โหมดเสียง (Voice)** — พูดคุยด้วย Gemini Live (ต้องอนุญาตไมโครโฟนก่อน)
 - **รีเซ็ต** — ล้างบทสนทนาและสถานะจำลอง
 

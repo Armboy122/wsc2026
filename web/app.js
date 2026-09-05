@@ -17,6 +17,7 @@
 
 import { GeminiLiveClient } from './gemini-live-client.js';
 import { linkifySafeHtml } from './linkify.js';
+import { isTracePanelEnabled } from './trace-flag.js';
 
 (() => {
   'use strict';
@@ -1088,6 +1089,11 @@ import { linkifySafeHtml } from './linkify.js';
   }
 
   /* ---------- การเริ่มต้น ---------- */
+
+  // แผง trace ถูกซ่อนไว้เป็นค่าเริ่มต้น (เดโมสะอาด) — เปิดด้วย query string เช่น index.html?trace=1
+  if (isTracePanelEnabled(location.search) && els.traceToggle) {
+    els.traceToggle.hidden = false;
+  }
 
   updateTraceIdLabel();
   autosize();

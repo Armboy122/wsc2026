@@ -168,7 +168,9 @@ Sabuy และ VOC ไม่ลงทะเบียนใน runtime catalogue
 
 ### J6 — Inspect and reset the demo
 
-ผู้สาธิตเปิดดู trace ที่เรียงตามลำดับและปกปิดข้อมูลแล้ว จากนั้น reset conversation, pending actions, simulated state และ traces เพื่อเริ่มเดโมใหม่ได้
+ผู้สาธิตเปิดดู trace ที่เรียงตามลำดับและปกปิดข้อมูลแล้ว โดยปุ่มการตรวจสอบซ่อนเป็นค่าเริ่มต้น
+และเปิดได้ด้วย query string `?trace=1` จากนั้น reset conversation, pending actions, simulated state
+และ traces เพื่อเริ่มเดโมใหม่ได้
 
 ### J7 — Voice conversation with spoken confirmation/rejection
 
@@ -224,6 +226,7 @@ Sabuy และ VOC ไม่ลงทะเบียนใน runtime catalogue
 - ใช้ API v1 จาก same origin
 - รองรับสถานะ loading, validation, network error, 404, 409, 422 และ 5xx
 - แสดง citations, pending action, confirm/reject, trace และ simulation labels
+- ซ่อนปุ่มการตรวจสอบเป็นค่าเริ่มต้น และเปิดให้ดู trace ได้ด้วย query string `?trace=1`
 - รองรับ keyboard, focus, screen-reader announcements, reduced motion และ touch target ที่เหมาะสม
 
 ### FR-7 Configuration

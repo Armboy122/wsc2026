@@ -248,6 +248,9 @@ button { font: inherit; color: inherit; }
 }
 .ghost-btn:hover { background: rgba(255, 255, 255, 0.16); border-color: rgba(255, 255, 255, 0.6); }
 .ghost-btn[aria-pressed="true"] { background: var(--violet-600); border-color: #fff; }
+/* กันกับดักที่เคยเจอจริง: author stylesheet (.ghost-btn { display: inline-flex }) ชนะ
+   [hidden] ของ UA stylesheet เสมอ จึงต้องยัน display: none ไว้ชัด ๆ */
+.ghost-btn[hidden] { display: none; }
 
 .ghost-btn.light {
   color: var(--ink-800);
@@ -1024,10 +1027,20 @@ button { font: inherit; color: inherit; }
 
 @media (max-width: 480px) {
   .brand-sub { display: none; }
-  .sim-badge { font-size: 0.62rem; padding: 0.26rem 0.6rem; }
+  .sim-badge {
+    width: 100%;
+    justify-content: center;
+    font-size: 0.62rem;
+    padding: 0.26rem 0.6rem;
+    white-space: normal;
+  }
   .header-actions { align-items: stretch; width: 100%; }
-  .header-buttons { justify-content: space-between; }
-  .header-buttons .ghost-btn { flex: 1; justify-content: center; }
+  .header-buttons { justify-content: space-between; flex-wrap: wrap; }
+  .header-buttons .ghost-btn {
+    flex: 1 1 calc(50% - 0.25rem);
+    min-width: 0;
+    justify-content: center;
+  }
   .trace-head-actions .ghost-btn span { display: none; }
 }
 
