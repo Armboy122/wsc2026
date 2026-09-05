@@ -20,6 +20,8 @@ _EXPECTED_TABLES = {
     "prompt",
     "domain_allowlist",
     "schema_version",
+    "trace_event",
+    "pending_action",
 }
 
 
@@ -29,7 +31,7 @@ def _open(tmp_path: Path) -> Database:
     return db
 
 
-def test_migrate_creates_exactly_the_five_tables_plus_schema_version(tmp_path: Path) -> None:
+def test_migrate_creates_config_and_p7_state_tables(tmp_path: Path) -> None:
     db = _open(tmp_path)
     try:
         rows = db._conn.execute(
@@ -46,7 +48,26 @@ def test_migrate_is_idempotent_and_records_schema_version_once(tmp_path: Path) -
         db.migrate()
         db.migrate()
         versions = db._conn.execute("SELECT version FROM schema_version").fetchall()
-        assert [row[0] for row in versions] == [1, 2, 3]
+        assert [row[0] for row in versions] == [1, 2, 3, 4]
+    finally:
+        db.close()
+
+
+async def test_trace_event_sequence_is_unique_at_database_level(tmp_path: Path) -> None:
+    db = _open(tmp_path)
+    try:
+        trace_id = "trace-1"
+        values = ("event-1", trace_id, 1, "2026-01-01T00:00:00+00:00", "error", "{}")
+        await db.execute(
+            "INSERT INTO trace_event (event_id, trace_id, sequence, at, kind, data) "
+            "VALUES (?, ?, ?, ?, ?, ?)", values
+        )
+        with pytest.raises(sqlite3.IntegrityError):
+            await db.execute(
+                "INSERT INTO trace_event (event_id, trace_id, sequence, at, kind, data) "
+                "VALUES (?, ?, ?, ?, ?, ?)",
+                ("event-2", trace_id, 1, "2026-01-01T00:00:01+00:00", "error", "{}"),
+            )
     finally:
         db.close()
 
@@ -281,9 +302,9 @@ async def test_legacy_d21_migrations_to_003_enable_declarative_http_tool(tmp_pat
     db = Database(db_path)
     try:
         db.migrate()
-        # schema_version ต้องอัปเดตถึง migration 003
+        # schema_version ต้องอัปเดตถึง migration 004
         versions = [row[0] for row in db._conn.execute("SELECT version FROM schema_version").fetchall()]
-        assert versions == [1, 2, 3]
+        assert versions == [1, 2, 3, 4]
 
         cols_after = {row[1] for row in db._conn.execute("PRAGMA table_info(tool_operation)").fetchall()}
         assert "http_method" in cols_after

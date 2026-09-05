@@ -32,7 +32,7 @@
 | ตัดออก | เหตุผล |
 |---|---|
 | **Telegram adapter** | LINE ทำงานได้แล้ว — channel ที่สองไม่พิสูจน์อะไรที่ LINE ยังไม่พิสูจน์ กรรมการเห็นความต่างไม่ออก |
-| **trace/pending → SQLite** | ยังอยู่ RAM ต่อ · เดโมไม่รีสตาร์ตกลางทาง · trace panel ที่มีอยู่ยังทำงานเหมือนเดิม |
+| **trace/pending → SQLite** | ทำใน P7 แล้ว · trace/pending รอดข้าม restart และ trace panel เดิมยังทำงานเหมือนเดิม |
 | **Public API + API key** | ไม่มีระบบภายนอกมายิงในวันเดโม |
 | **เสียง read-back + โหมดแก้ไข** | voice ทำงานได้อยู่แล้ว การเปลี่ยน flow ตอนนี้เสี่ยงพังของที่โชว์ได้ |
 | **ย้าย `voc` และ `knowledge`** | ยังใช้ทางเดิมผ่าน alias — ระบบทำงานครบ กรรมการไม่รู้ว่าตัวไหนย้ายแล้ว |
@@ -99,9 +99,9 @@ domain_allowlist domain, enabled
 ```
 - `sqlite3` stdlib + `asyncio.to_thread` · WAL · connection เดียว
 - migration = `001_init.sql` + ตาราง `schema_version`
-- **ตัด**: `tool_version` · `channel_profile` · `api_key` · `pending_action` · `trace_event` (ทั้งหมดอยู่ใน RAM ต่อ)
+- **ตัด**: `tool_version` · `channel_profile` · `api_key` (ส่วน pending/trace ย้าย SQLite ใน P7)
 
-⚠️ **ผลของการตัด `tool_version`**: trace อ้าง `config_version` ไม่ได้ — ยอมรับได้เพราะ trace ยังอยู่ RAM และเดโมไม่ได้สอบสวนย้อนหลัง
+⚠️ **ผลของการตัด `tool_version`**: trace อ้าง `config_version` ไม่ได้; ฟิลด์ metadata ยังสงวนไว้สำหรับการต่อยอด
 **แต่ยังทำ soft delete** (`enabled=false`) เพื่อไม่ให้ต้อง migrate ตอนเติม `tool_version` ทีหลัง
 
 ### D2.2 `plugin.yaml` ใช้ `inputSchema` แทนชื่อคลาส
@@ -259,7 +259,7 @@ full test suite ที่มีอยู่รันได้เร็ว ⇒ �
 
 - Telegram · public API · trace ลง DB — **ออกแบบครบแล้วแต่ยังไม่ implement** (ชี้ `docs/v2/TASKS.md`)
 - `voc` และ `knowledge` ยังใช้ทางเดิม — ย้ายแล้ว 2 จาก 4 ตัว
-- trace ยังอยู่ใน RAM — รีสตาร์ตแล้วหาย
+- trace/pending อยู่ใน SQLite; conversation history ยังอยู่ใน RAM และรีสตาร์ตแล้วหาย
 - OMS ยังเป็น simulation ตามเดิม
 
 **การมีแผนเต็มที่ตัดสินใจครบแล้วเป็นข้อได้เปรียบ ไม่ใช่ข้อแก้ตัว** — บอกว่า "เหลืออีก 5 เฟส แต่ละเฟสมีสเปกและเกณฑ์เสร็จแล้ว" ดูดีกว่า "ยังไม่ได้คิด"

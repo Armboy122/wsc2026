@@ -120,6 +120,10 @@ HTTP เลย (เก็บ payload รอ `submit` ในหน่วยคว
 | `guided_flow` | tool รับ turn แทน planner ชั่วคราว · คืน `choicePrompt` ที่มี `promptId` |
 | `plain_read` | ไม่มี side effect · executor **ห้ามสร้าง pending action** |
 
+เมื่อ declarative `write_confirm` ส่ง HTTP หลังยืนยัน ต้องส่งคีย์เดิมใน header
+`Idempotency-Key` ทุกครั้ง รวมการ retry หลัง process ขัดข้อง โดยไม่ใส่คีย์นี้ซ้ำใน JSON body
+เพื่อให้ปลายทางเป็นด่าน idempotency ที่คงอยู่จริง
+
 ### 3.2 default
 
 operation ที่ไม่ประกาศ `policy` → `plain_read` **และถูกบังคับเป็น `exposure: internal`**
@@ -554,7 +558,9 @@ cache ในหน่วยความจำ + invalidate เมื่อ `conf
 
 ### 10.5 `/reset`
 
-ล้าง: conversation history · pending action ที่ยังไม่ terminal
+ล้าง: conversation history · pending action ที่ยังไม่ terminal โดยรอ write ที่กำลังทำงานก่อน;
+รายการ `confirmed` ที่ไม่มี worker หลัง recovery ถูกปิดเป็น terminal `failed` เพื่อคง audit
+และไม่ทิ้งสถานะกำกวม
 **ไม่แตะ**: trace · tool config · prompt · api key · domain allowlist
 
 ### 10.6 conversation history

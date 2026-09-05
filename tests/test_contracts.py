@@ -199,7 +199,7 @@ def test_multi_tool_uses_oms_and_knowledge_without_fake_citations(client: TestCl
     assert body["citations"]
 
 
-def test_reset_clears_trace_and_pending_state(client: TestClient) -> None:
+def test_reset_clears_live_pending_but_keeps_trace_history(client: TestClient) -> None:
     body = chat(
         client,
         "report a power outage; description: no power; location: demo lobby; contactPhone: 0800000004",
@@ -207,7 +207,7 @@ def test_reset_clears_trace_and_pending_state(client: TestClient) -> None:
     action_id = body["pendingAction"]["pendingActionId"]
     trace_id = body["traceId"]
     assert client.post("/api/v1/reset", json={}).status_code == 200
-    assert client.get(f"/api/v1/traces/{trace_id}").status_code == 404
+    assert client.get(f"/api/v1/traces/{trace_id}").status_code == 200
     assert client.post(f"/api/v1/actions/{action_id}/confirm", json={}).status_code == 404
 
 

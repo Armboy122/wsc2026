@@ -48,8 +48,8 @@ class MainAgent(Protocol):
         """ส่งคืนเหตุการณ์ trace ตามลำดับและผ่านการปกปิดข้อมูลสำหรับ trace id"""
         ...
 
-    def reset_demo(self) -> ResetResponse:
-        """ล้างสถานะเดโมทั้งหมดภายใน process"""
+    async def reset_demo(self) -> ResetResponse:
+        """ล้างสถานะเดโมที่ไม่ใช่ audit history ภายใน process"""
         ...
 
 

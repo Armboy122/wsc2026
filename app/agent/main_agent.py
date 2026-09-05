@@ -114,7 +114,6 @@ class MainAgent:
         self._pending_actions = pending_actions or PendingActionStore()
         self._traces = traces or TraceStore()
         self._call_inputs: dict[UUID, dict[str, Any]] = {}
-        self._confirmation_tasks: dict[UUID, asyncio.Task[ActionDecisionResponse]] = {}
         self._knowledge_contexts: dict[UUID, KnowledgeConversationContext] = {}
         self._grounded_conversations: set[UUID] = set()
         self._reset_generation = 0
@@ -144,7 +143,7 @@ class MainAgent:
     async def handle_chat(self, request: ChatRequest) -> ChatResponse:
         conversation_id = request.conversation_id or uuid4()
         trace_id = uuid4()
-        self._traces.append(trace_id, TraceEventKind.CHAT_RECEIVED, {"message": "[redacted]", "requestId": str(request.request_id) if request.request_id else None})
+        await self._traces.append(trace_id, TraceEventKind.CHAT_RECEIVED, {"message": "[redacted]", "requestId": str(request.request_id) if request.request_id else None})
         previous_messages = self._conversations.messages_for(conversation_id)
         # ข้อความ tool มีอายุแค่ในเทิร์นเดียว planner จึงมองไม่เห็นว่าเคยอ่าน catalog ไปแล้ว
         # และมักสั่งอ่านซ้ำ เก็บคำตอบก่อนหน้าไว้เพื่อรู้ว่าผลรอบนี้ผู้ใช้เห็นไปแล้วหรือยัง
@@ -168,7 +167,7 @@ class MainAgent:
         planner_retried = False
 
         for _ in range(_MAX_TOOL_STEPS):
-            self._traces.append(trace_id, TraceEventKind.LLM_REQUESTED, {"messageCount": len(history), "toolCount": len(self._tool_catalogue)})
+            await self._traces.append(trace_id, TraceEventKind.LLM_REQUESTED, {"messageCount": len(history), "toolCount": len(self._tool_catalogue)})
             try:
                 response = await self._llm.complete(
                     LLMRequest(
@@ -180,15 +179,15 @@ class MainAgent:
                     )
                 )
             except Exception as error:
-                self._traces.append(trace_id, TraceEventKind.ERROR, {"stage": "llm", "type": type(error).__name__})
+                await self._traces.append(trace_id, TraceEventKind.ERROR, {"stage": "llm", "type": type(error).__name__})
                 final_text = "ขณะนี้ไม่สามารถดำเนินการตามคำขอได้ เนื่องจากบริการผู้ช่วยไม่พร้อมใช้งานครับ"
                 break
 
             calls, planner_text, parsed_direct_response, planner_malformed = _calls_from_response(response)
-            self._traces.append(trace_id, TraceEventKind.LLM_RESPONDED, {"toolCallCount": len(calls), "hasText": bool(response.text or planner_text)})
+            await self._traces.append(trace_id, TraceEventKind.LLM_RESPONDED, {"toolCallCount": len(calls), "hasText": bool(response.text or planner_text)})
             if planner_malformed:
                 # ผลลัพธ์ planner เสียหาย ไม่ใช่การตอบตรงโดยตั้งใจ — บันทึก trace แล้วลองใหม่ครั้งเดียว
-                self._traces.append(trace_id, TraceEventKind.ERROR, {"stage": "planner_parse"})
+                await self._traces.append(trace_id, TraceEventKind.ERROR, {"stage": "planner_parse"})
                 if planner_retried:
                     final_text = _PLANNER_PARSE_FAILURE_MESSAGE
                     break
@@ -200,11 +199,11 @@ class MainAgent:
                 direct_response_kind = response.direct_response or parsed_direct_response
                 break
             if len(all_results) + len(calls) > _MAX_TOOL_STEPS:
-                self._traces.append(trace_id, TraceEventKind.ERROR, {"stage": "tool_limit", "maximum": _MAX_TOOL_STEPS})
+                await self._traces.append(trace_id, TraceEventKind.ERROR, {"stage": "tool_limit", "maximum": _MAX_TOOL_STEPS})
                 final_text = "ไม่สามารถดำเนินการตามคำขอได้ เนื่องจากต้องใช้ขั้นตอนเครื่องมือมากเกินไปครับ"
                 break
             if sum(self._is_prepare_call(call) for call in calls) > 1:
-                self._traces.append(trace_id, TraceEventKind.ERROR, {"stage": "multi_prepare_policy"})
+                await self._traces.append(trace_id, TraceEventKind.ERROR, {"stage": "multi_prepare_policy"})
                 final_text = _MULTI_PREPARE_MESSAGE
                 break
 
@@ -220,7 +219,7 @@ class MainAgent:
                 if spec.max_calls_per_turn is not None:
                     count_key = (call.name, call.action)
                     if operation_call_counts.get(count_key, 0) >= spec.max_calls_per_turn:
-                        self._traces.append(trace_id, TraceEventKind.ERROR, {"stage": "operation_call_limit", "action": call.action, "maximum": spec.max_calls_per_turn})
+                        await self._traces.append(trace_id, TraceEventKind.ERROR, {"stage": "operation_call_limit", "action": call.action, "maximum": spec.max_calls_per_turn})
                         operation_call_limit_reached = True
                         break
                     operation_call_counts[count_key] = operation_call_counts.get(count_key, 0) + 1
@@ -229,7 +228,7 @@ class MainAgent:
                 if spec.effective_dedupe():
                     key = (call.name, call.action, json.dumps(call.input, sort_keys=True, default=str))
                     if key in seen_calls:
-                        self._traces.append(trace_id, TraceEventKind.ERROR, {"stage": "duplicate_read_call", "action": call.action})
+                        await self._traces.append(trace_id, TraceEventKind.ERROR, {"stage": "duplicate_read_call", "action": call.action})
                         duplicate_read_call = True
                         break
                     seen_calls.add(key)
@@ -245,7 +244,7 @@ class MainAgent:
         else:  # pragma: no cover - มีเงื่อนไขป้องกันไว้ด้านบน เพื่อระบุขีดจำกัดตายตัวให้ชัดเจน
             final_text = "ไม่สามารถดำเนินการตามคำขอได้ภายในขีดจำกัดขั้นตอนเครื่องมือครับ"
 
-        pending = self._create_pending_from_results(conversation_id, trace_id, all_results)
+        pending = await self._create_pending_from_results(conversation_id, trace_id, all_results)
         citations = tuple(citation for result in all_results if result.status is ToolResultStatus.SUCCESS for citation in result.citations)
         # planner ที่สั่งอ่านซ้ำโดยไม่จำเป็นต้องไม่กลบคำถามขอข้อมูลของรอบนี้
         # อนุญาตให้ directResponse ชนะได้เฉพาะเมื่อผลรอบนี้ผู้ใช้เห็นครบแล้ว จึงไม่มีข้อเท็จจริงใหม่ถูกซ่อน
@@ -267,9 +266,9 @@ class MainAgent:
                 response_policies=self._response_policies,
             )
             if final_text == _FINAL_ONLY_MESSAGE:
-                self._traces.append(trace_id, TraceEventKind.ERROR, {"stage": "output_policy", "policy": "final_only"})
+                await self._traces.append(trace_id, TraceEventKind.ERROR, {"stage": "output_policy", "policy": "final_only"})
         if repeats_delivered_facts:
-            self._traces.append(
+            await self._traces.append(
                 trace_id,
                 TraceEventKind.ERROR,
                 {"stage": "repeated_read_result", "directResponse": direct_response_kind},
@@ -312,7 +311,7 @@ class MainAgent:
         return ChatResponse(conversation_id=conversation_id, trace_id=trace_id, message=message, citations=citations, pending_action=pending, tool_results=tuple(all_results))
 
     async def confirm_pending_action(self, pending_action_id: UUID, confirmation_note: str | None = None) -> ActionDecisionResponse:
-        task = self._confirmation_tasks.get(pending_action_id)
+        task = self._pending_actions.confirmation_task_for(pending_action_id)
         if task is not None:
             return await asyncio.shield(task)
 
@@ -322,16 +321,66 @@ class MainAgent:
             return ActionDecisionResponse(pending_action=pending, tool_result=pending.submission_result, trace_id=trace_id)
         if pending.status is PendingActionStatus.REJECTED:
             raise InvalidActionStateError("ไม่สามารถยืนยันรายการที่ถูกปฏิเสธแล้วได้")
-        if pending.status is not PendingActionStatus.PENDING_CONFIRMATION:
+        if pending.status not in {PendingActionStatus.PENDING_CONFIRMATION, PendingActionStatus.CONFIRMED}:
             raise InvalidActionStateError("ไม่สามารถยืนยันรายการในสถานะปัจจุบันได้")
 
-        confirmed = pending.model_copy(update={"status": PendingActionStatus.CONFIRMED, "updated_at": _now()})
-        self._pending_actions.update(confirmed)
-        self._traces.append(trace_id, TraceEventKind.ACTION_CONFIRMED, {"pendingActionId": str(pending_action_id), "hasNote": bool(confirmation_note)})
+        transitioned = pending.status is PendingActionStatus.PENDING_CONFIRMATION
+        confirmed = pending.model_copy(
+            update={"status": PendingActionStatus.CONFIRMED, "updated_at": _now()}
+        )
+        owner, event = await self._pending_actions.claim_confirmation(
+            confirmed, PendingActionStatus.PENDING_CONFIRMATION if transitioned else None
+        )
+        if not owner:
+            if event is not None:
+                await event.wait()
+                return await self.confirm_pending_action(pending_action_id, confirmation_note)
+            current = self._require_pending(pending_action_id)
+            if current.status in {PendingActionStatus.SUBMITTED, PendingActionStatus.FAILED}:
+                return ActionDecisionResponse(pending_action=current, tool_result=current.submission_result, trace_id=trace_id)
+            if current.status is PendingActionStatus.REJECTED:
+                raise InvalidActionStateError("ไม่สามารถยืนยันรายการที่ถูกปฏิเสธแล้วได้")
+            raise InvalidActionStateError("ไม่สามารถยืนยันรายการในสถานะปัจจุบันได้")
+        if transitioned or not self._traces.has_kind(
+            trace_id,
+            TraceEventKind.ACTION_CONFIRMED,
+            pending_action_id=pending_action_id,
+        ):
+            try:
+                confirmation_spec = self._tools.operation_spec(
+                    pending.tool_slug, pending.prepare_action
+                )
+                await self._traces.append(
+                    trace_id,
+                    TraceEventKind.ACTION_CONFIRMED,
+                    {"pendingActionId": str(pending_action_id), "hasNote": bool(confirmation_note)},
+                    tool_slug=pending.tool_slug,
+                    action=pending.prepare_action,
+                    policy=confirmation_spec.policy.value,
+                )
+            except Exception:
+                await self._pending_actions.release_confirmation(
+                    pending_action_id, confirmed
+                )
+                raise
         generation = self._reset_generation
-        task = asyncio.create_task(self._submit_confirmed_action(pending_action_id, confirmed, trace_id, generation))
-        self._confirmation_tasks[pending_action_id] = task
+        task = self._pending_actions.start_confirmation_task(
+            pending_action_id,
+            lambda: self._run_submission_once(
+                pending_action_id, confirmed, trace_id, generation
+            ),
+        )
         return await asyncio.shield(task)
+
+    async def _run_submission_once(
+        self, pending_action_id: UUID, confirmed: PendingAction, trace_id: UUID, generation: int
+    ) -> ActionDecisionResponse:
+        try:
+            return await self._submit_confirmed_action(
+                pending_action_id, confirmed, trace_id, generation
+            )
+        finally:
+            self._pending_actions.finish_confirmation(pending_action_id)
 
     async def _submit_confirmed_action(self, pending_action_id: UUID, confirmed: PendingAction, trace_id: UUID, generation: int) -> ActionDecisionResponse:
         if generation != self._reset_generation:
@@ -350,13 +399,44 @@ class MainAgent:
                 idempotency_key=confirmed.idempotency_key,
             ).model_dump(by_alias=True, mode="json"),
         )
-        self._traces.append(trace_id, TraceEventKind.ACTION_SUBMITTED, {"pendingActionId": str(pending_action_id), "action": call.action})
-        result = await self._execute_internal(call, confirmed.conversation_id, trace_id)
+        submit_spec = self._tools.operation_spec_for_call(call)
+        await self._traces.append(
+            trace_id,
+            TraceEventKind.ACTION_SUBMITTED,
+            {"pendingActionId": str(pending_action_id), "action": call.action},
+            tool_slug=call.name,
+            action=call.action,
+            policy=submit_spec.policy.value,
+        )
+        execution_input = self._pending_actions.execution_input_for(pending_action_id)
+        if execution_input:
+            # Prepare state belongs to the tool and is normally in RAM.  Replaying the
+            # side-effect-free prepare from encrypted durable input makes a confirmed
+            # action recoverable after restart; submit remains idempotent by its key.
+            replay_call = ToolCall(
+                call_id=uuid4(),
+                name=confirmed.tool_slug,
+                action=confirmed.prepare_action,
+                input=execution_input,
+            )
+            replay_result = await self._tools.execute(
+                replay_call, ToolContext(confirmed.conversation_id, trace_id)
+            )
+            if replay_result.status is not ToolResultStatus.SUCCESS:
+                result = _error_result(
+                    call,
+                    ToolErrorCode.INTERNAL,
+                    "ไม่สามารถกู้คืนรายการที่เตรียมไว้ได้",
+                )
+            else:
+                result = await self._execute_internal(call, confirmed.conversation_id, trace_id)
+        else:
+            result = await self._execute_internal(call, confirmed.conversation_id, trace_id)
         if generation != self._reset_generation:
             raise asyncio.CancelledError
         status = PendingActionStatus.SUBMITTED if result.status is ToolResultStatus.SUCCESS else PendingActionStatus.FAILED
         terminal = confirmed.model_copy(update={"status": status, "updated_at": _now(), "submission_result": result})
-        self._pending_actions.update(terminal)
+        await self._pending_actions.update(terminal)
         return ActionDecisionResponse(pending_action=terminal, tool_result=result, trace_id=trace_id)
 
     async def reject_pending_action(self, pending_action_id: UUID, reason: str) -> ActionDecisionResponse:
@@ -367,8 +447,22 @@ class MainAgent:
         if pending.status is not PendingActionStatus.PENDING_CONFIRMATION:
             raise InvalidActionStateError("ไม่สามารถปฏิเสธรายการในสถานะปัจจุบันได้")
         rejected = pending.model_copy(update={"status": PendingActionStatus.REJECTED, "updated_at": _now()})
-        self._pending_actions.update(rejected)
-        self._traces.append(trace_id, TraceEventKind.ACTION_REJECTED, {"pendingActionId": str(pending_action_id), "reason": "[redacted]"})
+        if not await self._pending_actions.compare_and_set(rejected, PendingActionStatus.PENDING_CONFIRMATION):
+            current = self._require_pending(pending_action_id)
+            if current.status is PendingActionStatus.REJECTED:
+                return ActionDecisionResponse(pending_action=current, tool_result=None, trace_id=trace_id)
+            raise InvalidActionStateError("ไม่สามารถปฏิเสธรายการในสถานะปัจจุบันได้")
+        rejection_spec = self._tools.operation_spec(
+            pending.tool_slug, pending.prepare_action
+        )
+        await self._traces.append(
+            trace_id,
+            TraceEventKind.ACTION_REJECTED,
+            {"pendingActionId": str(pending_action_id), "reason": "[redacted]"},
+            tool_slug=pending.tool_slug,
+            action=pending.prepare_action,
+            policy=rejection_spec.policy.value,
+        )
         return ActionDecisionResponse(pending_action=rejected, tool_result=None, trace_id=trace_id)
 
     def get_trace(self, trace_id: UUID) -> TraceResponse:
@@ -377,16 +471,12 @@ class MainAgent:
             raise NotFoundError("ไม่พบ trace")
         return trace
 
-    def reset_demo(self) -> ResetResponse:
+    async def reset_demo(self) -> ResetResponse:
+        await self._pending_actions.drain_confirmation_tasks()
         self._reset_generation += 1
-        for task in self._confirmation_tasks.values():
-            if not task.done():
-                task.cancel()
-        self._confirmation_tasks.clear()
         self._tools.reset()
         self._conversations.clear()
-        self._pending_actions.clear()
-        self._traces.clear()
+        await self._pending_actions.clear()
         self._call_inputs.clear()
         self._knowledge_contexts.clear()
         self._grounded_conversations.clear()
@@ -416,7 +506,7 @@ class MainAgent:
         if turn is None:
             return None
 
-        self._traces.append(
+        await self._traces.append(
             trace_id,
             TraceEventKind.LLM_RESPONDED,
             {"guided": True, "promptId": turn.prompt.prompt_id if turn.prompt else None},
@@ -432,7 +522,7 @@ class MainAgent:
             )
             result = await self._execute_chat_call(call, conversation_id, trace_id)
             results.append(result)
-            pending = self._create_pending_from_results(conversation_id, trace_id, results)
+            pending = await self._create_pending_from_results(conversation_id, trace_id, results)
 
         message = turn.message
         if results and pending is None:
@@ -462,7 +552,7 @@ class MainAgent:
     async def _execute_chat_call(self, call: ToolCall, conversation_id: UUID, trace_id: UUID) -> ToolResult:
         spec = self._tools.operation_spec_for_call(call)
         if spec.mode == "submit" or spec.exposure == "internal" or call.action in _SUBMIT_ACTIONS:
-            self._traces.append(trace_id, TraceEventKind.ERROR, {"stage": "chat_policy", "action": call.action})
+            await self._traces.append(trace_id, TraceEventKind.ERROR, {"stage": "chat_policy", "action": call.action})
             result = _error_result(
                 call,
                 ToolErrorCode.CONFIRMATION_REQUIRED,
@@ -473,21 +563,46 @@ class MainAgent:
 
     async def _execute_internal(self, call: ToolCall, conversation_id: UUID, trace_id: UUID) -> ToolResult:
         self._call_inputs[call.call_id] = dict(call.input)
-        self._traces.append(trace_id, TraceEventKind.TOOL_CALLED, {"name": call.name, "action": call.action, "callId": str(call.call_id)})
+        spec = self._tools.operation_spec_for_call(call)
+        policy = spec.policy.value
+        await self._traces.append(
+            trace_id,
+            TraceEventKind.TOOL_CALLED,
+            {"name": call.name, "action": call.action, "callId": str(call.call_id)},
+            tool_slug=call.name,
+            action=call.action,
+            policy=policy,
+        )
+        if not self._tools.code_tool_enabled(str(call.name)):
+            await self._traces.append(
+                trace_id,
+                TraceEventKind.TOOL_DISABLED,
+                {"name": call.name, "action": call.action},
+                tool_slug=call.name,
+                action=call.action,
+                policy=policy,
+            )
         result = await self._tools.execute(call, ToolContext(conversation_id, trace_id))
-        result = _enforce_operation_policy(call, result, self._tools.operation_spec_for_call(call), self._traces, trace_id)
+        result = await _enforce_operation_policy(call, result, spec, self._traces, trace_id)
         result = _sanitize_error_result(result, self._response_policies)
-        self._traces.append(trace_id, TraceEventKind.TOOL_RESULT, {"name": result.name, "action": result.action, "status": result.status.value, "errorCode": result.error.code.value if result.error else None})
+        await self._traces.append(
+            trace_id,
+            TraceEventKind.TOOL_RESULT,
+            {"name": result.name, "action": result.action, "status": result.status.value, "errorCode": result.error.code.value if result.error else None},
+            tool_slug=result.name,
+            action=result.action,
+            policy=policy,
+        )
         return result
 
     def _is_grounded_answer(self, result: ToolResult) -> bool:
         """ผลลัพธ์นี้อยู่ภายใต้ policy grounded_answer หรือไม่ — ไม่รู้จักชื่อ tool (ARCHITECTURE-V2.md §4)"""
         return self._tools.operation_spec_for_result(result).policy is OperationPolicy.GROUNDED_ANSWER
 
-    def _create_pending_from_results(self, conversation_id: UUID, trace_id: UUID, results: list[ToolResult]) -> PendingAction | None:
+    async def _create_pending_from_results(self, conversation_id: UUID, trace_id: UUID, results: list[ToolResult]) -> PendingAction | None:
         prepared = [result for result in results if result.status is ToolResultStatus.SUCCESS and self._is_prepare_result(result)]
         if len(prepared) > 1:
-            self._traces.append(trace_id, TraceEventKind.ERROR, {"stage": "multi_prepare_policy"})
+            await self._traces.append(trace_id, TraceEventKind.ERROR, {"stage": "multi_prepare_policy"})
             return None
         if not prepared:
             return None
@@ -531,8 +646,19 @@ class MainAgent:
             created_at=now,
             updated_at=now,
         )
-        self._pending_actions.put(pending, trace_id)
-        self._traces.append(trace_id, TraceEventKind.ACTION_PREPARED, {"pendingActionId": str(pending.pending_action_id), "action": result.action})
+        await self._pending_actions.put(
+            pending,
+            trace_id,
+            execution_input=raw_input,
+        )
+        await self._traces.append(
+            trace_id,
+            TraceEventKind.ACTION_PREPARED,
+            {"pendingActionId": str(pending.pending_action_id), "action": result.action},
+            tool_slug=result.name,
+            action=result.action,
+            policy=spec.policy.value,
+        )
         return pending
 
     def _require_pending(self, pending_action_id: UUID) -> PendingAction:
@@ -574,7 +700,7 @@ def _inject_client_context(call: ToolCall, request: ChatRequest, spec: Operation
             call.input.setdefault(field_name, value)
 
 
-def _enforce_operation_policy(
+async def _enforce_operation_policy(
     call: ToolCall,
     result: ToolResult,
     spec: OperationSpec,
@@ -591,10 +717,13 @@ def _enforce_operation_policy(
         and spec.policy is OperationPolicy.GROUNDED_ANSWER
         and not result.citations
     ):
-        traces.append(
+        await traces.append(
             trace_id,
             TraceEventKind.POLICY_REJECTED,
             {"action": call.action, "reason": "grounded_answer_missing_citations"},
+            tool_slug=call.name,
+            action=call.action,
+            policy=spec.policy.value,
         )
         return _error_result(
             call,
@@ -605,10 +734,13 @@ def _enforce_operation_policy(
         result.status is ToolResultStatus.SUCCESS
         and spec.policy is OperationPolicy.GROUNDED_ANSWER
     ):
-        traces.append(
+        await traces.append(
             trace_id,
             TraceEventKind.POLICY_REJECTED,
             {"action": call.action, "reason": "citations_not_allowed_for_operation"},
+            tool_slug=call.name,
+            action=call.action,
+            policy=spec.policy.value,
         )
         return _error_result(
             call,
@@ -620,10 +752,13 @@ def _enforce_operation_policy(
         and spec.policy is OperationPolicy.PLAIN_READ
         and (spec.mode == "prepare" or call.action in PREPARE_TO_SUBMIT)
     ):
-        traces.append(
+        await traces.append(
             trace_id,
             TraceEventKind.POLICY_REJECTED,
             {"action": call.action, "reason": "plain_read_created_pending"},
+            tool_slug=call.name,
+            action=call.action,
+            policy=spec.policy.value,
         )
         return _error_result(
             call,

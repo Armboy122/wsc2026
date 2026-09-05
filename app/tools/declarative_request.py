@@ -35,6 +35,7 @@ def build_declarative_http_request(
     url_template: str,
     input: Mapping[str, Any],
     auth: DeclarativeToolAuth | None = None,
+    idempotency_key: str | None = None,
 ) -> DeclarativeHttpRequest:
     method = http_method.upper()
     consumed: set[str] = set()
@@ -48,8 +49,9 @@ def build_declarative_http_request(
 
     url = _PLACEHOLDER.sub(_substitute, url_template)
     remaining = {key: value for key, value in input.items() if key not in consumed}
+    headers = {"Idempotency-Key": idempotency_key} if idempotency_key else {}
 
     if method in _METHODS_WITHOUT_BODY:
         query = {key: str(value) for key, value in remaining.items()}
-        return DeclarativeHttpRequest(method=method, url=url, query=query, auth=auth)
-    return DeclarativeHttpRequest(method=method, url=url, json_body=remaining or None, auth=auth)
+        return DeclarativeHttpRequest(method=method, url=url, headers=headers, query=query, auth=auth)
+    return DeclarativeHttpRequest(method=method, url=url, headers=headers, json_body=remaining or None, auth=auth)

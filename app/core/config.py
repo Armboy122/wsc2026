@@ -22,6 +22,7 @@ _SECRET_FIELD_NAMES: frozenset[str] = frozenset({
     "line_channel_secret",
     "line_channel_access_token",
     "admin_password",
+    "state_key",
 })
 _ALLOWED_EFFORTS = frozenset({"low", "medium", "high"})
 
@@ -78,6 +79,8 @@ class Settings:
     line_channel_access_token: str | None = field(default=None, repr=False)
     # D3.1: รหัสผ่านหน้า admin — ไม่ตั้ง = ปิด admin ทั้งหมด (fail closed ไม่มี default password)
     admin_password: str | None = field(default=None, repr=False)
+    db_path: Path = field(default_factory=lambda: Path("data/pea.db"))
+    state_key: str | None = field(default=None, repr=False)
 
     @classmethod
     def from_env(
@@ -85,7 +88,7 @@ class Settings:
         environ: Mapping[str, str] | None = None,
         llm_settings: Mapping[str, Any] | None = None,
     ) -> Settings:
-        env = environ or os.environ
+        env = os.environ if environ is None else environ
         llm_settings = llm_settings or {}
         profiles = _mapping(llm_settings.get("providers"))
         roles = _mapping(llm_settings.get("roles"))
@@ -181,6 +184,8 @@ class Settings:
         line_channel_secret = _get("LINE_CHANNEL_SECRET")
         line_channel_access_token = _get("LINE_CHANNEL_ACCESS_TOKEN")
         admin_password = _get("ADMIN_PASSWORD")
+        db_path = Path(_get("DB_PATH") or "data/pea.db")
+        state_key = _get("PEA_STATE_KEY")
 
         return cls(
             app_env=env.get("APP_ENV", "development").lower(),
@@ -215,6 +220,8 @@ class Settings:
             line_channel_secret=line_channel_secret,
             line_channel_access_token=line_channel_access_token,
             admin_password=admin_password,
+            db_path=db_path,
+            state_key=state_key,
         )
 
     @property

@@ -176,7 +176,7 @@ def test_migration_003_rerun_is_idempotent(tmp_path: Path) -> None:
         db.migrate()
         db.migrate()  # รันซ้ำต้องไม่ raise และไม่เพิ่มเวอร์ชัน
         versions = [row[0] for row in db._conn.execute("SELECT version FROM schema_version")]
-        assert sorted(versions) == [1, 2, 3]
+        assert sorted(versions) == [1, 2, 3, 4]
     finally:
         db.close()
 
@@ -213,7 +213,7 @@ def test_migration_003_recovers_partial_apply(tmp_path: Path, existing_column: s
         db.migrate()
         columns = {row[1] for row in db._conn.execute("PRAGMA table_info(tool_auth)")}
         assert columns >= {"header_name", "scheme"}
-        assert [row[0] for row in db._conn.execute("SELECT version FROM schema_version")] == [1, 2, 3]
+        assert [row[0] for row in db._conn.execute("SELECT version FROM schema_version")] == [1, 2, 3, 4]
     finally:
         db.close()
 

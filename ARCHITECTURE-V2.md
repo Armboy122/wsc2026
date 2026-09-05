@@ -610,7 +610,7 @@ alembic ดึง SQLAlchemy มาทั้งตัวเพื่อระบ
 ### 8.8 ไฟล์ DB และ `/reset`
 
 - path จาก env `DB_PATH` ค่าเริ่มต้น `data/pea.db`
-- `/reset` ล้างเฉพาะ **conversation + pending action ที่ยังไม่ terminal** — **ไม่แตะ trace และไม่แตะ tool config**
+- `/reset` ล้างเฉพาะ **conversation + pending action ที่ยังไม่ terminal** โดยรอ write ที่กำลังทำงานก่อน และปิด `confirmed` ที่ค้างหลัง recovery เป็น terminal `failed` — **ไม่แตะ trace และไม่แตะ tool config**
 - ถ้า `/reset` ลบ config ที่ตั้งไว้ด้วย มันจะกลายเป็นปุ่มทำลายงานตัวเอง
 
 ### 8.9 conversation history ยังอยู่ RAM

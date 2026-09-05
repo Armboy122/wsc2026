@@ -25,6 +25,7 @@ from uuid import UUID
 
 from pydantic import ValidationError
 
+from app.agent.stores import trace_channel
 from app.contracts import ActionDecisionResponse, ChatRequest, PendingActionStatus
 from app.live.models import MainAgentGateway
 
@@ -109,7 +110,8 @@ class LineBridge:
                 raise InvalidTextError(
                     f"ข้อความยาวเกินกำหนด (สูงสุด {_MAX_MESSAGE_LENGTH} ตัวอักษร) กรุณาลองอีกครั้งครับ"
                 ) from exc
-            response = await self._agent.handle_chat(request)
+            with trace_channel("line"):
+                response = await self._agent.handle_chat(request)
             self._conversation_ids[user_id] = response.conversation_id
             if response.pending_action is not None:
                 self._pending_action_ids[user_id] = response.pending_action.pending_action_id
@@ -132,10 +134,11 @@ class LineBridge:
             pending_action_id = self._require_pending(user_id)
             note = self._normalize_optional_text(confirmation_note, _MAX_NOTE_LENGTH, "confirmationNote")
             try:
-                decision = await self._agent.confirm_pending_action(
-                    pending_action_id,
-                    confirmation_note=note,
-                )
+                with trace_channel("line"):
+                    decision = await self._agent.confirm_pending_action(
+                        pending_action_id,
+                        confirmation_note=note,
+                    )
             except LookupError as exc:
                 self._pending_action_ids.pop(user_id, None)
                 raise NoPendingActionError() from exc
@@ -152,10 +155,11 @@ class LineBridge:
             if not normalized_reason:
                 normalized_reason = _DEFAULT_REJECT_REASON
             try:
-                decision = await self._agent.reject_pending_action(
-                    pending_action_id,
-                    reason=normalized_reason,
-                )
+                with trace_channel("line"):
+                    decision = await self._agent.reject_pending_action(
+                        pending_action_id,
+                        reason=normalized_reason,
+                    )
             except LookupError as exc:
                 self._pending_action_ids.pop(user_id, None)
                 raise NoPendingActionError() from exc

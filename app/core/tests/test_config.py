@@ -20,6 +20,7 @@ def test_default_settings() -> None:
         Path(__file__).resolve().parents[3] / "knowledge" / "source"
     )
     assert settings.gemini_long_context_model == "gemini-3.5-flash-lite"
+    assert settings.state_key is None
 
 
 def test_env_override() -> None:
@@ -33,6 +34,7 @@ def test_env_override() -> None:
             "GEMINI_API_KEY": "sk-test",
             "KNOWLEDGE_SOURCE_ROOT": "/srv/pea-knowledge",
             "GEMINI_LONG_CONTEXT_MODEL": "gemini-3.6-pro",
+            "PEA_STATE_KEY": "state-key",
         }
     )
     assert settings.app_env == "production"
@@ -44,6 +46,7 @@ def test_env_override() -> None:
     assert settings.knowledge_provider == "gemini"
     assert settings.knowledge_source_root == Path("/srv/pea-knowledge")
     assert settings.gemini_long_context_model == "gemini-3.6-pro"
+    assert settings.state_key == "state-key"
 
 
 def test_main_knowledge_and_judge_llm_configs_are_independent() -> None:
@@ -95,12 +98,14 @@ def test_empty_api_key_is_normalized_to_none() -> None:
     assert settings.gemini_api_key is None
 
 
-def test_load_dotenv(tmp_path: Path) -> None:
+def test_load_dotenv(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.delenv("PEA_STATE_KEY", raising=False)
     env_file = tmp_path / ".env"
     env_file.write_text(
         "APP_ENV=test\nLOG_LEVEL=debug\nCORS_ORIGINS=http://test.local\n"
         "GEMINI_API_KEY=dotenv-key\nKNOWLEDGE_SOURCE_ROOT=/dotenv/knowledge\n"
         "GEMINI_LONG_CONTEXT_MODEL=gemini-3.6-pro\n"
+        "PEA_STATE_KEY=dotenv-state-key\n"
     )
     settings = load_settings(env_file, tmp_path / "no-llm-settings.yaml")
     assert settings.app_env == "test"
@@ -110,6 +115,7 @@ def test_load_dotenv(tmp_path: Path) -> None:
     assert settings.gemini_api_key == "dotenv-key"
     assert settings.knowledge_source_root == Path("/dotenv/knowledge")
     assert settings.gemini_long_context_model == "gemini-3.6-pro"
+    assert settings.state_key == "dotenv-state-key"
 
 
 def test_real_environment_precedes_dotenv(
@@ -138,10 +144,12 @@ def test_settings_repr_does_not_expose_secrets() -> None:
             "GEMINI_API_KEY": "super-secret",
             "KNOWLEDGE_SOURCE_ROOT": "/private/knowledge",
             "GEMINI_LONG_CONTEXT_MODEL": "gemini-3.6-pro",
+            "PEA_STATE_KEY": "state-super-secret",
         }
     )
     text = repr(settings)
     assert "super-secret" not in text
+    assert "state-super-secret" not in text
     assert "/private/knowledge" in text
     assert "gemini-3.6-pro" in text
     assert "[REDACTED]" in text

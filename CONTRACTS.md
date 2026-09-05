@@ -113,7 +113,11 @@
 { "reset": true }
 ```
 
-ล้าง conversation ทั้งหมดใน process, pending action, สถานะ backend จำลอง และข้อมูล trace endpoint นี้ใช้สำหรับสภาพแวดล้อมสาธิตที่มีการจัดการเท่านั้น
+ล้าง conversation ทั้งหมดใน process, pending action ที่ยังไม่ terminal และสถานะ backend จำลอง;
+ระบบจะรอ write ที่กำลังทำงานให้จบก่อน และเปลี่ยนรายการ `confirmed` ที่ค้างจากความล้มเหลวเป็น
+terminal `failed` เพื่อไม่ให้เหลือสถานะกำกวม โดยไม่ลบ trace audit history หรือ pending ที่
+ส่ง/ปฏิเสธ/ล้มเหลวแล้ว endpoint นี้ใช้สำหรับ
+สภาพแวดล้อมสาธิตที่มีการจัดการเท่านั้น
 
 หมายเหตุสัญญา dormant: isolated VOC component เดิมอาจรักษาเคสที่ submit แล้วเพื่อทดสอบการติดตาม แต่ runtime ปัจจุบันไม่ลงทะเบียน VOC และ public reset จึงไม่มี active VOC state
 
@@ -316,15 +320,19 @@ Tool จะปฏิเสธการเรียกที่ `name` ไม่�
 |---|---|---|
 | `pendingActionId` | UUID | สร้างโดย server |
 | `conversationId` | UUID | conversation ที่เป็นเจ้าของ |
-| `toolName` | runtime ปัจจุบันใช้ `oms_tool` เท่านั้น; ค่า Sabuy/VOC คงในโมเดล compatibility แบบ dormant | knowledge ไม่สามารถเขียนได้ |
+| `toolSlug` | runtime slug ของ tool (เช่น `oms_tool`); รับ `toolName` เดิมเป็น compatibility input | knowledge ไม่สามารถเขียนได้ |
 | `prepareAction` | prepare action enum | action ต้นฉบับที่ผ่านการตรวจสอบแล้ว |
 | `submitAction` | submit action enum | ใช้ได้เฉพาะ mapping ที่กำหนดไว้ล่วงหน้า |
-| `preparedInput` | object | เปิดเผยเฉพาะฟิลด์ที่ผู้ใช้ระบุเองเพื่อให้ตรวจทานก่อนยืนยัน ฟิลด์ภายในระบบเช่น `idempotencyKey` ถูกปกปิดเป็น `[redacted]` และไม่จัดเก็บ payment token |
+| `preparedInput` | object | เปิดเผยเฉพาะฟิลด์ที่ผู้ใช้ระบุเองเพื่อให้ตรวจทานก่อนยืนยัน ฟิลด์ภายในระบบเช่น `idempotencyKey` ถูกปกปิดเป็น `[redacted]`; state ดิบที่ใช้กู้คืนถูกเข้ารหัส authenticated ก่อนแตะดิสก์ |
 | `summary` | string | ผลที่เสนอในรูปแบบที่มนุษย์อ่านได้ สูงสุด 500 อักขระ |
 | `status` | `pending_confirmation`, `confirmed`, `submitted`, `rejected`, `failed` | ถูกจำกัดตาม state machine |
-| `idempotencyKey` | string | คีย์ภายในระบบ ถูกปกปิดเป็น `[redacted]` เสมอเมื่อออกจาก API และ trace เพราะข้อความของผู้ใช้กำหนดค่านี้ได้ ค่าจริงใช้ภายในเพื่อกันการส่งซ้ำ |
+| `idempotencyKey` | string | คีย์ภายในระบบ ถูกปกปิดเป็น `[redacted]` เสมอเมื่อออกจาก API และ trace; ค่าดิบถูกเข้ารหัสใน state store เพื่อกันการส่งซ้ำหลัง restart |
 | `createdAt`, `updatedAt` | UTC datetime | กำหนดโดย server |
 | `submissionResult` | `ToolResult`/null | กำหนดหลังการส่ง |
+
+การ submit ของ declarative tool ส่งค่าดิบของ `idempotencyKey` เฉพาะใน header
+`Idempotency-Key` ไปยังปลายทาง (ไม่ใส่ใน JSON body และไม่บันทึกลง trace) เพื่อให้ retry
+หลัง process ขัดข้องไม่สร้าง write ซ้ำเมื่อปลายทางทำ idempotency ตามสัญญา
 
 ### `TraceEvent`
 
@@ -334,7 +342,8 @@ Tool จะปฏิเสธการเรียกที่ `name` ไม่�
 | `traceId` | UUID | trace ของคำขอ |
 | `sequence` | positive integer | เพิ่มขึ้นอย่างเคร่งครัดในแต่ละ trace |
 | `at` | UTC datetime | กำหนดโดย server |
-| `kind` | enum | `chat_received`, `llm_requested`, `llm_responded`, `tool_called`, `tool_result`, `action_prepared`, `action_confirmed`, `action_rejected`, `action_submitted`, `error` |
+| `kind` | enum | `chat_received`, `llm_requested`, `llm_responded`, `tool_called`, `tool_result`, `action_prepared`, `action_confirmed`, `action_rejected`, `action_submitted`, `policy_rejected`, `response_degraded`, `tool_disabled`, `error` |
+| `toolSlug`, `action`, `configVersion`, `policy`, `channel` | optional | metadata ของขอบเขตที่สร้าง event เมื่อมีข้อมูล; ไม่เก็บ payload ลับ |
 | `data` | object | ข้อมูลวินิจฉัยแบบมีโครงสร้างที่ปกปิดข้อมูลแล้ว สูงสุด 20 key |
 
 ## รายการ tool และ schema ของ action ที่แน่นอน

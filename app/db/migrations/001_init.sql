@@ -1,11 +1,9 @@
 -- D2.1: 5 ตารางที่บางที่สุดสำหรับ tool เป็นข้อมูล (ARCHITECTURE-V2.md §8, TASKS-3DAYS.md D2.1)
 --
--- ตัดออกโดยตั้งใจ (อยู่ใน docs/v2/TASKS.md แผนเต็ม ไม่ใช่ 3 วันนี้):
---   tool_version · channel_profile · api_key · pending_action · trace_event
--- ทั้งหมดอยู่ใน RAM ต่อไปตามที่แผนที่ตัดไว้
+-- ตาราง audit state ถูกเพิ่มโดย migration 004 (P7); migration แรกยังคงเป็น
+-- schema tool/config ขั้นต่ำเพื่อให้ฐานข้อมูลรุ่นเก่า migrate ได้ตามลำดับ
 --
--- ผลของการตัด tool_version: ยังไม่มี config_version ให้ trace อ้างอิงย้อนหลัง
--- (ยอมรับได้เพราะ trace ยังอยู่ RAM และเดโมไม่ได้สอบสวนย้อนหลัง)
+-- ผลของการยังไม่มี tool_version: ยังไม่มี config_version ให้ trace อ้างอิงย้อนหลัง
 -- แต่ยังทำ soft delete (tool.enabled = 0) เพื่อไม่ให้ต้อง migrate schema ซ้ำตอนเติม tool_version ทีหลัง
 
 CREATE TABLE tool (

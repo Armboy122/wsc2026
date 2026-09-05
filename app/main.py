@@ -33,6 +33,7 @@ from app.core.prompt_admin import PromptAdminService
 from app.core.startup import create_platform_app, startup_event
 from app.core.tool_admin import ToolAdminService
 from app.db import Database
+from app.agent.stores import PendingActionStore, TraceStore
 from app.db import tool_repository
 from app.db.bootstrap_oms import seed_oms_tool
 from app.db.bootstrap_prompt import DbSystemPromptProvider, seed_system_prompt
@@ -126,8 +127,10 @@ judge_llm_client = JudgeLLMClient(judge_llm_adapter)
 # operation_specs เข้ากับของปลั๊กอิน Python เหมือนเป็นชั้นเดียวกัน (ARCHITECTURE-V2.md §3.4:
 # agent ไม่รู้ว่า executor เป็น HTTP หรือโค้ด) asyncio.run ปลอดภัยตรงนี้เพราะยังไม่มี event loop
 # ทำงานอยู่ตอน import โมดูลนี้
-db = Database()
+db = Database(settings.db_path, state_key=settings.state_key)
 db.migrate()
+pending_action_store = PendingActionStore(db)
+trace_store = TraceStore(db)
 # D3.2: SYSTEM_PROMPT อยู่ใน DB แล้ว — seed ครั้งเดียว (idempotent) และอ่านจาก DB ต่อเทิร์น
 # เพื่อให้แก้ prompt แล้วมีผลในเทิร์นถัดไปโดยไม่ต้อง restart
 asyncio.run(seed_system_prompt(db))
@@ -182,7 +185,13 @@ guided_flows = GuidedFlows(
 )
 # flow ใช้ LLM เพื่อเลือกจากตัวเลือกที่ catalog ให้มาเท่านั้น ไม่ใช่เพื่อสร้างรหัสเอง
 guided_flows.attach_llm(main_llm_client)
-main_agent = MainAgent(main_llm_client, tool_registry, guided_flows=guided_flows)
+main_agent = MainAgent(
+    main_llm_client,
+    tool_registry,
+    pending_actions=pending_action_store,
+    traces=trace_store,
+    guided_flows=guided_flows,
+)
 
 agent_service.set_agent(main_agent)
 adapter_service.set_llm(llm_adapter)

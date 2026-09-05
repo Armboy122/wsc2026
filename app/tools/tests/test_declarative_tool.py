@@ -285,11 +285,12 @@ def test_prepare_mode_never_calls_http_and_caches_the_draft():
     assert called is False
 
 
-def test_submit_mode_sends_only_the_prepared_payload_not_idempotency_key():
+def test_submit_mode_keeps_idempotency_out_of_body_and_sends_it_as_header():
     seen: dict = {}
 
     def handler(request: httpx.Request) -> httpx.Response:
         seen["body"] = json.loads(request.content)
+        seen["idempotency_key"] = request.headers["Idempotency-Key"]
         return httpx.Response(201, json={"reportId": "R-1"})
 
     tool = _write_confirm_tool(handler)
@@ -308,6 +309,7 @@ def test_submit_mode_sends_only_the_prepared_payload_not_idempotency_key():
     assert result.status is ToolResultStatus.SUCCESS
     assert result.data == {"reportId": "R-1"}
     assert seen["body"] == {"description": "ไฟดับ"}
+    assert seen["idempotency_key"] == "key-1"
 
 
 def test_submit_without_a_matching_prepared_draft_is_not_found():

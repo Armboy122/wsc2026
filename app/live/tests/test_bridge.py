@@ -555,7 +555,7 @@ async def test_voice_flow_against_real_main_agent() -> None:
     )
     assert prepared["pendingAction"] is not None
     assert prepared["pendingAction"]["status"] == "pending_confirmation"
-    assert prepared["pendingAction"]["toolName"] == "oms_tool"
+    assert prepared["pendingAction"]["toolSlug"] == "oms_tool"
     assert bridge.has_pending_action is True
 
     # ยืนยันด้วยเสียง → internal submit หนึ่งครั้ง → สถานะสิ้นสุดและล้าง pending

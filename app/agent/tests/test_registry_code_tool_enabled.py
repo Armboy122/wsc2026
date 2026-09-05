@@ -235,7 +235,8 @@ def test_failing_guided_flow_reset_stays_quarantined_after_reenable() -> None:
     assert flows.active_flow(uuid4()) is None
 
 
-def test_demo_reset_reports_flow_failure_after_attempting_all_flows(
+@pytest.mark.asyncio
+async def test_demo_reset_reports_flow_failure_after_attempting_all_flows(
     caplog: pytest.LogCaptureFixture,
 ) -> None:
     registry, _ = _code_registry()
@@ -245,7 +246,7 @@ def test_demo_reset_reports_flow_failure_after_attempting_all_flows(
     agent = MainAgent(object(), registry, guided_flows=flows)
 
     with pytest.raises(RuntimeError, match="guided flow reset failed"):
-        agent.reset_demo()
+        await agent.reset_demo()
 
     assert failing.reset_calls == 1
     assert succeeding.reset_calls == 1

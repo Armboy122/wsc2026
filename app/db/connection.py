@@ -6,19 +6,25 @@
 - WAL mode + **connection เดียวต่อ process** + เขียนผ่าน lock เดียว
   ระบบนี้ประกาศชัดว่ารองรับ single process เท่านั้น ไม่ทำ connection pool ที่ซ่อนปัญหา
 - migration เป็น raw SQL (ไฟล์ ``NNN_*.sql`` ใต้ ``migrations/``) + ตาราง ``schema_version``
-  ไม่ใช้ alembic เพราะระบบมีแค่ 5 ตารางและ deps 5 ตัวของ alembic หนักกว่าปัญหาที่แก้
+  ไม่ใช้ alembic เพราะระบบมีตารางไม่มากและ deps ของ alembic หนักกว่าปัญหาที่แก้
 """
 
 from __future__ import annotations
 
 import asyncio
+import os
 import sqlite3
 from pathlib import Path
 from typing import Callable, TypeVar
 
+from cryptography.fernet import Fernet
+
 _MIGRATIONS_DIR = Path(__file__).resolve().parent / "migrations"
 # path จาก env DB_PATH ค่าเริ่มต้น data/pea.db (ARCHITECTURE-V2.md §8.8)
 DEFAULT_DB_PATH = Path("data/pea.db")
+# In-memory databases need no restart durability and may use an ephemeral key.
+# File-backed state must receive a durable key explicitly and fails closed otherwise.
+_PROCESS_STATE_KEY = Fernet.generate_key()
 
 T = TypeVar("T")
 
@@ -26,7 +32,12 @@ T = TypeVar("T")
 class Database:
     """connection เดียวต่อ process บน WAL mode พร้อม migration runner"""
 
-    def __init__(self, path: Path | str = DEFAULT_DB_PATH) -> None:
+    def __init__(
+        self,
+        path: Path | str = DEFAULT_DB_PATH,
+        *,
+        state_key: str | bytes | None = None,
+    ) -> None:
         self._path = Path(path)
         if str(self._path) != ":memory:":
             self._path.parent.mkdir(parents=True, exist_ok=True)
@@ -36,6 +47,8 @@ class Database:
         self._conn.execute("PRAGMA foreign_keys=ON")
         # เขียนพร้อมกันคือที่มาของ "database is locked" — ให้เขียนผ่าน lock เดียวเสมอ
         self._write_lock = asyncio.Lock()
+        self._state_cipher: Fernet | None = None
+        self._configured_state_key = state_key
 
     @property
     def path(self) -> Path:
@@ -104,7 +117,13 @@ class Database:
     async def execute(self, sql: str, params: tuple = ()) -> int:
         """รัน statement ที่เขียนข้อมูลหนึ่งคำสั่ง คืน ``lastrowid``"""
         async with self._write_lock:
-            return await asyncio.to_thread(self._execute_sync, sql, params)
+            worker = asyncio.create_task(asyncio.to_thread(self._execute_sync, sql, params))
+            try:
+                return await asyncio.shield(worker)
+            except asyncio.CancelledError:
+                # Once sqlite has started a write, cancellation cannot stop the worker.
+                # Return its committed result so callers can update their RAM cache too.
+                return await worker
 
     def _execute_sync(self, sql: str, params: tuple) -> int:
         with self._conn:
@@ -114,6 +133,35 @@ class Database:
     async def fetch_all(self, sql: str, params: tuple = ()) -> list[sqlite3.Row]:
         return await asyncio.to_thread(self._fetch_all_sync, sql, params)
 
+    def read_all_sync(self, sql: str, params: tuple = ()) -> list[sqlite3.Row]:
+        """Read rows during startup hydration without exposing the connection object."""
+        return self._fetch_all_sync(sql, params)
+
+    def state_cipher(self) -> Fernet:
+        """Return the authenticated cipher for persisted customer/action state.
+
+        ``PEA_STATE_KEY`` (or the injected settings value) is the only durable key
+        source. File-backed state fails closed when it is absent; only ``:memory:``
+        databases may use the process-local fallback.
+        """
+        if self._state_cipher is not None:
+            return self._state_cipher
+        configured = self._configured_state_key or os.environ.get("PEA_STATE_KEY")
+        if configured:
+            try:
+                key = configured.encode("ascii") if isinstance(configured, str) else configured
+            except (UnicodeEncodeError, AttributeError) as exc:
+                raise RuntimeError("state encryption key is invalid") from exc
+        elif str(self._path) != ":memory:":
+            raise RuntimeError("PEA_STATE_KEY is required for file-backed state")
+        else:
+            key = _PROCESS_STATE_KEY
+        try:
+            self._state_cipher = Fernet(key)
+        except (ValueError, TypeError) as exc:
+            raise RuntimeError("state encryption key is invalid") from exc
+        return self._state_cipher
+
     async def run_in_transaction(self, fn: Callable[[sqlite3.Connection], T]) -> T:
         """รันหลาย statement ในธุรกรรมเดียว (commit พร้อมกันหรือ rollback พร้อมกัน)
 
@@ -121,7 +169,13 @@ class Database:
         ล้มกลางทางต้องไม่เหลือ tool ครึ่ง ๆ กลาง ๆ ใน DB (fail closed ของ D3.4)
         """
         async with self._write_lock:
-            return await asyncio.to_thread(self._run_in_transaction_sync, fn)
+            worker = asyncio.create_task(asyncio.to_thread(self._run_in_transaction_sync, fn))
+            try:
+                return await asyncio.shield(worker)
+            except asyncio.CancelledError:
+                # The thread may already have committed. Finish the logical write so
+                # the store can reconcile its in-memory view with SQLite.
+                return await worker
 
     def _run_in_transaction_sync(self, fn: Callable[[sqlite3.Connection], T]) -> T:
         with self._conn:

@@ -9,6 +9,7 @@ from __future__ import annotations
 import uuid
 from fastapi import APIRouter, Request, status
 
+from app.agent.stores import trace_channel
 from app.contracts import (
     ActionDecisionResponse,
     ChatRequest,
@@ -30,7 +31,8 @@ router = APIRouter()
 
 @router.post("/api/v1/chat", response_model=ChatResponse, status_code=status.HTTP_200_OK)
 async def chat(request: Request, body: ChatRequest) -> ChatResponse:
-    return await agent_service.agent.handle_chat(body)
+    with trace_channel("web"):
+        return await agent_service.agent.handle_chat(body)
 
 
 @router.post(
@@ -43,10 +45,11 @@ async def confirm_pending_action(
     pending_action_id: uuid.UUID,
     body: ConfirmActionRequest,
 ) -> ActionDecisionResponse:
-    return await agent_service.agent.confirm_pending_action(
-        pending_action_id,
-        confirmation_note=body.confirmation_note,
-    )
+    with trace_channel("web"):
+        return await agent_service.agent.confirm_pending_action(
+            pending_action_id,
+            confirmation_note=body.confirmation_note,
+        )
 
 
 @router.post(
@@ -59,10 +62,11 @@ async def reject_pending_action(
     pending_action_id: uuid.UUID,
     body: RejectActionRequest,
 ) -> ActionDecisionResponse:
-    return await agent_service.agent.reject_pending_action(
-        pending_action_id,
-        reason=body.reason,
-    )
+    with trace_channel("web"):
+        return await agent_service.agent.reject_pending_action(
+            pending_action_id,
+            reason=body.reason,
+        )
 
 
 @router.get("/api/v1/traces/{trace_id}", response_model=TraceResponse)
@@ -75,7 +79,7 @@ async def get_trace(request: Request, trace_id: uuid.UUID) -> TraceResponse:
 
 @router.post("/api/v1/reset", response_model=ResetResponse)
 async def reset_demo(request: Request) -> ResetResponse:
-    return agent_service.agent.reset_demo()
+    return await agent_service.agent.reset_demo()
 
 
 @router.get("/health", response_model=HealthResponse)

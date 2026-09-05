@@ -232,10 +232,10 @@ class PendingActionStatus(str, Enum):
 class PendingAction(FrozenModel):
     pending_action_id: UUID = Field(serialization_alias="pendingActionId")
     conversation_id: UUID = Field(serialization_alias="conversationId")
-    tool_name: str = Field(
+    tool_slug: str = Field(
         min_length=1,
         max_length=64,
-        serialization_alias="toolName",
+        serialization_alias="toolSlug",
         validation_alias=AliasChoices("tool_name", "toolName", "tool_slug", "toolSlug"),
     )
     prepare_action: str = Field(min_length=1, max_length=64, serialization_alias="prepareAction")
@@ -249,8 +249,9 @@ class PendingAction(FrozenModel):
     submission_result: ToolResult | None = Field(default=None, serialization_alias="submissionResult")
 
     @property
-    def tool_slug(self) -> str:
-        return self.tool_name
+    def tool_name(self) -> str:
+        """Compatibility accessor; the canonical contract field is ``tool_slug``."""
+        return self.tool_slug
 
     @field_serializer("idempotency_key")
     def redact_idempotency_key(self, value: str) -> str:
@@ -290,6 +291,8 @@ class TraceEventKind(str, Enum):
     ACTION_SUBMITTED = "action_submitted"
     ERROR = "error"
     POLICY_REJECTED = "policy_rejected"
+    RESPONSE_DEGRADED = "response_degraded"
+    TOOL_DISABLED = "tool_disabled"
 
 
 class TraceEvent(FrozenModel):
@@ -298,6 +301,11 @@ class TraceEvent(FrozenModel):
     sequence: int = Field(ge=1)
     at: datetime
     kind: TraceEventKind
+    tool_slug: str | None = Field(default=None, serialization_alias="toolSlug")
+    action: str | None = None
+    config_version: int | None = Field(default=None, serialization_alias="configVersion")
+    policy: str | None = None
+    channel: str | None = None
     data: dict[str, Any] = Field(max_length=20)
 
 

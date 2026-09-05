@@ -109,7 +109,7 @@ class ScriptedMainAgent:
             raise LookupError(trace_id)
         return trace
 
-    def reset_demo(self) -> Any:
+    async def reset_demo(self) -> Any:
         self.traces.clear()
         self.pending.clear()
         self.conversations.clear()

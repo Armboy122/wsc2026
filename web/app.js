@@ -428,7 +428,7 @@ import { isTracePanelEnabled } from './trace-flag.js';
     card.innerHTML = `
       <header class="pa-head">
         <span class="pa-badge ${badgeClass}">${escapeHtml(badgeText)}</span>
-        <span class="pa-tool">${escapeHtml(pa.toolName || '')} · ${escapeHtml(pa.prepareAction || '')}</span>
+        <span class="pa-tool">${escapeHtml(pa.toolSlug || '')} · ${escapeHtml(pa.prepareAction || '')}</span>
         ${SIM_LABEL}
       </header>
       <h3 class="pa-summary" tabindex="-1">${escapeHtml(pa.summary || '')}</h3>

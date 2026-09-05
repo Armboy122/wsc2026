@@ -113,10 +113,13 @@
 - **`redact()` ทำงานตอนเขียน**
 - เขียนอย่างเดียว ห้าม UPDATE/DELETE รายแถว · อ่านเรียงตาม `sequence`
 - **เทสบังคับ**: `UNIQUE(trace_id, sequence)` บังคับจริง · ลำดับถูกต้องเมื่อเขียนถี่ · redact ทำงานก่อนแตะดิสก์
+- **P7 เสร็จ**: trace ใช้ SQLite แบบ append-only, metadata ถูก hydrate กลับ และ reset ไม่ลบ audit history; payload เข้ารหัสด้วย `PEA_STATE_KEY` (ไม่มี key file ข้างฐานข้อมูล; หากไม่ตั้งค่าใช้ได้เฉพาะภายใน process เดียว); retention 90 วันยังเลื่อนไป T3.4
+- `toolSlug`/`action`/`policy` ถูกเติมเมื่อ runtime ทราบ และ `channel` ถูกเติมจาก boundary ปัจจุบัน (`web`, `line`, `voice`); `configVersion` กับการสร้าง `response_degraded` ยังเลื่อนไปงานที่มี runtime tool version/degradation hook จริง ไม่โฆษณาค่า placeholder
 
 ### T3.2 🔒 `PendingActionStore` → SQLite
 - `toolSlug` เป็น string · terminal rejection ยัง terminal
 - **เทสบังคับ**: pending action รอดข้ามการรีสตาร์ต · idempotency ยังกันส่งซ้ำ · reject แล้ว confirm ไม่ได้
+- **P7 เสร็จ**: reset รอ write ที่กำลังทำงาน, ลบรายการที่ยังรอการยืนยัน และปิด `confirmed` ที่ค้างหลัง recovery เป็น terminal `failed`; สถานะ terminal, idempotency และ prepare input ที่เข้ารหัสรอดข้าม restart
 
 ### T3.3 HTTP call logging
 - เก็บ method/host/path/status/เวลา/ขนาด — **ไม่เก็บ query string/header/body**

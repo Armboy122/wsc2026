@@ -173,11 +173,11 @@ def test_reject_is_terminal_and_confirm_returns_conflict(client: TestClient) -> 
     assert client.post(f"/api/v1/actions/{action_id}/confirm", json={}).status_code == 409
 
 
-def test_reset_removes_trace_and_pending_state(client: TestClient) -> None:
+def test_reset_keeps_append_only_trace_history(client: TestClient) -> None:
     response = post_chat(client, "สวัสดี")
     trace_id = response.json()["traceId"]
     assert client.post("/api/v1/reset", json={}).status_code == 200
-    assert client.get(f"/api/v1/traces/{trace_id}").status_code == 404
+    assert client.get(f"/api/v1/traces/{trace_id}").status_code == 200
 
 
 def test_invalid_action_id_and_reject_payloads_fail_closed(client: TestClient) -> None:

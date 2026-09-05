@@ -12,6 +12,7 @@ dependencies = [
   "pyyaml>=6.0,<7.0",
   # ใช้ validate declarative tool schema/definition
   "jsonschema[format]>=4.23,<5.0",
+  "cryptography>=42,<51",
 ]
 
 [project.optional-dependencies]

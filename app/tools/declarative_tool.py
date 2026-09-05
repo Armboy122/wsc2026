@@ -147,6 +147,11 @@ class DeclarativeTool:
                 url_template=operation.url_template,
                 input=input,
                 auth=self._auth,
+                idempotency_key=(
+                    call.input.get("idempotencyKey")
+                    if isinstance(call.input.get("idempotencyKey"), str)
+                    else None
+                ),
             )
         except UrlTemplateError:
             return self._error(call, ToolErrorCode.INTERNAL, "การตั้งค่า tool นี้มีปัญหา กรุณาติดต่อผู้ดูแลระบบ")
