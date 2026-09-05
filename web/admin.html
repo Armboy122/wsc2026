@@ -222,6 +222,7 @@
           <h5>ฟิลด์ข้อมูลนำเข้า (inputSchema)</h5>
           <button type="button" data-op-action="add-field" class="btn btn-secondary btn-sm">+ เพิ่มฟิลด์</button>
         </div>
+        <div data-op="schema-warning" class="hint-note" hidden></div>
         <div data-op="fields" class="stack"></div>
         <h5>JSON Schema ที่จะบันทึก (อ่านอย่างเดียว)</h5>
         <pre data-op="schema-preview" class="json-preview" aria-live="polite"></pre>
@@ -251,6 +252,10 @@
       <label class="check-field">
         <input type="checkbox" data-field="required" />
         <span>จำเป็น</span>
+      </label>
+      <label class="check-field">
+        <input type="checkbox" data-field="nullable" />
+        <span>อนุญาต null</span>
       </label>
       <label class="field field-grow">
         <span>คำอธิบาย</span>

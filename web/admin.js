@@ -1,4 +1,9 @@
-import { buildOperationPayload, buildToolPayload, validateToolPayload } from "./admin-form.js";
+import {
+  buildOperationPayload,
+  buildToolPayload,
+  detectMetadataLoss,
+  validateToolPayload,
+} from "./admin-form.js";
 
 /* ============================================================
    PEA One Agent — ตรรกะหน้าแอดมิน (D3.3/D3.4/D3.5/D3.6)
@@ -64,6 +69,7 @@ import { buildOperationPayload, buildToolPayload, validateToolPayload } from "./
 
   var appEnv = "development";
   var editingSlug = null; // null = สร้างใหม่
+  var editingBaseline = null;
 
   var views = {
     loginView: $("#login-view"),
@@ -279,28 +285,50 @@ import { buildOperationPayload, buildToolPayload, validateToolPayload } from "./
 
   // ----------------------------------------------- ฟอร์ม tool (D3.4) —
 
-  // JSON Schema ที่ validator รับ (D1.2 subset) — สร้างจากแถวฟิลด์เสมอ
-  function buildSchemaFromRows(fieldsContainer) {
+  // JSON Schema ที่ validator รับ — ค่า opaque ถูกแนบกับแถวและเก็บกลับตอน save
+  function buildSchemaFromRows(fieldsContainer, baselineSchema) {
     var properties = {};
     var required = [];
     fieldsContainer.querySelectorAll(".field-row").forEach(function (row) {
       var name = $('[data-field="name"]', row).value.trim();
-      if (!name) return; // แถวที่ยังไม่ตั้งชื่อ = ไม่อยู่ใน schema
-      var prop = { type: $('[data-field="type"]', row).value };
+      if (!name) return;
+      var baselineProperty = row.dataset.baselineProperty
+        ? JSON.parse(row.dataset.baselineProperty)
+        : {};
+      var prop = Object.assign({}, baselineProperty, {
+        type: $('[data-field="type"]', row).value,
+      });
       var description = $('[data-field="description"]', row).value.trim();
       if (description) prop.description = description;
+      else delete prop.description;
+      var nullable = $('[data-field="nullable"]', row).checked;
+      if (nullable) {
+        prop.anyOf = [{ type: prop.type }, { type: "null" }];
+        delete prop.type;
+      } else if (prop.anyOf) {
+        delete prop.anyOf;
+      }
       properties[name] = prop;
       if ($('[data-field="required"]', row).checked) required.push(name);
     });
-    return { type: "object", properties: properties, required: required, additionalProperties: false };
+    return Object.assign({}, baselineSchema || {}, {
+      type: "object",
+      properties: properties,
+      required: required,
+      additionalProperties: false,
+    });
   }
 
-  function addFieldRow(fieldsContainer, name, type, required, description) {
+  function addFieldRow(fieldsContainer, name, type, required, description, property) {
     var row = views.fieldRowTemplate.content.firstElementChild.cloneNode(true);
+    var source = property || {};
     $('[data-field="name"]', row).value = name || "";
-    $('[data-field="type"]', row).value = type || "string";
+    $('[data-field="type"]', row).value = type || source.type || "string";
     $('[data-field="required"]', row).checked = !!required;
-    $('[data-field="description"]', row).value = description || "";
+    $('[data-field="description"]', row).value = description || source.description || "";
+    $('[data-field="nullable"]', row).checked = Array.isArray(source.anyOf)
+      && source.anyOf.some(function (item) { return item.type === "null"; });
+    row.dataset.baselineProperty = JSON.stringify(source);
     row.addEventListener("input", function () {
       updateSchemaPreview(fieldsContainer);
     });
@@ -322,14 +350,26 @@ import { buildOperationPayload, buildToolPayload, validateToolPayload } from "./
   function populateFieldsFromSchema(fieldsContainer, schema) {
     fieldsContainer.replaceChildren();
     var properties = (schema && schema.properties) || {};
+    var unsupported = Object.keys(properties).filter(function (name) {
+      var property = properties[name] || {};
+      return property.oneOf || property.$ref || property.properties || property.enum
+        || property.default !== undefined;
+    });
+    var warning = $('[data-op="schema-warning"]', fieldsContainer.closest(".operation-card"));
+    warning.textContent = unsupported.length
+      ? "ฟิลด์ " + unsupported.join(", ")
+        + " มี metadata ที่ฟอร์มแก้ไม่ได้ ระบบจะ preserve ไว้"
+      : "";
+    warning.hidden = unsupported.length === 0;
     var required = (schema && schema.required) || [];
     Object.keys(properties).forEach(function (name) {
       var prop = properties[name] || {};
-      addFieldRow(fieldsContainer, name, prop.type || "string", required.indexOf(name) !== -1, prop.description || "");
+      var type = prop.type || (prop.anyOf && prop.anyOf.find(function (item) {
+        return item.type !== "null";
+      }) || {}).type || "string";
+      addFieldRow(fieldsContainer, name, type, required.indexOf(name) !== -1, prop.description || "", prop);
     });
-    if (Object.keys(properties).length === 0) {
-      updateSchemaPreview(fieldsContainer);
-    }
+    if (Object.keys(properties).length === 0) updateSchemaPreview(fieldsContainer);
   }
 
   function setOpTitle(card, index) {
@@ -339,11 +379,15 @@ import { buildOperationPayload, buildToolPayload, validateToolPayload } from "./
   function addOperationCard(operation) {
     var card = views.operationTemplate.content.firstElementChild.cloneNode(true);
     var fieldsContainer = $('[data-op="fields"]', card);
+    var baseline = operation || {};
+    card.dataset.baselineOperation = JSON.stringify(baseline);
+    card.dataset.baselineSchema = JSON.stringify(baseline.inputSchema || {});
 
     $('[data-op="action"]', card).value = (operation && operation.action) || "";
     $('[data-op="policy"]', card).value = (operation && operation.policy) || "plain_read";
     $('[data-op="exposure"]', card).value = (operation && operation.exposure) || "llm";
     $('[data-op="mode"]', card).value = (operation && operation.mode) || "read";
+    $('[data-op="submitAction"]', card).value = (operation && operation.submitAction) || "";
     $('[data-op="httpMethod"]', card).value = (operation && operation.httpMethod) || "GET";
     $('[data-op="urlTemplate"]', card).value = (operation && operation.urlTemplate) || "";
 
@@ -367,7 +411,7 @@ import { buildOperationPayload, buildToolPayload, validateToolPayload } from "./
     });
 
     $('[data-op-action="add-field"]', card).addEventListener("click", function () {
-      addFieldRow(fieldsContainer, "", "string", false, "");
+      addFieldRow(fieldsContainer, "", "string", false, "", {});
     });
 
     $('[data-op-action="try"]', card).addEventListener("click", function () {
@@ -435,8 +479,11 @@ import { buildOperationPayload, buildToolPayload, validateToolPayload } from "./
         httpMethod: $('[data-op="httpMethod"]', card).value,
         urlTemplate: $('[data-op="urlTemplate"]', card).value,
         submitAction: $('[data-op="submitAction"]', card).value,
-        inputSchema: buildSchemaFromRows($('[data-op="fields"]', card)),
-      }));
+        inputSchema: buildSchemaFromRows(
+          $('[data-op="fields"]', card),
+          JSON.parse(card.dataset.baselineSchema || "{}"),
+        ),
+      }, JSON.parse(card.dataset.baselineOperation || "{}")));
     });
     return operations;
   }
@@ -447,6 +494,7 @@ import { buildOperationPayload, buildToolPayload, validateToolPayload } from "./
 
   function openNewToolForm() {
     editingSlug = null;
+    editingBaseline = null;
     views.toolFormTitle.textContent = "สร้าง tool ใหม่";
     views.toolSlug.value = "";
     views.toolSlug.disabled = false;
@@ -482,6 +530,7 @@ import { buildOperationPayload, buildToolPayload, validateToolPayload } from "./
       return;
     }
     var tool = result.data;
+    editingBaseline = JSON.parse(JSON.stringify(tool));
     editingSlug = slug;
     views.toolFormTitle.textContent = "แก้ไข tool: " + (tool.displayName || slug);
     views.toolSlug.value = tool.slug;
@@ -522,6 +571,7 @@ import { buildOperationPayload, buildToolPayload, validateToolPayload } from "./
     views.toolForm.hidden = true;
     views.toolsList.hidden = false;
     editingSlug = null;
+    editingBaseline = null;
     refreshTools();
   }
 
@@ -539,9 +589,19 @@ import { buildOperationPayload, buildToolPayload, validateToolPayload } from "./
       description: views.toolDescription.value,
       enabled: views.toolEnabled.checked,
       operations: collectOperations(),
-    });
+    }, editingBaseline);
     if (views.toolRemoveAuth.checked) payload.authEnvVar = null;
-     else if (authEnv) payload.authEnvVar = authEnv;
+    else if (authEnv) payload.authEnvVar = authEnv;
+
+    var metadataLoss = editingBaseline
+      ? detectMetadataLoss(editingBaseline, payload)
+      : [];
+    if (metadataLoss.length) {
+      views.toolFormError.textContent =
+        "บันทึกไม่ได้ เพราะ metadata ของ " + metadataLoss.join(", ") + " จะหายไป";
+      showHidden(views.toolFormError, false);
+      return;
+    }
 
     var localError = validateFormLocally(payload);
     if (localError) {
