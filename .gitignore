@@ -5,7 +5,30 @@
 __pycache__/
 *.py[cod]
 .DS_Store
-.agent-teams
+.agent-teams/
 data/pea.db
 data/pea.db-wal
 data/pea.db-shm
+.claude/
+.agents/
+.thclaws/
+agent/
+data/skills/
+skills-lock.json
+
+# Python tooling and local artifacts
+.mypy_cache/
+.ruff_cache/
+.coverage
+htmlcov/
+.pytest_cache/
+
+# Local databases and runtime files
+*.db
+*.db-shm
+*.db-wal
+
+# OS/editor files
+.vscode/
+.idea/
+*.swp
