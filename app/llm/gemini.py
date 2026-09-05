@@ -9,7 +9,7 @@ import httpx
 
 from app.llm.adapter import LLMUnavailableError
 from app.llm.models import LLMMessage, LLMRequest, LLMResponse
-from app.llm.prompting import SYSTEM_PROMPT, tool_catalogue
+from app.llm.prompting import current_system_prompt, tool_catalogue
 
 
 _DEFAULT_BASE_URL = "https://generativelanguage.googleapis.com/v1beta"
@@ -52,7 +52,7 @@ class GeminiLLMAdapter:
         if not await self.ready():
             raise LLMUnavailableError("Gemini provider is not configured")
 
-        system_parts = [SYSTEM_PROMPT, tool_catalogue(request)]
+        system_parts = [await current_system_prompt(), tool_catalogue(request)]
         if request.knowledge_context is not None:
             system_parts.append(
                 "บริบทความรู้ที่ผ่านการตรวจสอบแล้วจากคำถามก่อนหน้า: "

@@ -228,6 +228,28 @@ trace และ redaction ทั้งหมดไม่เปลี่ยนแ
 - ก่อนเริ่ม agent loop ระบบแสดง loading indicator ("...") ผ่าน LINE API
   และตอบกลับด้วย reply token เมื่อทำได้ หาก token หมดอายุจะใช้ push แทน
 
+## หน้า admin `POST /api/v1/admin/*` (ส่วนเพิ่มเติม v2 — D3.1)
+
+สัญญา HTTP v1 ข้างต้นยัง frozen ตามเดิม ส่วนนี้คือสัญญาเพิ่มเติมของหน้า admin ซึ่ง
+เป็นพื้นผิวที่สร้าง tool ที่ยิง HTTP ออกนอกระบบได้ จึง fail closed ทุกทาง:
+
+- รหัสผ่านมาจาก env `ADMIN_PASSWORD` เท่านั้น **ไม่มี default password** —
+  ไม่ตั้ง = endpoint ทุกตัวที่ต้อง auth ตอบ `503` (ปิดใช้งาน admin)
+- session เป็น opaque token ใน cookie `pea_admin_session` (HttpOnly, SameSite=Lax)
+  เก็บใน RAM ต่อ process — restart = logout ทุก session
+- เทียบรหัสผ่านแบบ constant-time และแยก `503` (admin ปิด) จาก `401` (รหัสผ่านผิด/
+  ไม่มี session) เพื่อไม่ให้เดาสถานะระบบได้
+- ทุก endpoint admin ที่เพิ่มในอนาคต (จัดการ tool, prompt, allowlist) ต้องใส่
+  `Depends(require_admin)` — ห้ามมี endpoint admin ที่ข้าม auth
+
+### จุดเชื่อมต่อ
+
+| เส้นทาง | คำขอ/การตอบ | หมายเหตุ |
+|---|---|---|
+| `POST /api/v1/admin/login` | `{ "password": "..." }` → `200 {"authenticated": true}` + Set-Cookie | ผิด = `401`, admin ปิด = `503`, body ผิดรูป = `422` |
+| `POST /api/v1/admin/logout` | → `200 {"authenticated": false}` + ลบ cookie | ไม่บังคับ auth — ทำลาย session ของผู้เรียกเอง |
+| `GET /api/v1/admin/session` | → `200 {"authenticated": true}` | ต้องมี session cookie ที่ถูกต้อง ไม่งั้น `401`/`503` |
+
 ## โมเดลโดเมนที่ตรึงไว้
 
 ### `Citation`

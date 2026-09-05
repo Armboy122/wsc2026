@@ -6,6 +6,8 @@ from uuid import uuid4
 import pytest
 
 from app.contracts import OmsPrepareAnonymousOutageInput, ToolName
+from app.db import Database
+from app.db.bootstrap_prompt import DbSystemPromptProvider, seed_system_prompt
 from app.llm.factory import LLMProviderConfig, create_llm_adapter
 from app.llm.gemini import GeminiLLMAdapter
 from app.llm.models import LLMMessage, LLMRequest, ToolDefinition
@@ -123,6 +125,37 @@ async def test_factory_forwards_trusted_gemini_base_url(monkeypatch: pytest.Monk
         "https://generativelanguage.googleapis.com/v1/"
         "models/gemini-2.5-flash:generateContent"
     )
+
+
+@pytest.mark.asyncio
+async def test_gemini_adapter_uses_system_prompt_from_db(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """D3.2: SYSTEM_PROMPT ถูกอ่านจาก DB ต่อเทิร์น — แก้ค่าใน DB แล้วเห็นผลใน request ถัดไป"""
+    db = Database(":memory:")
+    db.migrate()
+    await seed_system_prompt(db)
+    await db.execute(
+        "UPDATE prompt SET content = ? WHERE key = 'system_prompt'",
+        ("โปรมต์ทดสอบจาก DB",),
+    )
+    monkeypatch.setattr("app.llm.prompting._provider", DbSystemPromptProvider(db))
+    monkeypatch.setattr("app.llm.gemini.httpx.AsyncClient", _Client)
+    adapter = GeminiLLMAdapter(api_key="secret", model="gemini-2.5-flash")
+    request = LLMRequest(
+        messages=(LLMMessage("user", "สวัสดี"),),
+        tools=(),
+        correlation_id=uuid4(),
+    )
+
+    await adapter.complete(request)
+
+    payload = _request_capture["json"]
+    assert isinstance(payload, dict)
+    system_instruction = str(payload["systemInstruction"])
+    assert "โปรมต์ทดสอบจาก DB" in system_instruction
+    # ต้องไม่ใช้ constant เดิมแล้ว เพราะ DB มีค่าใหม่ทับ
+    assert "คุณคือ Main Agent" not in system_instruction
 
 
 @pytest.mark.asyncio

@@ -20,6 +20,7 @@ from app.agent.main_agent import InvalidActionStateError, MainAgent, NotFoundErr
 from app.agent.registry import ToolRegistry
 from app.api.live import router as live_router
 from app.api.routes import router
+from app.api.admin import router as admin_router
 from app.backends.full_document_knowledge import (
     SUPPORTED_PROVIDERS,
     FullDocumentKnowledgeBackend,
@@ -31,7 +32,9 @@ from app.core.errors import ConflictException, NotFoundException, platform_excep
 from app.core.startup import create_platform_app, startup_event
 from app.db import Database
 from app.db.bootstrap_oms import seed_oms_tool
+from app.db.bootstrap_prompt import DbSystemPromptProvider, seed_system_prompt
 from app.llm import JudgeLLMClient, LLMClient, LLMProviderConfig, create_llm_adapter
+from app.llm.prompting import set_system_prompt_provider
 from app.plugins import load_plugins
 from app.plugins.oms.declarative_shape import OMS_OPERATIONS
 from app.plugins.oms.demo import OmsDemoBehavior
@@ -122,6 +125,10 @@ judge_llm_client = JudgeLLMClient(judge_llm_adapter)
 # ทำงานอยู่ตอน import โมดูลนี้
 db = Database()
 db.migrate()
+# D3.2: SYSTEM_PROMPT อยู่ใน DB แล้ว — seed ครั้งเดียว (idempotent) และอ่านจาก DB ต่อเทิร์น
+# เพื่อให้แก้ prompt แล้วมีผลในเทิร์นถัดไปโดยไม่ต้อง restart
+asyncio.run(seed_system_prompt(db))
+set_system_prompt_provider(DbSystemPromptProvider(db))
 
 
 async def _load_declarative_catalogue():
@@ -175,6 +182,7 @@ adapter_service.set_knowledge(_KnowledgeReadiness(knowledge_backend))
 app = create_platform_app(settings)
 app.include_router(router)
 app.include_router(live_router)
+app.include_router(admin_router)
 app.add_exception_handler(NotFoundError, _not_found_handler)
 app.add_exception_handler(InvalidActionStateError, _conflict_handler)
 startup_event(app, tool_registry)

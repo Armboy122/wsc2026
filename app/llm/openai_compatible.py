@@ -9,7 +9,7 @@ import httpx
 
 from app.llm.adapter import LLMUnavailableError
 from app.llm.models import LLMMessage, LLMRequest, LLMResponse
-from app.llm.prompting import SYSTEM_PROMPT, tool_catalogue
+from app.llm.prompting import current_system_prompt, tool_catalogue
 
 
 class OpenAICompatibleLLMAdapter:
@@ -48,7 +48,7 @@ class OpenAICompatibleLLMAdapter:
         if not await self.ready():
             raise LLMUnavailableError("OpenAI-compatible provider is not configured")
 
-        messages = [{"role": "system", "content": _system_prompt(request)}]
+        messages = [{"role": "system", "content": await _system_prompt(request)}]
         messages.extend(_message(message) for message in request.messages)
         payload: dict[str, object] = {
             "model": self._model,
@@ -92,8 +92,8 @@ class OpenAICompatibleLLMAdapter:
             raise LLMUnavailableError("OpenAI-compatible provider request failed") from error
 
 
-def _system_prompt(request: LLMRequest) -> str:
-    parts = [SYSTEM_PROMPT, tool_catalogue(request)]
+async def _system_prompt(request: LLMRequest) -> str:
+    parts = [await current_system_prompt(), tool_catalogue(request)]
     if request.knowledge_context is not None:
         parts.append(
             "บริบทความรู้ที่ผ่านการตรวจสอบแล้วจากคำถามก่อนหน้า: "

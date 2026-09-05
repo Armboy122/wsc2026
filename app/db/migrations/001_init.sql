@@ -43,7 +43,7 @@ CREATE TABLE tool_auth (
     secret_ref TEXT NOT NULL
 );
 
--- SYSTEM_PROMPT ที่เดิม hardcode ใน app/llm/prompting.py (D3.2 จะย้ายมาที่นี่)
+-- SYSTEM_PROMPT ที่เดิม hardcode ใน app/llm/prompting.py — D3.2 seed มาที่นี่แล้ว (bootstrap_prompt.py)
 CREATE TABLE prompt (
     key TEXT PRIMARY KEY,
     content TEXT NOT NULL,

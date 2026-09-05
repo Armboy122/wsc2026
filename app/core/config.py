@@ -21,6 +21,7 @@ _SECRET_FIELD_NAMES: frozenset[str] = frozenset({
     "voc_api_key",
     "line_channel_secret",
     "line_channel_access_token",
+    "admin_password",
 })
 _ALLOWED_EFFORTS = frozenset({"low", "medium", "high"})
 
@@ -75,6 +76,8 @@ class Settings:
     voc_consent_notice_version: str = "VOC-PDPA-DEMO-1.0"
     line_channel_secret: str | None = field(default=None, repr=False)
     line_channel_access_token: str | None = field(default=None, repr=False)
+    # D3.1: รหัสผ่านหน้า admin — ไม่ตั้ง = ปิด admin ทั้งหมด (fail closed ไม่มี default password)
+    admin_password: str | None = field(default=None, repr=False)
 
     @classmethod
     def from_env(
@@ -177,6 +180,7 @@ class Settings:
 
         line_channel_secret = _get("LINE_CHANNEL_SECRET")
         line_channel_access_token = _get("LINE_CHANNEL_ACCESS_TOKEN")
+        admin_password = _get("ADMIN_PASSWORD")
 
         return cls(
             app_env=env.get("APP_ENV", "development").lower(),
@@ -210,6 +214,7 @@ class Settings:
             voc_consent_notice_version=voc_consent_notice_version,
             line_channel_secret=line_channel_secret,
             line_channel_access_token=line_channel_access_token,
+            admin_password=admin_password,
         )
 
     @property
