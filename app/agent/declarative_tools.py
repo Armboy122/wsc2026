@@ -30,12 +30,25 @@ logger = logging.getLogger(__name__)
 
 
 @dataclass(frozen=True, slots=True)
+class DisabledTool:
+    """tool ที่ลงทะเบียนใน DB แต่ fail closed ตอนโหลด — หน้า admin ต้องแสดงพร้อมเหตุผล (D3.3)
+
+    ``reason`` ผ่าน ``sanitize_validation_error_message`` แล้ว (ไม่รั่ว URL/secret)
+    """
+
+    slug: str
+    reason: str
+
+
+@dataclass(frozen=True, slots=True)
 class DeclarativeToolBundle:
     """ผลลัพธ์ของการโหลด declarative tool ทั้งหมด — ส่งตรงเข้า ``ToolRegistry(...)`` ได้เลย"""
 
     tools: tuple[DeclarativeTool, ...]
     catalogue: tuple[ToolDefinition, ...]
     operation_specs: dict[tuple[str, str], OperationSpec]
+    # tool ที่ถูกข้ามเพราะ definition ผิด — แสดงในหน้า admin พร้อมเหตุผล กัน "หายเงียบ" (D3.3)
+    disabled: tuple[DisabledTool, ...] = ()
 
 
 async def load_declarative_tools(
@@ -56,6 +69,7 @@ async def load_declarative_tools(
     tools: list[DeclarativeTool] = []
     catalogue: list[ToolDefinition] = []
     operation_specs: dict[tuple[str, str], OperationSpec] = {}
+    disabled: list[DisabledTool] = []
     for tool_row in tool_rows:
         operation_rows = await db.fetch_all(
             "SELECT * FROM tool_operation WHERE tool_id = ? ORDER BY action",
@@ -72,6 +86,7 @@ async def load_declarative_tools(
                 tool_row["id"],
                 safe_message,
             )
+            disabled.append(DisabledTool(slug=tool_row["slug"], reason=safe_message))
             continue
 
         auth_row = await db.fetch_one(
@@ -97,6 +112,7 @@ async def load_declarative_tools(
         tools=tuple(tools),
         catalogue=tuple(catalogue),
         operation_specs=operation_specs,
+        disabled=tuple(disabled),
     )
 
 

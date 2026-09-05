@@ -1,0 +1,258 @@
+<!doctype html>
+<html lang="th">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>PEA One Agent · หน้าแอดมิน</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link
+    href="https://fonts.googleapis.com/css2?family=Anuphan:wght@400;500;600;700&family=IBM+Plex+Mono:wght@400;500&display=swap"
+    rel="stylesheet"
+  />
+  <link rel="stylesheet" href="admin.css" />
+</head>
+<body>
+  <!-- ---------- หน้าล็อกอิน (D3.1) ---------- -->
+  <div id="login-view" class="auth-wrap" hidden>
+    <form id="login-form" class="card auth-card" novalidate>
+      <p class="brand-eyebrow">PEA One Agent</p>
+      <h1>หน้าแอดมิน</h1>
+      <p class="muted">
+        จัดการเครื่องมือ (Tool) และระบบคำสั่ง (Prompt) ของเอเจนต์
+        การเปลี่ยนแปลงทุกอย่างมีผลทันทีโดยไม่ต้อง deploy
+      </p>
+      <label class="field">
+        <span>รหัสผ่านแอดมิน</span>
+        <input type="password" id="login-password" autocomplete="current-password" required />
+      </label>
+      <button type="submit" class="btn btn-primary btn-block">เข้าสู่ระบบ</button>
+      <p id="login-error" class="error-note" role="alert" hidden></p>
+    </form>
+  </div>
+
+  <!-- ---------- แอปหลัก ---------- -->
+  <div id="app-view" hidden>
+    <header class="admin-header">
+      <div class="admin-header-inner">
+        <div class="admin-title">
+          <p class="brand-eyebrow">PEA One Agent</p>
+          <h1>หน้าแอดมิน</h1>
+        </div>
+        <div class="admin-header-actions">
+          <span id="env-badge" class="env-badge" title="โหมดของนโยบายเครือข่ายขาออก"></span>
+          <button type="button" id="logout-btn" class="btn btn-ghost">ออกจากระบบ</button>
+        </div>
+      </div>
+      <nav class="admin-nav" aria-label="เมนูหน้าแอดมิน">
+        <button type="button" class="nav-tab" data-tab="tools" aria-pressed="true">
+          เครื่องมือ (Tool)
+        </button>
+        <button type="button" class="nav-tab" data-tab="prompt" aria-pressed="false">
+          ระบบคำสั่ง (Prompt)
+        </button>
+      </nav>
+    </header>
+
+    <main class="admin-main">
+      <!-- ---------- แท็บเครื่องมือ: รายการ (D3.3) + ฟอร์ม (D3.4) + ลองยิง (D3.5) ---------- -->
+      <section id="tab-tools" role="region" aria-label="จัดการเครื่องมือ">
+        <!-- รายการ tool -->
+        <div id="tools-list">
+          <div class="row-between">
+            <h2>เครื่องมือทั้งหมด</h2>
+            <button type="button" id="new-tool-btn" class="btn btn-primary">+ สร้าง tool ใหม่</button>
+          </div>
+          <p class="muted">
+            tool จากฐานข้อมูลแก้ไขจากหน้านี้ได้ทันที (ไม่ต้อง deploy) ส่วน tool จากโค้ด (Python)
+            แสดงรายการเดียวกันเพื่อให้เห็นภาพรวม แต่ต้องแก้ที่โค้ดแล้ว deploy
+          </p>
+          <div id="tools-table" class="stack"></div>
+        </div>
+
+        <!-- ฟอร์มสร้าง/แก้ tool (D3.4) — form builder ไม่ใช่ textarea JSON -->
+        <div id="tool-form" hidden>
+          <div class="row-between">
+            <h2 id="tool-form-title">สร้าง tool ใหม่</h2>
+            <button type="button" id="back-to-list-btn" class="btn btn-ghost">← กลับรายการ</button>
+          </div>
+          <form id="tool-form-element" novalidate>
+            <div class="card form-card">
+              <div class="grid-2">
+                <label class="field">
+                  <span>ชื่อระบบ (slug) <em class="muted">a-z 0-9 _ -</em></span>
+                  <input type="text" id="tool-slug" maxlength="64" required />
+                </label>
+                <label class="field">
+                  <span>ชื่อที่แสดง</span>
+                  <input type="text" id="tool-display-name" maxlength="200" required />
+                </label>
+              </div>
+              <label class="field">
+                <span>คำอธิบาย (ใช้โดย AI ในการเลือก tool) <span id="tool-desc-count" class="char-count"></span></span>
+                <textarea id="tool-description" rows="2" maxlength="1000"></textarea>
+              </label>
+              <div class="grid-2">
+                <label class="field">
+                  <span>Environment variable ของ secret (ถ้ามี)</span>
+                  <input type="text" id="tool-auth-env" maxlength="128" placeholder="เช่น MY_API_KEY — ใส่เฉพาะ "ชื่อ" ไม่ใส่ค่า" />
+                </label>
+                <label class="check-field">
+                  <input type="checkbox" id="tool-enabled" checked />
+                  <span>เปิดใช้งาน tool นี้ทันที</span>
+                </label>
+              </div>
+            </div>
+
+            <div class="row-between operations-head">
+              <h3>Operations</h3>
+              <button type="button" id="add-operation-btn" class="btn btn-secondary">+ เพิ่ม operation</button>
+            </div>
+            <div id="operations-container" class="stack"></div>
+
+            <div id="tool-form-error" class="error-note" role="alert" hidden></div>
+            <div class="form-actions">
+              <button type="submit" class="btn btn-primary">บันทึก (มีผลทันที)</button>
+              <button type="button" id="cancel-tool-btn" class="btn btn-ghost">ยกเลิก</button>
+            </div>
+          </form>
+        </div>
+      </section>
+
+      <!-- ---------- แท็บระบบคำสั่ง (D3.6) ---------- -->
+      <section id="tab-prompt" role="region" aria-label="แก้ระบบคำสั่ง" hidden>
+        <div class="row-between">
+          <h2>SYSTEM_PROMPT</h2>
+          <span id="prompt-status-badge" class="status-badge"></span>
+        </div>
+        <p class="muted">
+          คำสั่งระดับระบบที่ AI ใช้ทุกเทิร์น แก้แล้วกดบันทึก — มีผลตั้งแต่เทิร์นถัดไป ไม่ต้อง restart
+        </p>
+        <div class="grid-2 prompt-grid">
+          <div class="card form-card">
+            <label class="field">
+              <span>เนื้อหา prompt <span id="prompt-char-count" class="char-count"></span></span>
+              <textarea id="prompt-content" rows="18"></textarea>
+            </label>
+            <div id="prompt-error" class="error-note" role="alert" hidden></div>
+            <div id="prompt-success" class="success-note" role="status" hidden></div>
+            <div class="form-actions">
+              <button type="button" id="save-prompt-btn" class="btn btn-primary">บันทึก (มีผลเทิร์นถัดไป)</button>
+            </div>
+            <p id="prompt-updated-at" class="muted mono"></p>
+          </div>
+          <div class="card form-card preview-card">
+            <h3>ตัวอย่าง (preview)</h3>
+            <pre id="prompt-preview" class="json-preview"></pre>
+          </div>
+        </div>
+      </section>
+    </main>
+  </div>
+
+  <template id="operation-template">
+    <div class="card form-card operation-card">
+      <div class="row-between">
+        <h4 class="op-title">Operation</h4>
+        <div class="op-actions">
+          <button type="button" data-op-action="try" class="btn btn-secondary">ลองยิงดู</button>
+          <button type="button" data-op-action="remove" class="btn btn-danger-ghost">ลบ</button>
+        </div>
+      </div>
+      <div class="grid-2">
+        <label class="field">
+          <span>ชื่อ action <em class="muted">เช่น get_status</em></span>
+          <input type="text" data-op="action" maxlength="64" required />
+        </label>
+        <label class="field">
+          <span>policy</span>
+          <select data-op="policy">
+            <option value="plain_read">plain_read — อ่านอย่างเดียว ตอบตรง</option>
+            <option value="grounded_answer">grounded_answer — ต้องมี citation</option>
+            <option value="write_confirm">write_confirm — เขียนข้อมูล ต้องมนุษย์ยืนยัน</option>
+            <option value="guided_flow">guided_flow — พาทำทีละขั้น</option>
+          </select>
+        </label>
+      </div>
+      <div class="grid-3">
+        <label class="field">
+          <span>exposure</span>
+          <select data-op="exposure">
+            <option value="llm">llm — AI เรียกเองได้</option>
+            <option value="internal">internal — เรียกภายในเท่านั้น</option>
+          </select>
+        </label>
+        <label class="field">
+          <span>mode</span>
+          <select data-op="mode">
+            <option value="read">read</option>
+            <option value="prepare">prepare</option>
+            <option value="submit">submit</option>
+          </select>
+        </label>
+        <label class="field" data-op-submit-field hidden>
+          <span>submitAction (ชื่อ action ปลายทาง)</span>
+          <input type="text" data-op="submitAction" maxlength="64" />
+        </label>
+        <label class="field">
+          <span>HTTP method</span>
+          <select data-op="httpMethod">
+            <option>GET</option>
+            <option>POST</option>
+            <option>PUT</option>
+            <option>PATCH</option>
+            <option>DELETE</option>
+          </select>
+        </label>
+      </div>
+      <label class="field">
+        <span>URL template <em class="muted">ใช้ {ชื่อฟิลด์} แทนค่าใน path/query เช่น https://api.example.com/items/{id}</em></span>
+        <input type="text" data-op="urlTemplate" maxlength="2048" required />
+      </label>
+
+      <div class="schema-builder">
+        <div class="row-between">
+          <h5>ฟิลด์ข้อมูลนำเข้า (inputSchema)</h5>
+          <button type="button" data-op-action="add-field" class="btn btn-secondary btn-sm">+ เพิ่มฟิลด์</button>
+        </div>
+        <div data-op="fields" class="stack"></div>
+        <h5>JSON Schema ที่จะบันทึก (อ่านอย่างเดียว)</h5>
+        <pre data-op="schema-preview" class="json-preview" aria-live="polite"></pre>
+      </div>
+
+      <div class="try-result" data-op="try-result" hidden></div>
+    </div>
+  </template>
+
+  <template id="field-row-template">
+    <div class="field-row">
+      <label class="field">
+        <span>ชื่อ</span>
+        <input type="text" data-field="name" maxlength="64" />
+      </label>
+      <label class="field">
+        <span>ชนิด</span>
+        <select data-field="type">
+          <option value="string">string</option>
+          <option value="integer">integer</option>
+          <option value="number">number</option>
+          <option value="boolean">boolean</option>
+          <option value="array">array</option>
+          <option value="object">object</option>
+        </select>
+      </label>
+      <label class="check-field">
+        <input type="checkbox" data-field="required" />
+        <span>จำเป็น</span>
+      </label>
+      <label class="field field-grow">
+        <span>คำอธิบาย</span>
+        <input type="text" data-field="description" maxlength="300" />
+      </label>
+      <button type="button" data-field-action="remove" class="btn btn-danger-ghost btn-sm" aria-label="ลบฟิลด์">ลบ</button>
+    </div>
+  </template>
+
+  <script src="admin.js"></script>
+</body>
+</html>

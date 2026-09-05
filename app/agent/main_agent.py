@@ -103,8 +103,6 @@ class MainAgent:
         self._tools = tool_registry
         # flow แบบกำหนดผลได้ของปลั๊กอิน ใช้เมื่อ write ต้องใช้รหัสจาก catalog ที่โมเดลเดาไม่ได้
         self._guided_flows = guided_flows or GuidedFlows()
-        # แค็ตตาล็อกมาจาก registry เสมอ เพิ่มปลั๊กอินใหม่จึงไม่ต้องแก้ Main Agent
-        self._tool_catalogue = tool_registry.llm_catalogue
         self._response_policies = tool_registry.response_policies
         self._conversations = conversations or ConversationStore()
         self._pending_actions = pending_actions or PendingActionStore()
@@ -114,6 +112,12 @@ class MainAgent:
         self._knowledge_contexts: dict[UUID, KnowledgeConversationContext] = {}
         self._grounded_conversations: set[UUID] = set()
         self._reset_generation = 0
+
+    @property
+    def _tool_catalogue(self) -> tuple[ToolDefinition, ...]:
+        # แค็ตตาล็อกมาจาก registry เสมอ เพิ่มปลั๊กอินใหม่จึงไม่ต้องแก้ Main Agent —
+        # D3.4: อ่านสดทุกครั้ง เพื่อให้ declarative tool ที่ save จากหน้า admin ปรากฏในเทิร์นถัดไป
+        return self._tools.llm_catalogue
 
     def _is_prepare_call(self, call: ToolCall) -> bool:
         spec = self._tools.operation_spec_for_call(call)

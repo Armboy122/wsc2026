@@ -3,13 +3,14 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import Any, Mapping, Protocol, runtime_checkable
+from typing import Any, Iterable, Mapping, Protocol, runtime_checkable
 from uuid import UUID
 
 from pydantic import ValidationError
 
 from app.agent.operation_policy import OperationLimits, OperationPolicy, OperationSpec
 from app.agent.response_policy import ResponsePolicies, ResponsePolicy
+from app.tools.declarative_tool import DeclarativeTool
 from app.contracts import (
     INPUT_MODELS,
     OUTPUT_MODELS,
@@ -136,6 +137,38 @@ class ToolRegistry:
     def llm_catalogue(self) -> tuple[ToolDefinition, ...]:
         """แค็ตตาล็อกที่ Main Agent ส่งให้ LLM โดยไม่รวม action ที่เป็น internal"""
         return self._catalogue
+
+    def replace_declarative_tools(
+        self,
+        tools: Iterable[Tool],
+        catalogue: Iterable[ToolDefinition],
+        operation_specs: Mapping[tuple[str, str], OperationSpec],
+    ) -> None:
+        """แทนที่ declarative tool (source: db) ทั้งชุดแบบ hot-reload — D3.4 "save แล้วมีผลเลย"
+
+        ตัวที่ไม่ใช่ declarative (knowledge, ปลั๊กอิน Python) ไม่ถูกแตะ — ตรวจด้วย
+        ``isinstance(DeclarativeTool)`` เท่านั้น ไม่ใช้ ``source`` ตัดสินใจตอน dispatch ตามเดิม
+        (``source`` เป็นข้อมูลสำหรับ admin/health) ลำดับเดิมของ ``_operation_specs`` ที่ไม่ใช่
+        declarative คงอยู่ครบ
+        """
+        old_names = {n for n, t in self._tools.items() if isinstance(t, DeclarativeTool)}
+        new_tools = tuple(tools)
+        new_names = {t.name for t in new_tools}
+        retained = set(self._tools) - old_names
+        duplicate = retained & new_names
+        if duplicate:
+            raise ValueError(f"ลงทะเบียนเครื่องมือซ้ำ slug: {sorted(duplicate)}")
+        merged = {n: t for n, t in self._tools.items() if n not in old_names}
+        merged.update({t.name: t for t in new_tools})
+        self._tools = merged
+        kept_catalogue = tuple(d for d in self._catalogue if d.name not in old_names)
+        self._catalogue = kept_catalogue + tuple(catalogue)
+        self._operation_specs = {
+            key: spec for key, spec in self._operation_specs.items() if key[0] not in old_names
+        }
+        self._operation_specs.update(
+            {(str(key[0]), str(key[1])): spec for key, spec in operation_specs.items()}
+        )
 
     @property
     def operation_specs(self) -> Mapping[tuple[str, str], OperationSpec]:

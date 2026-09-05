@@ -14,10 +14,13 @@ from __future__ import annotations
 import asyncio
 import sqlite3
 from pathlib import Path
+from typing import Callable, TypeVar
 
 _MIGRATIONS_DIR = Path(__file__).resolve().parent / "migrations"
 # path จาก env DB_PATH ค่าเริ่มต้น data/pea.db (ARCHITECTURE-V2.md §8.8)
 DEFAULT_DB_PATH = Path("data/pea.db")
+
+T = TypeVar("T")
 
 
 class Database:
@@ -80,6 +83,19 @@ class Database:
 
     async def fetch_all(self, sql: str, params: tuple = ()) -> list[sqlite3.Row]:
         return await asyncio.to_thread(self._fetch_all_sync, sql, params)
+
+    async def run_in_transaction(self, fn: Callable[[sqlite3.Connection], T]) -> T:
+        """รันหลาย statement ในธุรกรรมเดียว (commit พร้อมกันหรือ rollback พร้อมกัน)
+
+        ใช้กับการ save tool ที่เขียนหลายตาราง (tool + tool_operation + tool_auth) —
+        ล้มกลางทางต้องไม่เหลือ tool ครึ่ง ๆ กลาง ๆ ใน DB (fail closed ของ D3.4)
+        """
+        async with self._write_lock:
+            return await asyncio.to_thread(self._run_in_transaction_sync, fn)
+
+    def _run_in_transaction_sync(self, fn: Callable[[sqlite3.Connection], T]) -> T:
+        with self._conn:
+            return fn(self._conn)
 
     def _fetch_all_sync(self, sql: str, params: tuple) -> list[sqlite3.Row]:
         return list(self._conn.execute(sql, params).fetchall())

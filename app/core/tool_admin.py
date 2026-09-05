@@ -1,0 +1,355 @@
+"""บริการจัดการ tool จากหน้า admin — D3.3/D3.4/D3.5 (TASKS-3DAYS.md)
+
+นโยบายทั้งหมดของการสร้าง/แก้/ทดสอบ tool อยู่ที่นี่ route handler (``app/api/admin.py``)
+เรียกใช้เท่านั้น จุดสำคัญที่ตรึงไว้:
+
+- **validation จุดเดียวกับ loader** — definition ที่ save ผ่าน
+  ``validate_declarative_tool_shape`` (app/tools/declarative_validator.py) เสมอ รวม
+  schema subset (D1.2) และ network policy ตอน save (check_url, CONTRACTS-V2 §7.3) ผิด =
+  ไม่ persist
+- **hot reload** — save/เปิด-ปิดสำเร็จแล้วโหลด declarative tool ทั้งชุดใหม่จาก DB แล้ว
+  แทนที่ใน ``ToolRegistry`` ทันที (D3.4 "save แล้วมีผลเลย") โดย tool ที่ definition ผิด
+  fail closed เหมือนตอน startup (ไม่ dispatch ไม่เห็นในแค็ตตาล็อก)
+- **ปุ่ม "ลองยิงดู" ไม่มีทางลัด** (D3.5) — ยิงผ่าน ``DeclarativeToolExecutor`` (D2.4) ตัวเดียว
+  กับที่ declarative tool จริงใช้ นโยบายเครือข่ายขาออกทำงานครบทุกขั้น (resolve DNS เทียบ
+  blocklist ก่อนยิง) เหตุผลการถูกบล็อกแสดงให้ admin เห็นได้เพราะ admin เป็นผู้ตั้งค่าเอง
+  (ข้อห้ามรั่วของ CONTRACTS-V2 §9.4 ใช้กับผู้ใช้/LLM ไม่ใช่หน้า admin)
+- **secret ปลอดภัย** — รับเฉพาะ *ชื่อ* environment variable ค่าจริงถูกอ่านตอน execute เท่านั้น
+  และไม่เคยส่งกลับไปแสดงใน response ใด ๆ
+"""
+
+from __future__ import annotations
+
+from typing import Any, Iterable
+
+import httpx
+
+from app.agent.declarative_tools import DeclarativeToolBundle, load_declarative_tools
+from app.agent.registry import ToolRegistry
+from app.agent.tool_shape import ToolOperationShape, ToolShape, from_plugin
+from app.core.config import Settings
+from app.core.errors import ConflictException, NotFoundException
+from app.db import Database
+from app.db import tool_repository
+from app.plugins.loader import LoadedPlugin
+from app.tools.declarative_executor import (
+    DeclarativeToolAuth,
+    DeclarativeToolError,
+    DeclarativeToolExecutor,
+)
+from app.tools.declarative_request import UrlTemplateError, build_declarative_http_request
+from app.tools.declarative_validator import (
+    DeclarativeValidationError,
+    validate_declarative_tool_shape,
+)
+from app.tools.network_policy import NetworkPolicyError, check_url
+from app.tools.schema_instance import SchemaInstanceError, validate_schema_instance
+from app.tools.schema_subset import SchemaSubsetError, validate_schema_subset
+
+# slug ปลอมของ "ลองยิงดู" — ไม่ลง registry ไม่ถูก dispatch เป็น tool จริง
+_TRY_TOOL_SLUG = "admin_try"
+
+
+class ToolAdminService:
+    """สถานะ + นโยบายของหน้า admin: รายการ tool · save · เปิด-ปิด · ลองยิง"""
+
+    def __init__(
+        self,
+        db: Database,
+        *,
+        settings: Settings,
+        registry: ToolRegistry,
+        plugins: Iterable[LoadedPlugin] = (),
+        extra_code_shapes: Iterable[ToolShape] = (),
+        transport: httpx.BaseTransport | None = None,
+        initial_bundle: DeclarativeToolBundle | None = None,
+    ) -> None:
+        self._db = db
+        self._settings = settings
+        self._registry = registry
+        self._plugin_shapes = (
+            *(from_plugin(loaded) for loaded in plugins),
+            *extra_code_shapes,
+        )
+        self._transport = transport
+        # main.py โหลด bundle แรกมาแล้วตอน startup — รับมาเก็บเพื่อไม่ต้องโหลดซ้ำ
+        self._bundle = initial_bundle or DeclarativeToolBundle(
+            tools=(), catalogue=(), operation_specs={}
+        )
+
+    async def list_tools(self) -> dict[str, Any]:
+        """รายการ tool ทั้งสองชั้นในหน้าเดียว (D3.3)
+
+        - ปลั๊กอิน Python (source: code) — อยู่รายการเดียวกันแต่ **แก้ไม่ได้**
+        - declarative tool (source: db) ทุกแถวรวมที่ปิดอยู่
+        - tool ที่ปิดตัวเอง (definition ผิด fail closed) แสดงพร้อมเหตุผล กัน "หายเงียบ"
+        """
+        disabled_reasons = {item.slug: item.reason for item in self._bundle.disabled}
+        tools: list[dict[str, Any]] = []
+        for shape in self._plugin_shapes:
+            tools.append(
+                {
+                    **_shape_to_definition(shape),
+                    "enabled": True,
+                    "editable": False,
+                    "selfDisabledReason": None,
+                }
+            )
+        for definition in await tool_repository.list_tool_definitions(self._db):
+            tools.append(
+                {
+                    **definition,
+                    "editable": True,
+                    "selfDisabledReason": disabled_reasons.get(definition["slug"]),
+                }
+            )
+        return {"appEnv": self._settings.app_env, "tools": tools}
+
+    async def get_tool(self, slug: str) -> dict[str, Any]:
+        """definition ของ declarative tool หนึ่งตัวสำหรับฟอร์มแก้ไข (D3.4)
+
+        ไม่คืน ``authEnvVar`` ย้อนกลับ — เขียนได้อย่างเดียว (CONTRACTS-V2 §10.2:
+        secret_ref ห้ามปรากฏใน response)
+        """
+        if any(shape.slug == slug for shape in self._plugin_shapes):
+            raise NotFoundException(
+                detail="ปลั๊กอิน Python แก้ไขจากหน้าเว็บไม่ได้ — แก้ที่โค้ดแล้ว deploy แทน"
+            )
+        definition = await tool_repository.get_tool_definition(self._db, slug)
+        if definition is None:
+            raise NotFoundException(detail="ไม่พบ tool ที่ร้องขอ")
+        return definition
+
+    async def save_tool(self, definition: dict[str, Any], *, update: bool) -> dict[str, Any]:
+        """validate → persist → hot reload (D3.4) — คืน definition ที่บันทึกแล้ว
+
+        ``update=True`` ต้องมี tool เดิมอยู่ก่อน (แก้ไข) · ``update=False`` ต้องไม่มี
+        (สร้างใหม่) — ทั้งสองกรณี slug ที่ชนกับปลั๊กอิน Python = conflict
+        """
+        shape, enabled, auth_env_var = _shape_from_definition(definition)
+        if update:
+            existing = await tool_repository.get_tool_definition(self._db, shape.slug)
+            if existing is None:
+                raise NotFoundException(detail="ไม่พบ tool ที่ร้องขอ")
+        elif shape.slug in self._registry.names or await tool_repository.get_tool_definition(
+            self._db, shape.slug
+        ):
+            raise ConflictException(detail=f"มี tool ชื่อ '{shape.slug}' อยู่แล้ว")
+
+        # validation ก่อน persist เสมอ — ผิด = ไม่แตะ DB (CONTRACTS-V2 §2.3)
+        validate_declarative_tool_shape(
+            shape,
+            app_env=self._settings.app_env,
+            allowlist=await self._allowlist(),
+        )
+        await tool_repository.save_tool(
+            self._db, shape, enabled=enabled, auth_env_var=auth_env_var
+        )
+        await self.reload()
+        saved = await tool_repository.get_tool_definition(self._db, shape.slug)
+        assert saved is not None  # เขียนสำเร็จแล้วต้องอ่านกลับได้
+        return saved
+
+    async def set_enabled(self, slug: str, enabled: bool) -> None:
+        if any(shape.slug == slug for shape in self._plugin_shapes):
+            raise NotFoundException(
+                detail="ปลั๊กอิน Python เปิด/ปิดจากหน้าเว็บไม่ได้ — ตั้งค่า enabled ใน plugin.yaml แทน"
+            )
+        if not await tool_repository.set_tool_enabled(self._db, slug, enabled):
+            raise NotFoundException(detail="ไม่พบ tool ที่ร้องขอ")
+        await self.reload()
+
+    async def reload(self) -> None:
+        """โหลด declarative tool จาก DB ทั้งชุดใหม่แล้วแทนที่ใน registry ทันที
+
+        tool ที่ definition ผิด fail closed เหมือนตอน startup (ถูกข้าม + บันทึกเหตุผลไว้
+        แสดงในหน้ารายการ) เพื่อไม่ให้แถวที่เสียทำให้ระบบทั้งระบบล้ม
+        """
+        bundle = await load_declarative_tools(
+            self._db,
+            app_env=self._settings.app_env,
+            allowlist=await self._allowlist(),
+            transport=self._transport,
+        )
+        self._registry.replace_declarative_tools(
+            bundle.tools, bundle.catalogue, bundle.operation_specs
+        )
+        self._bundle = bundle
+
+    async def try_operation(
+        self,
+        *,
+        http_method: str,
+        url_template: str,
+        input: dict[str, Any],
+        input_schema: dict[str, Any] | None,
+        auth_env_var: str | None,
+    ) -> dict[str, Any]:
+        """ปุ่ม "ลองยิงดู" (D3.5) — ยิงจริงผ่าน executor กลาง (D2.4) ไม่มีทางลัด
+
+        ผ่านชั้นเดียวกับ declarative tool จริงทุกขั้น: validate URL/นโยบาย → resolve DNS
+        เทียบ blocklist → ยิง → เพดาน timeout/ขนาด response ผลรวมถึงตัวเหตุผลการบล็อก
+        (เช่น ``169.254.169.254``) แสดงให้ admin เห็นพร้อมเหตุผล
+        """
+        allowlist = await self._allowlist()
+        if input_schema is not None:
+            # inputSchema ที่ยังไม่เคย save = untrusted — ตรวจ allowlist ก่อนใช้เทียบ input
+            try:
+                validate_schema_subset(input_schema)
+            except SchemaSubsetError as error:
+                return _try_error("invalid_schema", str(error))
+            try:
+                validate_schema_instance(input_schema, input)
+            except SchemaInstanceError as error:
+                return _try_error("invalid_input", str(error))
+
+        # ตรวจ URL ก่อนแบบเปิดเหตุผล (check_url คือขั้นเดียวกับที่ executor ทำภายใน) —
+        # validator ที่เรียกต่อด้านล่างห่อ NetworkPolicyError เป็นข้อความรวม ทำให้ reason หาย
+        try:
+            check_url(url_template, app_env=self._settings.app_env, allowlist=allowlist)
+        except NetworkPolicyError as error:
+            return _try_error(error.reason, error.message)
+
+        operation = ToolOperationShape(
+            action="try",
+            description="",
+            input_schema=input_schema
+            if input_schema is not None
+            else {"type": "object", "properties": {}, "required": [], "additionalProperties": False},
+            output_schema=None,
+            exposure="internal",
+            mode="read",
+            submit_action=None,
+            policy="plain_read",
+            limits=None,
+            client_context=None,
+            http_method=http_method,
+            url_template=url_template,
+        )
+        shape = ToolShape(
+            slug=_TRY_TOOL_SLUG,
+            display_name="ลองยิงดู",
+            description="",
+            operations=(operation,),
+            executor=None,
+            source="db",
+        )
+        try:
+            # ตรวจ URL/HTTPS/allowlist เหมือนตอน save และเหมือนตอน executor ยิงจริง
+            validate_declarative_tool_shape(
+                shape, app_env=self._settings.app_env, allowlist=allowlist
+            )
+        except DeclarativeValidationError as error:
+            return _try_error("policy_rejected", str(error))
+
+        auth = DeclarativeToolAuth(env_var=auth_env_var) if auth_env_var else None
+        try:
+            request = build_declarative_http_request(
+                http_method=http_method,
+                url_template=url_template,
+                input=input,
+                auth=auth,
+            )
+        except UrlTemplateError as error:
+            return _try_error("invalid_input", str(error))
+
+        executor = DeclarativeToolExecutor(
+            app_env=self._settings.app_env,
+            allowlist=allowlist,
+            transport=self._transport,
+        )
+        try:
+            response = await executor.execute(request)
+        except NetworkPolicyError as error:
+            # admin เป็นผู้ตั้งค่า URL เอง จึงแสดงเหตุผลนโยบายให้แก้ได้ (D3.5/D1.3)
+            return _try_error(error.reason, error.message)
+        except DeclarativeToolError as error:
+            return _try_error(error.reason, error.message)
+
+        return {
+            "ok": True,
+            "request": {
+                "method": request.method,
+                "url": request.url,
+                "query": dict(request.query),
+            },
+            "response": {
+                "statusCode": response.status_code,
+                "elapsedMs": round(response.elapsed_seconds * 1000, 1),
+                # แสดงเฉพาะ JSON — response รูปแบบอื่นคืน null พร้อม flag
+                "body": response.json_body,
+                "isJson": response.json_body is not None,
+            },
+        }
+
+    async def _allowlist(self) -> tuple[str, ...]:
+        rows = await self._db.fetch_all(
+            "SELECT domain FROM domain_allowlist WHERE enabled = 1"
+        )
+        return tuple(row["domain"] for row in rows)
+
+
+def _try_error(reason: str, message: str) -> dict[str, Any]:
+    return {"ok": False, "reason": reason, "error": message}
+
+
+def _shape_to_definition(shape: ToolShape) -> dict[str, Any]:
+    """ToolShape (ปลั๊กอิน Python) → definition รูปเดียวกับที่ repository คืน"""
+    return {
+        "slug": shape.slug,
+        "displayName": shape.display_name,
+        "description": shape.description,
+        "source": shape.source,
+        "operations": [
+            {
+                "action": op.action,
+                "description": op.description,
+                "policy": op.policy,
+                "exposure": op.exposure,
+                "mode": op.mode,
+                "submitAction": op.submit_action,
+                "httpMethod": op.http_method,
+                "urlTemplate": op.url_template,
+                "inputSchema": op.input_schema,
+                "outputSchema": op.output_schema,
+                "limits": op.limits,
+                "clientContext": op.client_context,
+            }
+            for op in shape.operations
+        ],
+    }
+
+
+def _shape_from_definition(
+    definition: dict[str, Any],
+) -> tuple[ToolShape, bool, str | None]:
+    """definition จาก request → (ToolShape, enabled, authEnvVar)
+
+    รับ dict ที่ผ่าน Pydantic model ของ admin API มาแล้ว (รูป camelCase)
+    """
+    operations = tuple(
+        ToolOperationShape(
+            action=op["action"],
+            description=op.get("description") or "",
+            input_schema=op["inputSchema"],
+            output_schema=op.get("outputSchema"),
+            exposure=op.get("exposure") or "llm",
+            mode=op.get("mode") or "read",
+            submit_action=op.get("submitAction"),
+            policy=op.get("policy") or "plain_read",
+            limits=op.get("limits"),
+            client_context=op.get("clientContext"),
+            http_method=op.get("httpMethod"),
+            url_template=op.get("urlTemplate"),
+        )
+        for op in definition["operations"]
+    )
+    shape = ToolShape(
+        slug=definition["slug"],
+        display_name=definition["displayName"],
+        description=definition.get("description") or "",
+        operations=operations,
+        executor=None,
+        source="db",
+    )
+    return shape, bool(definition.get("enabled", True)), definition.get("authEnvVar")

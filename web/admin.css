@@ -1,0 +1,457 @@
+/* ============================================================
+   PEA One Agent — หน้าแอดมิน (D3.1–D3.6)
+   ใช้โทเค็นชุดเดียวกับ styles.css ("ห้องควบคุมสีม่วง")
+   เขียนตรง ๆ ไม่มี build step ไม่มีเฟรมเวิร์ก
+   ============================================================ */
+
+/* ---------- โทเค็น (ชุดเดียวกับ styles.css) ---------- */
+:root {
+  --ink-900: #1E1440;
+  --ink-800: #2A1D52;
+  --ink-700: #372868;
+  --violet-700: #4A2BA6;
+  --violet-600: #5B34C7;
+  --violet-100: #E9E2FA;
+  --violet-000: #F3EFFC;
+  --paper: #FAF8FE;
+  --card: #FFFFFF;
+  --line: #E2DAF2;
+  --line-strong: #CFC2EC;
+  --text-900: #241B3A;
+  --text-600: #5C5470;
+  --text-400: #6B6285;
+  --amber-bg: #FFEFC7;
+  --amber-border: #E5C478;
+  --amber-text: #5C3A00;
+  --amber-dot: #D97706;
+  --green-bg: #E5F6EC;
+  --green-border: #A9DEC4;
+  --green-text: #14663D;
+  --red-bg: #FDECEA;
+  --red-border: #F2C4BE;
+  --red-text: #A61B12;
+  --red-btn: #B3261E;
+  --radius: 14px;
+  --radius-sm: 10px;
+  --shadow-1: 0 1px 2px rgba(38, 24, 82, 0.06), 0 4px 14px rgba(38, 24, 82, 0.07);
+  --shadow-2: 0 6px 28px rgba(30, 20, 64, 0.16);
+  --font-ui: "Anuphan", "IBM Plex Sans Thai", "Leelawadee UI", "Noto Sans Thai", sans-serif;
+  --font-mono: "IBM Plex Mono", "SFMono-Regular", Menlo, Consolas, monospace;
+  --focus-ring: #7C5CFF;
+}
+
+/* ---------- พื้นฐาน ---------- */
+*, *::before, *::after { box-sizing: border-box; }
+
+body {
+  margin: 0;
+  font-family: var(--font-ui);
+  font-size: 16px;
+  line-height: 1.6;
+  color: var(--text-900);
+  background:
+    radial-gradient(1100px 460px at 50% -12%, #EFE8FB 0%, rgba(239, 232, 251, 0) 70%),
+    var(--paper);
+  min-height: 100vh;
+  min-height: 100dvh;
+}
+
+button { font: inherit; color: inherit; }
+.mono { font-family: var(--font-mono); }
+.muted { color: var(--text-600); font-size: 0.925rem; }
+
+:focus-visible {
+  outline: 3px solid var(--focus-ring);
+  outline-offset: 2px;
+  border-radius: 6px;
+}
+
+h1 { font-size: 1.45rem; margin: 0.2rem 0 0; }
+h2 { font-size: 1.2rem; margin: 0; }
+h3 { font-size: 1.05rem; margin: 0 0 0.5rem; }
+h5 { font-size: 0.9rem; margin: 0.75rem 0 0.35rem; color: var(--text-600); }
+
+/* ---------- โครงหน้า ---------- */
+.auth-wrap {
+  min-height: 100vh;
+  min-height: 100dvh;
+  display: grid;
+  place-items: center;
+  padding: 1.5rem;
+}
+
+.card {
+  background: var(--card);
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  box-shadow: var(--shadow-1);
+}
+
+.auth-card { width: min(26rem, 100%); padding: 1.75rem; }
+
+.brand-eyebrow {
+  margin: 0;
+  font-size: 0.78rem;
+  font-weight: 700;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  color: var(--violet-600);
+}
+
+.admin-header {
+  background: var(--ink-900);
+  color: #fff;
+  border-bottom: 4px solid var(--violet-600);
+}
+
+.admin-header-inner {
+  max-width: 62rem;
+  margin: 0 auto;
+  padding: 1rem 1.25rem 0.75rem;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 1rem;
+  flex-wrap: wrap;
+}
+
+.admin-header .brand-eyebrow { color: #C9B8F5; }
+.admin-header h1 { color: #fff; }
+
+.admin-header-actions {
+  display: flex;
+  align-items: center;
+  gap: 0.6rem;
+}
+
+.admin-nav {
+  max-width: 62rem;
+  margin: 0 auto;
+  padding: 0 1.25rem;
+  display: flex;
+  gap: 0.35rem;
+}
+
+.nav-tab {
+  border: 0;
+  background: transparent;
+  color: #CFC4EE;
+  padding: 0.55rem 0.9rem;
+  cursor: pointer;
+  border-radius: var(--radius-sm) var(--radius-sm) 0 0;
+  border-bottom: 3px solid transparent;
+  font-weight: 600;
+}
+
+.nav-tab:hover { color: #fff; background: rgba(255, 255, 255, 0.06); }
+
+.nav-tab[aria-pressed="true"] {
+  color: #fff;
+  border-bottom-color: #B9A3F0;
+}
+
+.admin-main {
+  max-width: 62rem;
+  margin: 0 auto;
+  padding: 1.5rem 1.25rem 4rem;
+}
+
+/* ---------- ปุ่ม ---------- */
+.btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.4rem;
+  min-height: 40px;
+  padding: 0.45rem 1rem;
+  border-radius: var(--radius-sm);
+  border: 1px solid var(--line-strong);
+  background: var(--card);
+  color: var(--text-900);
+  font-weight: 600;
+  cursor: pointer;
+  transition: background 0.15s ease, border-color 0.15s ease;
+}
+
+.btn:hover:not(:disabled) { border-color: var(--violet-600); }
+.btn:disabled { opacity: 0.45; cursor: not-allowed; }
+
+.btn-primary {
+  background: var(--violet-600);
+  border-color: var(--violet-600);
+  color: #fff;
+}
+.btn-primary:hover:not(:disabled) { background: var(--violet-700); border-color: var(--violet-700); }
+
+.btn-secondary {
+  background: var(--violet-000);
+  border-color: var(--violet-100);
+  color: var(--violet-700);
+}
+
+.btn-ghost { background: transparent; border-color: transparent; color: inherit; }
+.admin-header .btn-ghost { color: #D9CFf2; border-color: rgba(255, 255, 255, 0.25); }
+.btn-ghost:hover:not(:disabled) { border-color: var(--line-strong); }
+
+.btn-danger-ghost {
+  background: transparent;
+  border-color: transparent;
+  color: var(--red-btn);
+}
+.btn-danger-ghost:hover:not(:disabled) { background: var(--red-bg); border-color: var(--red-border); }
+
+.btn-sm { min-height: 32px; padding: 0.2rem 0.65rem; font-size: 0.875rem; }
+.btn-block { width: 100%; }
+
+/* ---------- ป้ายสถานะ ---------- */
+.env-badge,
+.status-badge,
+.badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.35rem;
+  padding: 0.15rem 0.6rem;
+  border-radius: 999px;
+  font-size: 0.8rem;
+  font-weight: 600;
+  border: 1px solid var(--line-strong);
+  background: var(--violet-000);
+  color: var(--violet-700);
+  white-space: nowrap;
+}
+
+.env-badge::before,
+.badge-dot::before {
+  content: "";
+  width: 8px; height: 8px;
+  border-radius: 50%;
+  background: var(--amber-dot);
+}
+
+.badge-ok { background: var(--green-bg); border-color: var(--green-border); color: var(--green-text); }
+.badge-ok::before { content: none; }
+.badge-off { background: var(--red-bg); border-color: var(--red-border); color: var(--red-text); }
+.badge-code { background: var(--amber-bg); border-color: var(--amber-border); color: var(--amber-text); }
+.badge-db { background: var(--violet-000); border-color: var(--violet-100); color: var(--violet-700); }
+
+/* ---------- ฟอร์ม ---------- */
+.field { display: flex; flex-direction: column; gap: 0.25rem; min-width: 0; }
+
+.field span,
+.check-field span { font-size: 0.875rem; font-weight: 600; color: var(--text-600); }
+.field em.muted { font-style: normal; font-weight: 400; }
+
+.field input[type="text"],
+.field input[type="password"],
+.field select,
+.field textarea {
+  font: inherit;
+  color: var(--text-900);
+  background: var(--card);
+  border: 1px solid var(--line-strong);
+  border-radius: var(--radius-sm);
+  padding: 0.45rem 0.65rem;
+  width: 100%;
+}
+
+.field textarea { resize: vertical; }
+
+.field input:focus-visible,
+.field select:focus-visible,
+.field textarea:focus-visible { outline-offset: 0; border-color: var(--violet-600); }
+
+.check-field {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  align-self: end;
+  padding-bottom: 0.5rem;
+  min-height: 40px;
+}
+.check-field input { width: 1.1rem; height: 1.1rem; accent-color: var(--violet-600); }
+
+.char-count { font-weight: 400; color: var(--text-400); font-size: 0.8rem; }
+
+.error-note {
+  background: var(--red-bg);
+  border: 1px solid var(--red-border);
+  color: var(--red-text);
+  border-radius: var(--radius-sm);
+  padding: 0.6rem 0.8rem;
+  margin: 0.75rem 0 0;
+  font-size: 0.925rem;
+}
+
+.success-note {
+  background: var(--green-bg);
+  border: 1px solid var(--green-border);
+  color: var(--green-text);
+  border-radius: var(--radius-sm);
+  padding: 0.6rem 0.8rem;
+  margin: 0.75rem 0 0;
+  font-size: 0.925rem;
+}
+
+.hint-note {
+  background: var(--amber-bg);
+  border: 1px solid var(--amber-border);
+  color: var(--amber-text);
+  border-radius: var(--radius-sm);
+  padding: 0.5rem 0.75rem;
+  font-size: 0.875rem;
+  margin: 0.5rem 0 0;
+}
+
+/* ---------- ระยะ/กริด ---------- */
+.stack > * + * { margin-top: 0.9rem; }
+.row-between {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.75rem;
+  flex-wrap: wrap;
+  margin: 1.25rem 0 0.5rem;
+}
+.row-between:first-child { margin-top: 0; }
+
+.grid-2 {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(15rem, 1fr));
+  gap: 0.9rem;
+  margin-bottom: 0.9rem;
+}
+
+.grid-3 {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(10rem, 1fr));
+  gap: 0.9rem;
+  margin-bottom: 0.9rem;
+}
+
+.form-card { padding: 1.1rem 1.2rem; }
+.form-actions {
+  display: flex;
+  gap: 0.6rem;
+  margin-top: 1rem;
+  flex-wrap: wrap;
+}
+
+/* ---------- รายการ tool (D3.3) ---------- */
+.tool-card { padding: 1rem 1.2rem; }
+
+.tool-head {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 0.75rem;
+  flex-wrap: wrap;
+}
+
+.tool-name { font-weight: 700; font-size: 1.02rem; margin: 0; }
+.tool-slug { font-family: var(--font-mono); font-size: 0.8rem; color: var(--text-400); margin: 0; }
+
+.tool-badges { display: flex; gap: 0.4rem; flex-wrap: wrap; align-items: center; }
+
+.tool-ops { margin: 0.6rem 0 0; padding: 0; list-style: none; }
+
+.tool-ops li {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.4rem 0.9rem;
+  padding: 0.35rem 0;
+  border-top: 1px dashed var(--line);
+  font-size: 0.9rem;
+  align-items: center;
+}
+
+.op-chip {
+  font-family: var(--font-mono);
+  font-size: 0.78rem;
+  background: var(--violet-000);
+  border: 1px solid var(--violet-100);
+  border-radius: 6px;
+  padding: 0 0.4rem;
+}
+
+.tool-actions {
+  display: flex;
+  gap: 0.5rem;
+  margin-top: 0.75rem;
+  flex-wrap: wrap;
+}
+
+/* ---------- Operations ในฟอร์ม (D3.4) ---------- */
+.operations-head { margin-top: 1.5rem; }
+.operation-card { border-left: 4px solid var(--violet-600); }
+.op-title { margin: 0; font-size: 0.95rem; color: var(--violet-700); }
+.op-actions { display: flex; gap: 0.4rem; }
+
+.field-row {
+  display: grid;
+  grid-template-columns: minmax(8rem, 1.2fr) minmax(7rem, 0.9fr) auto minmax(10rem, 1.6fr) auto;
+  gap: 0.6rem;
+  align-items: end;
+  padding: 0.35rem 0;
+  border-bottom: 1px dashed var(--line);
+}
+
+@media (max-width: 48rem) {
+  .field-row { grid-template-columns: 1fr 1fr; }
+  .field-grow { grid-column: 1 / -1; }
+}
+
+.schema-builder {
+  border-top: 1px solid var(--line);
+  margin-top: 0.9rem;
+  padding-top: 0.4rem;
+}
+
+.json-preview {
+  font-family: var(--font-mono);
+  font-size: 0.8rem;
+  background: var(--violet-000);
+  border: 1px solid var(--line);
+  border-radius: var(--radius-sm);
+  padding: 0.65rem 0.8rem;
+  overflow-x: auto;
+  white-space: pre-wrap;
+  word-break: break-word;
+  margin: 0.25rem 0 0;
+}
+
+/* ---------- ผล "ลองยิงดู" (D3.5) ---------- */
+.try-result {
+  margin-top: 0.9rem;
+  border-top: 2px solid var(--line);
+  padding-top: 0.75rem;
+}
+
+.try-inputs {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(13rem, 1fr));
+  gap: 0.6rem;
+  margin: 0.5rem 0;
+}
+
+.try-status-ok {
+  background: var(--green-bg);
+  border: 1px solid var(--green-border);
+  color: var(--green-text);
+  border-radius: var(--radius-sm);
+  padding: 0.5rem 0.75rem;
+  font-weight: 600;
+}
+
+.try-status-blocked {
+  background: var(--red-bg);
+  border: 1px solid var(--red-border);
+  color: var(--red-text);
+  border-radius: var(--radius-sm);
+  padding: 0.5rem 0.75rem;
+  font-weight: 600;
+}
+
+/* ---------- แท็บ prompt (D3.6) ---------- */
+.prompt-grid { align-items: start; margin-top: 0.75rem; }
+.preview-card { position: sticky; top: 1rem; }
+#prompt-updated-at { font-size: 0.8rem; }

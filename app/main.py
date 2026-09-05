@@ -29,7 +29,9 @@ from app.contracts import ToolAction, ToolName
 from app.core.config import LLMRuntimeSettings, load_settings
 from app.core.di import adapter_service, agent_service
 from app.core.errors import ConflictException, NotFoundException, platform_exception_handler
+from app.core.prompt_admin import PromptAdminService
 from app.core.startup import create_platform_app, startup_event
+from app.core.tool_admin import ToolAdminService
 from app.db import Database
 from app.db.bootstrap_oms import seed_oms_tool
 from app.db.bootstrap_prompt import DbSystemPromptProvider, seed_system_prompt
@@ -183,6 +185,18 @@ app = create_platform_app(settings)
 app.include_router(router)
 app.include_router(live_router)
 app.include_router(admin_router)
+# D3.3/D3.4/D3.5: บริการหลังบ้านของหน้า admin — รับ bundle แรกที่โหลดไว้แล้ว (ไม่โหลดซ้ำ)
+# และแชร์ settings/registry เดียวกันเพื่อให้ save แล้ว hot reload ได้ทันที
+app.state.tool_admin = ToolAdminService(
+    db,
+    settings=settings,
+    registry=tool_registry,
+    plugins=plugins,
+    initial_bundle=declarative_bundle,
+)
+# D3.6: หน้าแก้ prompt — แชร์ connection เดียวกับ tool admin แก้แล้วมีผลเทิร์นถัดไป
+# เพราะ runtime อ่านผ่าน DbSystemPromptProvider (ด้านบน) ต่อเทิร์นอยู่แล้ว
+app.state.prompt_admin = PromptAdminService(db)
 app.add_exception_handler(NotFoundError, _not_found_handler)
 app.add_exception_handler(InvalidActionStateError, _conflict_handler)
 startup_event(app, tool_registry)
