@@ -287,6 +287,7 @@ import {
 
   // JSON Schema ที่ validator รับ — ค่า opaque ถูกแนบกับแถวและเก็บกลับตอน save
   function buildSchemaFromRows(fieldsContainer, baselineSchema) {
+
     var properties = {};
     var required = [];
     fieldsContainer.querySelectorAll(".field-row").forEach(function (row) {
@@ -295,18 +296,31 @@ import {
       var baselineProperty = row.dataset.baselineProperty
         ? JSON.parse(row.dataset.baselineProperty)
         : {};
-      var prop = Object.assign({}, baselineProperty, {
-        type: $('[data-field="type"]', row).value,
+      var typeControl = $('[data-field="type"]', row);
+       var isOpaqueObject = row.dataset.opaqueObject === "true";
+       var selectedType = typeControl.value || baselineProperty.type || "string";
+       var prop = isOpaqueObject
+         ? JSON.parse(JSON.stringify(baselineProperty))
+         : Object.assign({}, baselineProperty, {
+        type: selectedType,
       });
       var description = $('[data-field="description"]', row).value.trim();
+       if (isOpaqueObject) description = baselineProperty.description || "";
       if (description) prop.description = description;
       else delete prop.description;
-      var nullable = $('[data-field="nullable"]', row).checked;
+       if (selectedType === "array") {
+         prop.items = { type: $('[data-field="items-type"]', row).value || "string" };
+       } else if (!isOpaqueObject) {
+         delete prop.items;
+       }
+      var nullable = !isOpaqueObject && $('[data-field="nullable"]', row).checked;
       if (nullable) {
-        prop.anyOf = [{ type: prop.type }, { type: "null" }];
+        var nullableType = { type: prop.type };
+         if (prop.type === "array") nullableType.items = prop.items;
+         prop.anyOf = [nullableType, { type: "null" }];
         delete prop.type;
       } else if (prop.anyOf) {
-        delete prop.anyOf;
+        if (!isOpaqueObject) delete prop.anyOf;
       }
       properties[name] = prop;
       if ($('[data-field="required"]', row).checked) required.push(name);
@@ -323,12 +337,34 @@ import {
     var row = views.fieldRowTemplate.content.firstElementChild.cloneNode(true);
     var source = property || {};
     $('[data-field="name"]', row).value = name || "";
-    $('[data-field="type"]', row).value = type || source.type || "string";
+    var typeControl = $('[data-field="type"]', row);
+    var effectiveType = type || source.type || "string";
+    typeControl.value = effectiveType;
+    row.dataset.opaqueObject = effectiveType === "object" ? "true" : "false";
+    if (row.dataset.opaqueObject === "true") {
+      typeControl.disabled = true;
+      typeControl.title = "object เดิมเป็น opaque และแก้ไขใน form builder ไม่ได้";
+      $('[data-field="nullable"]', row).disabled = true;
+      $('[data-field="description"]', row).disabled = true;
+    }
     $('[data-field="required"]', row).checked = !!required;
+    var itemsType = $('[data-field="items-type"]', row);
+    var sourceItems = source.items || (source.anyOf || []).find(function (item) {
+      return item.type === "array";
+    })?.items;
+    itemsType.value = (sourceItems && sourceItems.type) || "string";
+    $('[data-field-items-wrap]', row).hidden = effectiveType !== "array";
     $('[data-field="description"]', row).value = description || source.description || "";
     $('[data-field="nullable"]', row).checked = Array.isArray(source.anyOf)
       && source.anyOf.some(function (item) { return item.type === "null"; });
     row.dataset.baselineProperty = JSON.stringify(source);
+    typeControl.addEventListener("change", function () {
+      $('[data-field-items-wrap]', row).hidden = typeControl.value !== "array";
+      updateSchemaPreview(fieldsContainer);
+    });
+    itemsType.addEventListener("change", function () {
+      updateSchemaPreview(fieldsContainer);
+    });
     row.addEventListener("input", function () {
       updateSchemaPreview(fieldsContainer);
     });
@@ -344,7 +380,11 @@ import {
   function updateSchemaPreview(fieldsContainer) {
     var card = fieldsContainer.closest(".operation-card");
     var preview = $('[data-op="schema-preview"]', card);
-    preview.textContent = JSON.stringify(buildSchemaFromRows(fieldsContainer), null, 2);
+    preview.textContent = JSON.stringify(
+      buildSchemaFromRows(fieldsContainer, JSON.parse(card.dataset.baselineSchema || "{}")),
+      null,
+      2,
+    );
   }
 
   function populateFieldsFromSchema(fieldsContainer, schema) {
@@ -352,8 +392,8 @@ import {
     var properties = (schema && schema.properties) || {};
     var unsupported = Object.keys(properties).filter(function (name) {
       var property = properties[name] || {};
-      return property.oneOf || property.$ref || property.properties || property.enum
-        || property.default !== undefined;
+      return property.type === "object" || property.oneOf || property.$ref || property.properties
+        || property.enum || property.default !== undefined;
     });
     var warning = $('[data-op="schema-warning"]', fieldsContainer.closest(".operation-card"));
     warning.textContent = unsupported.length
