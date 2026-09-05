@@ -27,7 +27,7 @@ dev = [
 ]
 
 [tool.pytest.ini_options]
-testpaths = ["app/api/tests", "app/core/tests", "app/live/tests", "app/llm/tests", "tests", "knowledge/tests", "app/tools/tests", "app/backends/tests", "app/plugins/tests"]
+testpaths = ["app/api/tests", "app/core/tests", "app/live/tests", "app/llm/tests", "tests", "knowledge/tests", "app/tools/tests", "app/backends/tests", "app/plugins/tests", "app/db/tests", "app/agent/tests"]
 pythonpath = "."
 asyncio_mode = "auto"
 asyncio_default_fixture_loop_scope = "function"
