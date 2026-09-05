@@ -1,3 +1,5 @@
+import { buildOperationPayload, buildToolPayload, validateToolPayload } from "./admin-form.js";
+
 /* ============================================================
    PEA One Agent — ตรรกะหน้าแอดมิน (D3.3/D3.4/D3.5/D3.6)
 
@@ -347,12 +349,13 @@
 
     $('[data-op="action"]', card).addEventListener("input", function () {
       renumberOperations();
+      views.operationsContainer.querySelectorAll(".operation-card").forEach(syncSubmitField);
     });
     $('[data-op="policy"]', card).addEventListener("change", function () {
       syncSubmitField(card);
     });
     $('[data-op="mode"]', card).addEventListener("change", function () {
-      syncSubmitField(card);
+      views.operationsContainer.querySelectorAll(".operation-card").forEach(syncSubmitField);
     });
     $('[data-op="exposure"]', card).addEventListener("change", function () {
       syncSubmitField(card);
@@ -384,18 +387,36 @@
     var exposure = $('[data-op="exposure"]', card);
     var submitField = $("[data-op-submit-field]", card);
     var submitInput = $('[data-op="submitAction"]', card);
-    if (mode === "prepare") {
-      submitField.hidden = false;
-    } else {
-      submitField.hidden = true;
-      submitInput.value = "";
-    }
+    var httpMethod = $('[data-op="httpMethod"]', card);
+    var urlTemplate = $('[data-op="urlTemplate"]', card);
+    submitField.hidden = mode !== "prepare";
+    httpMethod.disabled = mode === "prepare";
+    urlTemplate.disabled = mode === "prepare";
     if (mode === "submit") {
       exposure.value = "internal";
       exposure.disabled = true;
     } else {
       exposure.disabled = false;
     }
+    var submitActions = [];
+    views.operationsContainer.querySelectorAll(".operation-card").forEach(function (other) {
+      if ($('[data-op="mode"]', other).value === "submit") {
+        var action = $('[data-op="action"]', other).value.trim();
+        if (action) submitActions.push(action);
+      }
+    });
+    var selected = submitInput.value;
+    submitInput.replaceChildren(el("option", null, "— เลือก operation mode=submit —"));
+    submitInput.firstElementChild.value = "";
+    submitActions.forEach(function (action) {
+      var option = el("option", null, action);
+      option.value = action;
+      submitInput.appendChild(option);
+    });
+    submitInput.value = submitActions.indexOf(selected) >= 0 ? selected : "";
+    var tryButton = $('[data-op-action="try"]', card);
+    tryButton.disabled = mode === "prepare";
+    tryButton.title = mode === "prepare" ? "operation แบบ prepare ไม่มี HTTP request ให้ยิง" : "";
   }
 
   function renumberOperations() {
@@ -406,33 +427,22 @@
   function collectOperations() {
     var operations = [];
     views.operationsContainer.querySelectorAll(".operation-card").forEach(function (card) {
-      var op = {
-        action: $('[data-op="action"]', card).value.trim(),
+      operations.push(buildOperationPayload({
+        action: $('[data-op="action"]', card).value,
         policy: $('[data-op="policy"]', card).value,
         exposure: $('[data-op="exposure"]', card).value,
         mode: $('[data-op="mode"]', card).value,
         httpMethod: $('[data-op="httpMethod"]', card).value,
-        urlTemplate: $('[data-op="urlTemplate"]', card).value.trim(),
+        urlTemplate: $('[data-op="urlTemplate"]', card).value,
+        submitAction: $('[data-op="submitAction"]', card).value,
         inputSchema: buildSchemaFromRows($('[data-op="fields"]', card)),
-      };
-      var submitAction = $('[data-op="submitAction"]', card).value.trim();
-      if (submitAction) op.submitAction = submitAction;
-      operations.push(op);
+      }));
     });
     return operations;
   }
 
   function validateFormLocally(payload) {
-    if (!/^[a-z0-9_-]+$/.test(payload.slug)) {
-      return "ชื่อระบบ (slug) ต้องเป็น a-z 0-9 _ - เท่านั้น";
-    }
-    if (!payload.displayName) return "กรุณากรอกชื่อที่แสดง";
-    for (var i = 0; i < payload.operations.length; i += 1) {
-      var op = payload.operations[i];
-      if (!op.action) return "Operation ที่ " + (i + 1) + ": กรุณากรอกชื่อ action";
-      if (!op.urlTemplate) return "Operation ที่ " + (i + 1) + " (" + op.action + "): กรุณากรอก URL template";
-    }
-    return null;
+    return validateToolPayload(payload);
   }
 
   function openNewToolForm() {
@@ -523,13 +533,13 @@
     showHidden(views.toolFormError, true);
 
     var authEnv = views.toolAuthEnv.value.trim();
-    var payload = {
-      slug: views.toolSlug.value.trim(),
-      displayName: views.toolDisplayName.value.trim(),
+    var payload = buildToolPayload({
+      slug: views.toolSlug.value,
+      displayName: views.toolDisplayName.value,
       description: views.toolDescription.value,
       enabled: views.toolEnabled.checked,
       operations: collectOperations(),
-    };
+    });
     if (views.toolRemoveAuth.checked) payload.authEnvVar = null;
      else if (authEnv) payload.authEnvVar = authEnv;
 
@@ -615,6 +625,7 @@
   }
 
   async function tryOperation(card) {
+    if ($('[data-op="mode"]', card).value === "prepare") return;
     var tryPanel = $("[data-op=\"try-result\"]", card);
     var schema = buildSchemaFromRows($('[data-op="fields"]', card));
     var existed = !tryPanel.hidden;
