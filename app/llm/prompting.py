@@ -5,7 +5,7 @@ from __future__ import annotations
 import json
 
 from app.contracts import INPUT_MODELS, ToolAction
-from app.llm.models import LLMRequest
+from app.llm.models import LLMRequest, ToolDefinition
 
 
 SYSTEM_PROMPT = """คุณคือ Main Agent ของ PEA One Agent
@@ -25,22 +25,24 @@ SYSTEM_PROMPT = """คุณคือ Main Agent ของ PEA One Agent
 """
 
 
-def _input_schema(action: str) -> dict[str, object]:
-    """Generate the advertised schema from the contract used for validation."""
-    input_model = INPUT_MODELS[ToolAction(action)]
-    return input_model.model_json_schema(by_alias=True, mode="validation")
+def _input_schema(tool: ToolDefinition, action: str) -> dict[str, object]:
+    """Schema ที่ประกาศจริงต่อ action ถ้ามี (declarative tool, D2.6) — ไม่งั้น derive จาก
+    Pydantic contract เดิม (3 tool เดิม ที่ไม่มี inputSchema เป็นข้อมูลของตัวเอง)"""
+    if tool.input_schemas is not None and action in tool.input_schemas:
+        return tool.input_schemas[action]
+    return INPUT_MODELS[ToolAction(action)].model_json_schema(by_alias=True, mode="validation")
 
 
 def tool_catalogue(request: LLMRequest) -> str:
     """Render the provider-independent tool catalogue as trusted JSON."""
     tools = [
         {
-            "name": tool.name.value,
+            "name": tool.name,
             "description": tool.description,
             "actions": [
                 {
                     "name": action,
-                    "inputSchema": _input_schema(action),
+                    "inputSchema": _input_schema(tool, action),
                 }
                 for action in tool.actions
             ],

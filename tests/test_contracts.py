@@ -120,7 +120,9 @@ def chat(client: TestClient, message: str) -> dict:
 def test_composition_registers_enabled_tools_and_serves_ui(client: TestClient) -> None:
     from app.main import tool_registry
 
-    assert tool_registry.names == frozenset({ToolName.KNOWLEDGE, ToolName.OMS, ToolName.VOC})
+    # D2.6: superset ไม่ใช่ equality — declarative tool จาก DB (เช่น cat_fact_tool ที่
+    # scripts/seed_demo_tool.py เติมให้) เพิ่มเข้ามาได้โดยไม่แตะโค้ด แต่ 3 tool เดิมต้องอยู่เสมอ
+    assert {ToolName.KNOWLEDGE, ToolName.OMS, ToolName.VOC} <= tool_registry.names
     response = client.get("/")
     assert response.status_code == 200
     assert "PEA One Agent" in response.text

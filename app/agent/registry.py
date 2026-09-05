@@ -11,6 +11,8 @@ from pydantic import ValidationError
 from app.agent.operation_policy import OperationLimits, OperationPolicy, OperationSpec
 from app.agent.response_policy import ResponsePolicies, ResponsePolicy
 from app.contracts import (
+    INPUT_MODELS,
+    OUTPUT_MODELS,
     TOOL_ACTIONS,
     ToolAction,
     ToolCall,
@@ -55,17 +57,24 @@ class ToolContext:
 
 @runtime_checkable
 class Tool(Protocol):
-    name: ToolName
+    # D2.6: str เฉย ๆ ไม่ใช่ ToolName เสมอไปแล้ว — declarative tool จาก DB มี slug นอก enum
+    # (ToolName ยังเป็น str subclass จึงยังใช้ตรงนี้ได้เหมือนเดิมสำหรับ 3 tool เดิม)
+    name: str
 
     async def execute(self, call: ToolCall, context: ToolContext) -> ToolResult:
         """ดำเนินการเรียกที่ตรวจสอบแล้วโดยใช้บริบทคำขอที่ได้รับ"""
 
 
+def _display_name(name: str) -> str:
+    """ข้อความ error อ่านง่าย ไม่ว่า ``name`` จะเป็น enum เดิมหรือ slug ของ declarative tool"""
+    return getattr(name, "value", name)
+
+
 class ToolRegistry:
     """registry ของเครื่องมือที่เปิดใช้งานจริง โดย Knowledge ต้องมีเสมอ
 
-    เครื่องมือปฏิบัติการอื่นมาจาก plugin loader จึงไม่บังคับว่าต้องมี OMS
-    ทำให้ปิดปลั๊กอินใน manifest แล้วระบบยังเริ่มทำงานได้
+    เครื่องมือปฏิบัติการอื่นมาจาก plugin loader หรือ declarative tool จาก DB จึงไม่บังคับ
+    ว่าต้องมี OMS ทำให้ปิดปลั๊กอินใน manifest แล้วระบบยังเริ่มทำงานได้
     """
 
     def __init__(
@@ -74,18 +83,18 @@ class ToolRegistry:
         *,
         catalogue: tuple[ToolDefinition, ...] | None = None,
         response_policies: tuple[ResponsePolicy, ...] = (),
-        operation_specs: Mapping[ToolAction, OperationSpec] | None = None,
+        operation_specs: Mapping[str, OperationSpec] | None = None,
     ) -> None:
-        by_name: dict[ToolName, Tool] = {}
+        by_name: dict[str, Tool] = {}
         for tool in tools:
             if tool.name in by_name:
-                raise ValueError(f"ลงทะเบียนเครื่องมือซ้ำ: {tool.name.value}")
+                raise ValueError(f"ลงทะเบียนเครื่องมือซ้ำ: {_display_name(tool.name)}")
             by_name[tool.name] = tool
         if ToolName.KNOWLEDGE not in by_name:
             raise ValueError("registry ต้องมีเครื่องมือ Knowledge ที่เป็น built-in เสมอ")
         for name, tool in by_name.items():
             if name is not ToolName.KNOWLEDGE and not callable(getattr(tool, "reset", None)):
-                raise ValueError(f"เครื่องมือปฏิบัติการต้องรีเซ็ตได้: {name.value}")
+                raise ValueError(f"เครื่องมือปฏิบัติการต้องรีเซ็ตได้: {_display_name(name)}")
         self._tools = by_name
         self._response_policies = ResponsePolicies(response_policies)
         self._catalogue = BUILT_IN_CATALOGUE + tuple(catalogue or ())
@@ -93,9 +102,9 @@ class ToolRegistry:
         unknown = declared - frozenset(by_name)
         if unknown:
             raise ValueError(
-                f"แค็ตตาล็อกอ้างถึงเครื่องมือที่ไม่ได้ลงทะเบียน: {sorted(name.value for name in unknown)}"
+                f"แค็ตตาล็อกอ้างถึงเครื่องมือที่ไม่ได้ลงทะเบียน: {sorted(_display_name(name) for name in unknown)}"
             )
-        self._operation_specs: dict[ToolAction, OperationSpec] = {
+        self._operation_specs: dict[str, OperationSpec] = {
             **BUILT_IN_OPERATION_SPECS,
             **(operation_specs or {}),
         }
@@ -106,11 +115,11 @@ class ToolRegistry:
         return self._catalogue
 
     @property
-    def operation_specs(self) -> Mapping[ToolAction, OperationSpec]:
-        """policy ต่อ operation ทั้งหมดที่ประกาศไว้ (built-in + ปลั๊กอิน)"""
+    def operation_specs(self) -> Mapping[str, OperationSpec]:
+        """policy ต่อ operation ทั้งหมดที่ประกาศไว้ (built-in + ปลั๊กอิน + declarative tool)"""
         return self._operation_specs
 
-    def operation_spec(self, action: ToolAction) -> OperationSpec:
+    def operation_spec(self, action: str) -> OperationSpec:
         """policy ของ operation นี้ — ไม่ประกาศ = ค่าเริ่มต้น plain_read (fail safe, ARCHITECTURE-V2.md §4.5)"""
         return self._operation_specs.get(action, OperationSpec())
 
@@ -132,21 +141,29 @@ class ToolRegistry:
                 tool.reset()  # type: ignore[attr-defined]  # ตรวจสอบแล้วขณะลงทะเบียน
 
     @property
-    def names(self) -> frozenset[ToolName]:
+    def names(self) -> frozenset[str]:
         return frozenset(self._tools)
 
     async def execute(self, call: ToolCall, context: ToolContext) -> ToolResult:
         # D2.5: action_belongs_to_tool ย้ายมาตรวจตรงนี้แทนที่จะเป็น validator ของ ToolCall
         # เพราะ ToolCall.name/action เป็น string ล้วนแล้ว ไม่รู้ล่วงหน้าว่า tool ไหนมี action อะไร
         # (CONTRACTS-V2 §3.5: "action ไม่ได้อยู่ใน tool ที่ระบุ → ปฏิเสธ ตรวจกับ registry ตอน dispatch")
-        # ใช้ .get() แทนการ index ตรง ๆ: tool ที่ยังไม่มีใน TOOL_ACTIONS (เช่น declarative tool
-        # ในอนาคตที่ไม่ได้อยู่ใน dict กลางนี้) ต้องถูกปฏิเสธแบบ fail-safe ไม่ใช่ KeyError
-        if call.name not in self._tools or call.action not in TOOL_ACTIONS.get(call.name, frozenset()):
+        # ใช้ .get() แทนการ index ตรง ๆ: tool ที่ยังไม่มีใน TOOL_ACTIONS (declarative tool จาก DB
+        # ตาม D2.6) ต้องถูกปฏิเสธแบบ fail-safe ไม่ใช่ KeyError — สำหรับ tool แบบนั้น ถามที่ตัว tool
+        # เองแทนว่ามันรู้จัก action อะไรบ้าง (``.actions``) เพราะไม่มี dict กลางที่รู้จักมันล่วงหน้า
+        allowed_actions = TOOL_ACTIONS.get(call.name)
+        if allowed_actions is None:
+            allowed_actions = getattr(self._tools.get(call.name), "actions", None) or frozenset()
+        if call.name not in self._tools or call.action not in allowed_actions:
             return _error_result(call, ToolErrorCode.INVALID_INPUT, "ไม่รู้จักเครื่องมือหรือการกระทำ")
-        try:
-            validate_tool_input(call)
-        except ValidationError:
-            return _error_result(call, ToolErrorCode.INVALID_INPUT, "ข้อมูลนำเข้าของเครื่องมือไม่ตรงกับสัญญาของการกระทำ")
+        # INPUT_MODELS/OUTPUT_MODELS รู้จักเฉพาะ action ของ 3 tool เดิม (voc/knowledge/oms) —
+        # declarative tool ตรวจ input/output ของตัวเองด้วย jsonschema อยู่แล้วใน .execute()
+        # (app/tools/declarative_tool.py, D2.6) จึงข้ามชั้นนี้แทนที่จะ KeyError
+        if call.action in INPUT_MODELS:
+            try:
+                validate_tool_input(call)
+            except ValidationError:
+                return _error_result(call, ToolErrorCode.INVALID_INPUT, "ข้อมูลนำเข้าของเครื่องมือไม่ตรงกับสัญญาของการกระทำ")
 
         try:
             result = await self._tools[call.name].execute(call, context)
@@ -155,7 +172,7 @@ class ToolRegistry:
 
         if result.call_id != call.call_id or result.name != call.name or result.action != call.action:
             return _error_result(call, ToolErrorCode.INTERNAL, "บริการส่งผลลัพธ์ที่ไม่ถูกต้อง")
-        if result.status is ToolResultStatus.SUCCESS:
+        if result.status is ToolResultStatus.SUCCESS and call.action in OUTPUT_MODELS:
             try:
                 validate_tool_success_data(call.action, result.data or {})
             except ValidationError:

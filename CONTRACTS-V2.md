@@ -60,6 +60,12 @@
 | `limits` | object/null | ตาม §3.3 |
 | `clientContext` | object/null | ตาม §3.4 |
 | `voiceConfirm` | boolean | **default `true`** ตาม §5.2 |
+| `httpMethod` | `GET`/`POST`/`PUT`/`PATCH`/`DELETE` / null | **required** เมื่อ `source: db` · **ต้องเป็น null** เมื่อ `source: code` (ประกอบ request เองในโค้ด) |
+| `urlTemplate` | string/null | **required** เมื่อ `source: db` · placeholder `{fieldName}` ดึงจาก `input` — กลไก "LLM เติมค่า" เดียวที่ระบบรับ ดู ARCHITECTURE-V2.md §3.4.1 |
+
+⚠️ **เติมใน D2.6**: ฉบับก่อนหน้าตารางนี้มีแค่ policy/mode/schema แต่ไม่เคยระบุว่า declarative
+tool รู้ URL/method ปลายทางจากไหน — ค้นพบตอนสร้าง declarative tool ตัวแรกที่ยิง REST จริง
+(TASKS-3DAYS.md D2.6) `httpMethod`+`urlTemplate` คือฟิลด์ที่เติมเพื่อปิดช่องนี้
 
 ---
 

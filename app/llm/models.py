@@ -3,10 +3,10 @@
 from __future__ import annotations
 
 from dataclasses import dataclass, field
-from typing import Any
+from typing import Any, Mapping
 from uuid import UUID
 
-from app.contracts import ToolCall, ToolName
+from app.contracts import ToolCall
 
 
 @dataclass(frozen=True, slots=True)
@@ -19,11 +19,19 @@ class LLMMessage:
 
 @dataclass(frozen=True, slots=True)
 class ToolDefinition:
-    """รายการในแค็ตตาล็อกเครื่องมือที่ LLM provider มองเห็น"""
+    """รายการในแค็ตตาล็อกเครื่องมือที่ LLM provider มองเห็น
 
-    name: ToolName
+    ``name`` เป็น ``str`` เฉย ๆ (ไม่ใช่ ``ToolName`` enum อีกต่อไป) เพราะ declarative tool
+    จาก DB มี slug นอก enum เดิม (D2.6, ARCHITECTURE-V2.md §3.5)
+    """
+
+    name: str
     description: str
     actions: tuple[str, ...]
+    # D2.6: declarative tool ประกาศ inputSchema เป็นข้อมูลจริงต่อ action (ไม่ใช่ชื่อคลาส
+    # Pydantic) — None = ปล่อยให้ ``tool_catalogue`` derive จาก ``INPUT_MODELS`` เหมือนเดิม
+    # (3 tool เดิม); ให้ค่านี้เมื่อไม่มี Pydantic model ให้ derive จาก (tool ใหม่ทุกตัว)
+    input_schemas: Mapping[str, dict[str, Any]] | None = None
 
 
 @dataclass(frozen=True, slots=True)

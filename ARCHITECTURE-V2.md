@@ -127,10 +127,34 @@ displayName  : ชื่อภาษาไทยสำหรับ UI       ไ�
 description  : คำอธิบายที่ LLM เห็น
 operations[] : { action, description, inputSchema, outputSchema,
                  exposure, mode, submitAction?, policy, limits,
-                 clientContext?, voiceConfirm }
+                 clientContext?, voiceConfirm, httpMethod?, urlTemplate? }
 executor     : HTTP caller กลาง (declarative) | Python callable (plugin)
 source       : "db" | "code"              ใช้แค่ตอน admin/health ไม่ใช่ตอน dispatch
 ```
+
+`httpMethod`/`urlTemplate` เป็น `null` เสมอสำหรับ operation ของ Python plugin (`source: "code"`
+ประกอบ HTTP request เองในโค้ด) และ **บังคับต้องมีทั้งคู่** สำหรับ declarative tool (`source: "db"`)
+— ดู §3.4.1 สำหรับกลไก "LLM เติมค่า" ที่ใช้แปลงทั้งสองเป็น HTTP request จริง
+
+### 3.4.1 กลไก "LLM เติมค่า" ที่เลือก (แก้ D2.6 หลังพบว่า §3.7 (ฉบับก่อนแก้) ไม่เคยเลือกจริง)
+
+รูปเดิมของเอกสารนี้ประกาศว่า operations[] มีแค่ schema/policy/mode แต่ไม่เคยระบุว่า
+declarative tool รู้ได้ยังไงว่าจะยิงไปที่ไหนด้วย method อะไร — ตรวจพบตอนสร้าง declarative
+tool ตัวแรกที่ยิง REST จริง (D2.6, TASKS-3DAYS.md) จึงเติมกลไกเดียวนี้ (ตาม §3.7 ที่บังคับ
+ให้เลือกแค่หนึ่งเดียว):
+
+- placeholder รูปแบบ `{fieldName}` ใน `urlTemplate` ดึงค่าจาก field ระดับบนสุดของ `input`
+  เสมอ (เข้ารหัส URL ด้วย percent-encoding) — field ที่ใช้ไปแล้วไม่ถูกส่งซ้ำที่อื่น
+- field ที่เหลือทั้งหมดไปเป็น query string เมื่อ `httpMethod` ไม่มี body (`GET`/`DELETE`)
+  หรือ JSON body เมื่อ `httpMethod` มี body (`POST`/`PUT`/`PATCH`)
+- **ชื่อ field ใน schema ต้องตรงกับชื่อ query parameter/body key ของปลายทางจริงเป๊ะ** —
+  กลไกนี้ไม่แปลงชื่อให้ (เช่น `catfact.ninja` ใช้ `max_length` ไม่ใช่ `maxLength`) หน้า
+  admin (D3.4) ต้องเตือนเรื่องนี้ในฟอร์ม
+- ไม่มี mechanism ที่สอง — เจตนาเดียวกับที่ §3.7 เตือนไว้เรื่อง n8n ที่มีสองกลไก
+  (`$fromAI()` + placeholder) แล้วถอยไม่ได้
+
+ดู `app/tools/declarative_request.py` (การประกอบ request) และ
+`app/tools/declarative_tool.py` (ประกอบทุกชิ้นของ §3 เข้าเป็น ``Tool`` ตัวเดียว)
 
 **`plugin.yaml` เปลี่ยนจาก `inputContract: <ชื่อคลาส>` เป็น `inputSchema:` JSON Schema ฝังในไฟล์**
 ⇒ Python plugin พูดภาษาเดียวกับ DB และ `_check_contracts` ที่เทียบ `INPUT_MODELS[action].__name__` หายไปทั้งก้อน
@@ -160,7 +184,7 @@ source       : "db" | "code"              ใช้แค่ตอน admin/heal
 
 - **secret ห้ามอยู่ใน schema เด็ดขาด** — schema = สิ่งที่ LLM เห็น = public
 - **URL ที่ผู้ใช้กรอก = เครื่อง SSRF** (ดู §7)
-- **เลือก mechanism "LLM เติมค่า" อันเดียวตั้งแต่วันแรก** — n8n มีสองอัน (`$fromAI()` + placeholder) แล้วถอยไม่ได้ ทำผู้ใช้พังตอนพยายามรวม
+- **เลือก mechanism "LLM เติมค่า" อันเดียวตั้งแต่วันแรก** — n8n มีสองอัน (`$fromAI()` + placeholder) แล้วถอยไม่ได้ ทำผู้ใช้พังตอนพยายามรวม (เลือกแล้วที่ §3.4.1 — พบว่ายังไม่เคยเลือกจริงตอนสร้าง declarative tool ตัวแรกใน D2.6)
 - **description ยาว = กินโควตา token ทุก request** (tool definitions นับเป็น input token) หน้า admin ต้องแสดงจำนวนตัวอักษร
 
 ---

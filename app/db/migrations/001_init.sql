@@ -18,6 +18,13 @@ CREATE TABLE tool (
     created_at TEXT NOT NULL DEFAULT (datetime('now'))
 );
 
+-- D2.6: http_method + url_template — จุดที่ตอน D2.1 คิดไว้ยังไม่มี (ARCHITECTURE-V2.md §3.4
+-- ประกาศ operations[] แค่ policy/mode/schema ไม่มีที่เก็บ "จะยิงไปไหนด้วย method อะไร") เติมตอนสร้าง
+-- declarative tool ตัวแรกที่ยิง REST จริง เพราะไม่มีฟิลด์นี้ก็ประกอบ HTTP request ไม่ได้เลย
+-- กลไก "LLM เติมค่า" ที่เลือก (ตาม §3.7 ต้องเลือกอันเดียว): placeholder `{fieldName}` ใน
+-- url_template ดึงจาก field ระดับบนสุดของ input เสมอ ฟิลด์ที่เหลือไปเป็น query string
+-- (GET/DELETE) หรือ JSON body (POST/PUT/PATCH) — ดู app/tools/declarative_request.py
+--
 -- schema เก็บเป็น JSON string ที่ผ่าน validate_schema_subset()/check_schema() แล้วตอน save เท่านั้น
 -- (ดู app/tools/schema_subset.py — D1.2) ตารางนี้ไม่ตรวจซ้ำ เชื่อชั้น application
 CREATE TABLE tool_operation (
@@ -32,6 +39,10 @@ CREATE TABLE tool_operation (
     exposure TEXT NOT NULL CHECK (exposure IN ('llm', 'internal')),
     mode TEXT NOT NULL CHECK (mode IN ('read', 'prepare', 'submit')),
     submit_action TEXT,
+    -- NULL เฉพาะ operation ที่มาจาก Python plugin (source='code') ซึ่งประกอบ request เองในโค้ด —
+    -- operation ของ declarative tool (source='db') ต้องมีทั้งคู่เสมอ (ตรวจตอน save โดยชั้น admin)
+    http_method TEXT CHECK (http_method IN ('GET', 'POST', 'PUT', 'PATCH', 'DELETE')),
+    url_template TEXT,
     limits TEXT,
     client_context TEXT,
     UNIQUE (tool_id, action)

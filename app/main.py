@@ -7,12 +7,14 @@
 
 from __future__ import annotations
 
+import asyncio
 from pathlib import Path
 
 from fastapi import Request
 from fastapi.responses import JSONResponse
 from fastapi.staticfiles import StaticFiles
 
+from app.agent.declarative_tools import load_declarative_tools
 from app.agent.guided_flow import GuidedFlows
 from app.agent.main_agent import InvalidActionStateError, MainAgent, NotFoundError
 from app.agent.registry import ToolRegistry
@@ -26,6 +28,7 @@ from app.core.config import LLMRuntimeSettings, load_settings
 from app.core.di import adapter_service, agent_service
 from app.core.errors import ConflictException, NotFoundException, platform_exception_handler
 from app.core.startup import create_platform_app, startup_event
+from app.db import Database
 from app.llm import JudgeLLMClient, LLMClient, LLMProviderConfig, create_llm_adapter
 from app.plugins import load_plugins
 from app.tools.knowledge_tool import KnowledgeTool
@@ -94,16 +97,43 @@ llm_adapter = create_llm_adapter(
 )
 judge_llm_adapter = create_llm_adapter(_provider_config(settings.judge_llm))
 judge_llm_client = JudgeLLMClient(judge_llm_adapter)
+
+# D2.6: declarative tool ที่มาจาก DB (source='db') — ต้อง migrate ก่อนอ่าน แล้วรวม catalogue/
+# operation_specs เข้ากับของปลั๊กอิน Python เหมือนเป็นชั้นเดียวกัน (ARCHITECTURE-V2.md §3.4:
+# agent ไม่รู้ว่า executor เป็น HTTP หรือโค้ด) asyncio.run ปลอดภัยตรงนี้เพราะยังไม่มี event loop
+# ทำงานอยู่ตอน import โมดูลนี้
+db = Database()
+db.migrate()
+
+
+async def _load_declarative_catalogue():
+    allowlist_rows = await db.fetch_all("SELECT domain FROM domain_allowlist WHERE enabled = 1")
+    return await load_declarative_tools(
+        db,
+        app_env=settings.app_env,
+        allowlist=tuple(row["domain"] for row in allowlist_rows),
+    )
+
+
+declarative_bundle = asyncio.run(_load_declarative_catalogue())
+
 tool_registry = ToolRegistry(
-    [KnowledgeTool(knowledge_backend), *(plugin.tool for plugin in plugins)],
-    catalogue=tuple(plugin.tool_definition for plugin in plugins),
+    [
+        KnowledgeTool(knowledge_backend),
+        *(plugin.tool for plugin in plugins),
+        *declarative_bundle.tools,
+    ],
+    catalogue=tuple(plugin.tool_definition for plugin in plugins) + declarative_bundle.catalogue,
     response_policies=tuple(
         policy for plugin in plugins if (policy := plugin.response_policy) is not None
     ),
     operation_specs={
-        action: spec
-        for plugin in plugins
-        for action, spec in plugin.operation_specs.items()
+        **{
+            action: spec
+            for plugin in plugins
+            for action, spec in plugin.operation_specs.items()
+        },
+        **declarative_bundle.operation_specs,
     },
 )
 main_llm_client = LLMClient(llm_adapter)

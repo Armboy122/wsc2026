@@ -49,6 +49,11 @@ class ToolOperationShape:
     # DB schema ของ D2.1 ยังไม่มีคอลัมน์นี้ (ตัดจากแผนเต็มเพื่อ 3 วัน) — default ตรงกับ
     # ARCHITECTURE-V2.md §6.2 (ยืนยันด้วยเสียงได้โดยปริยาย) จนกว่าจะเติมคอลัมน์จริง
     voice_confirm: bool = True
+    # D2.6: เติมตอนสร้าง declarative tool ตัวแรก — ปลั๊กอิน Python (source="code") ประกอบ
+    # HTTP request เองในโค้ดเสมอ จึงเป็น None; declarative tool (source="db") ต้องมีทั้งคู่
+    # (ดู app/tools/declarative_request.py สำหรับกลไกแทนค่า)
+    http_method: str | None = None
+    url_template: str | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -130,6 +135,8 @@ def from_db_row(tool_row: sqlite3.Row, operation_rows: list[sqlite3.Row]) -> Too
                 policy=row["policy"],
                 limits=json.loads(row["limits"]) if row["limits"] else None,
                 client_context=json.loads(row["client_context"]) if row["client_context"] else None,
+                http_method=row["http_method"],
+                url_template=row["url_template"],
             )
             for row in operation_rows
         ),
