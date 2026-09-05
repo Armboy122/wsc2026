@@ -30,6 +30,7 @@ from app.core.di import adapter_service, agent_service
 from app.core.errors import ConflictException, NotFoundException, platform_exception_handler
 from app.core.startup import create_platform_app, startup_event
 from app.db import Database
+from app.db.bootstrap_oms import seed_oms_tool
 from app.llm import JudgeLLMClient, LLMClient, LLMProviderConfig, create_llm_adapter
 from app.plugins import load_plugins
 from app.plugins.oms.declarative_shape import OMS_OPERATIONS
@@ -124,6 +125,11 @@ db.migrate()
 
 
 async def _load_declarative_catalogue():
+    # P1 ของ D2: DB ใหม่ (data/pea.db ถูก ignore) ต้องได้ oms_tool โดยอัตโนมัติ — bootstrap
+    # นี้ idempotent (มี tool อยู่แล้ว = ไม่แตะ config ของผู้ใช้) และ seed จากต้นฉบับเดียวกับ
+    # scripts/seed_oms_tool.py (app/db/bootstrap_oms.py) ปลั๊กอิน Python ของ OMS ยังคง
+    # disabled ตามเดิม (app/plugins/oms/plugin.yaml enabled: false)
+    await seed_oms_tool(db, oms_base_url=settings.oms_base_url)
     allowlist_rows = await db.fetch_all("SELECT domain FROM domain_allowlist WHERE enabled = 1")
     return await load_declarative_tools(
         db,

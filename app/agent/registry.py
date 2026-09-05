@@ -186,15 +186,22 @@ class ToolRegistry:
         # ใช้ .get() แทนการ index ตรง ๆ: tool ที่ยังไม่มีใน TOOL_ACTIONS (declarative tool จาก DB
         # ตาม D2.6) ต้องถูกปฏิเสธแบบ fail-safe ไม่ใช่ KeyError — สำหรับ tool แบบนั้น ถามที่ตัว tool
         # เองแทนว่ามันรู้จัก action อะไรบ้าง (``.actions``) เพราะไม่มี dict กลางที่รู้จักมันล่วงหน้า
-        allowed_actions = TOOL_ACTIONS.get(call.name)
-        if allowed_actions is None:
+        # ข้อยกเว้นเดียวคือ declarative oms_tool ที่ slug ตรงกับ ToolName.OMS เดิม (D2.7) — ยังผูก
+        # กับ TOOL_ACTIONS ของ alias เดิมอยู่ จึงยังได้ validation/output behavior ตาม contracts
+        legacy_actions = TOOL_ACTIONS.get(call.name)
+        if legacy_actions is not None:
+            allowed_actions = legacy_actions
+        else:
             allowed_actions = getattr(self._tools.get(call.name), "actions", None) or frozenset()
         if call.name not in self._tools or call.action not in allowed_actions:
             return _error_result(call, ToolErrorCode.INVALID_INPUT, "ไม่รู้จักเครื่องมือหรือการกระทำ")
         # INPUT_MODELS/OUTPUT_MODELS รู้จักเฉพาะ action ของ 3 tool เดิม (voc/knowledge/oms) —
-        # declarative tool ตรวจ input/output ของตัวเองด้วย jsonschema อยู่แล้วใน .execute()
-        # (app/tools/declarative_tool.py, D2.6) จึงข้ามชั้นนี้แทนที่จะ KeyError
-        if call.action in INPUT_MODELS:
+        # จึงบังคับใช้เฉพาะคู่ (tool_slug, action) ที่เป็น legacy จริง (มีใน TOOL_ACTIONS) เท่านั้น
+        # ประกอบด้วย action อย่างเดียวไม่พอ เพราะ declarative tool ตัวใหม่เลือกชื่อ action ชนกับ
+        # legacy ได้ (เช่น "search") และต้อง validate ด้วย JSON Schema ของตัวเอง ไม่ใช่ Pydantic
+        # ของ legacy tool ส่วน declarative tool ตรวจ input/output ของตัวเองด้วย jsonschema อยู่แล้ว
+        # ใน .execute() (app/tools/declarative_tool.py, D2.6)
+        if legacy_actions is not None and call.action in INPUT_MODELS:
             try:
                 validate_tool_input(call)
             except ValidationError:
@@ -207,7 +214,11 @@ class ToolRegistry:
 
         if result.call_id != call.call_id or result.name != call.name or result.action != call.action:
             return _error_result(call, ToolErrorCode.INTERNAL, "บริการส่งผลลัพธ์ที่ไม่ถูกต้อง")
-        if result.status is ToolResultStatus.SUCCESS and call.action in OUTPUT_MODELS:
+        if (
+            result.status is ToolResultStatus.SUCCESS
+            and legacy_actions is not None
+            and call.action in OUTPUT_MODELS
+        ):
             try:
                 validate_tool_success_data(call.action, result.data or {})
             except ValidationError:

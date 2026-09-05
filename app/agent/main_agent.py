@@ -19,6 +19,7 @@ from app.agent.response_policy import ErrorPresentation, ResponsePolicies
 from app.contracts import (
     INPUT_MODELS,
     PREPARE_TO_SUBMIT,
+    TOOL_ACTIONS,
     ActionDecisionResponse,
     ChatRequest,
     ChatResponse,
@@ -482,7 +483,12 @@ class MainAgent:
         submit_action = spec.submit_action or PREPARE_TO_SUBMIT.get(result.action)
         if not submit_action:
             return None
-        if result.action in INPUT_MODELS:
+        # legacy coercion ด้วย INPUT_MODELS บังคับใช้เฉพาะคู่ (tool_slug, action) ที่เป็น legacy
+        # จริง (มีใน TOOL_ACTIONS) เท่านั้น — ประกอบด้วย action อย่างเดียวไม่พอ เพราะ declarative
+        # prepare operation ที่ชื่อ action ชนกับ legacy (เช่น "prepare_case") ต้องสร้าง PendingAction
+        # จาก raw JSON input ของตัวเอง ไม่ใช่ถูก coerce ด้วย Pydantic model ของ legacy tool
+        legacy_actions = TOOL_ACTIONS.get(result.name)
+        if legacy_actions is not None and result.action in legacy_actions and result.action in INPUT_MODELS:
             try:
                 prepared_input = validate_tool_input(ToolCall(
                     call_id=result.call_id,
