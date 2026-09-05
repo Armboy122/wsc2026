@@ -33,6 +33,7 @@ from app.core.prompt_admin import PromptAdminService
 from app.core.startup import create_platform_app, startup_event
 from app.core.tool_admin import ToolAdminService
 from app.db import Database
+from app.db import tool_repository
 from app.db.bootstrap_oms import seed_oms_tool
 from app.db.bootstrap_prompt import DbSystemPromptProvider, seed_system_prompt
 from app.llm import JudgeLLMClient, LLMClient, LLMProviderConfig, create_llm_adapter
@@ -131,6 +132,9 @@ db.migrate()
 # เพื่อให้แก้ prompt แล้วมีผลในเทิร์นถัดไปโดยไม่ต้อง restart
 asyncio.run(seed_system_prompt(db))
 set_system_prompt_provider(DbSystemPromptProvider(db))
+# P4: สถานะเปิด/ปิดของ code tool persist ในตาราง tool (แถว source='code') — boot ต้อง
+# restore กลับเข้า registry เพื่อให้การปิดคงผลข้าม restart
+_disabled_code_tools = asyncio.run(tool_repository.disabled_code_tool_slugs(db))
 
 
 async def _load_declarative_catalogue():
@@ -168,10 +172,13 @@ tool_registry = ToolRegistry(
         },
         **declarative_bundle.operation_specs,
     },
+    disabled_code_tools=_disabled_code_tools,
 )
+
+
 main_llm_client = LLMClient(llm_adapter)
 guided_flows = GuidedFlows(
-    tuple(flow for plugin in plugins if (flow := plugin.guided_flow) is not None)
+    tuple(flow for plugin in plugins if (flow := plugin.guided_flow) is not None),
 )
 # flow ใช้ LLM เพื่อเลือกจากตัวเลือกที่ catalog ให้มาเท่านั้น ไม่ใช่เพื่อสร้างรหัสเอง
 guided_flows.attach_llm(main_llm_client)

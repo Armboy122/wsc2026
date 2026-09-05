@@ -231,15 +231,23 @@ import {
         toggleTool(tool.slug, !tool.enabled);
       });
     } else {
-      // tool จากโค้ด (Python): ปุ่มยังแสดงแต่ถูก disable พร้อมเหตุผลที่อ่านได้
-      // ทั้งแบบ hover (title) และข้อความบนการ์ด — กันดูเหมือนระบบลืม render (D3.3/T6)
-      var reason =
-        "tool นี้มาจากโค้ด (Python) — แก้ไข/เปิด-ปิดจากหน้าเว็บไม่ได้ ต้องแก้ที่โค้ดแล้ว deploy แทน";
+      // P4: code tool แก้ definition จากเว็บไม่ได้ แต่ toggle อาจใช้ได้
+      var editReason =
+        "definition ของ tool นี้แก้ไขจากหน้าเว็บไม่ได้ — ต้องแก้ที่โค้ดแล้ว deploy แทน";
       editBtn.disabled = true;
-      toggleBtn.disabled = true;
-      editBtn.title = reason;
-      toggleBtn.title = reason;
-      card.appendChild(el("p", "hint-note", reason));
+      editBtn.title = editReason;
+      card.appendChild(el("p", "hint-note", editReason));
+      if (tool.toggleDisabledReason) {
+        // ปุ่ม toggle มีเหตุผลแยกจากปุ่ม edit (เช่น knowledge ที่ห้ามปิด)
+        toggleBtn.disabled = true;
+        toggleBtn.title = tool.toggleDisabledReason;
+        card.appendChild(el("p", "hint-note", tool.toggleDisabledReason));
+      } else {
+        toggleBtn.title = "เปิด/ปิด tool นี้ได้จากหน้าเว็บ (สถานะคงอยู่ข้าม restart)";
+        toggleBtn.addEventListener("click", function () {
+          toggleTool(tool.slug, !tool.enabled);
+        });
+      }
     }
     actions.appendChild(editBtn);
     actions.appendChild(toggleBtn);

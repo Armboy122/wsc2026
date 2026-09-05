@@ -33,7 +33,7 @@ from app.agent.declarative_tools import DeclarativeToolBundle, load_declarative_
 from app.agent.operation_policy import OperationLimits, OperationSpec
 from app.agent.registry import ToolRegistry
 from app.agent.tool_shape import ToolOperationShape, ToolShape, from_plugin
-from app.contracts import INPUT_MODELS, ToolAction
+from app.contracts import INPUT_MODELS, ToolAction, ToolName
 from app.core.config import Settings
 from app.core.errors import ConflictException, NotFoundException
 from app.core.logging import get_logger, log_extra
@@ -101,12 +101,14 @@ class ToolAdminService:
         )
         # T6: รายการต้องครบทุก code tool ที่อยู่ใน registry จริง — ตัวที่ไม่ได้มาจาก
         # ``plugins`` (เช่น KnowledgeTool built-in) ประกอบ shape จากข้อมูลจริงของ registry
-        # (``llm_catalogue`` + ``operation_specs``) โดยไม่สร้าง source of truth ซ้ำ
+        # (``full_catalogue`` + ``operation_specs``) โดยไม่สร้าง source of truth ซ้ำ
+        # ใช้ full_catalogue เพราะ llm_catalogue กรอง tool ที่ถูกปิดออกแล้ว (P4)
         self._registry_code_shapes = _code_shapes_from_registry(
             registry, exclude=frozenset(shape.slug for shape in self._plugin_shapes)
         )
-        # ขอบเขต "tool จากโค้ด" สำหรับกัน get_tool/set_enabled: ทุก code tool ใน registry
-        # รวม KnowledgeTool + ทุก shape ที่มาจาก plugins/extra (กัน slug ที่ยังไม่ลง registry)
+        # ขอบเขต "tool จากโค้ด" สำหรับกัน get_tool (แก้ definition) และกำหนดกลุ่มที่
+        # เปิด/ปิดผ่านสถานะ code ได้ (P4): ทุก code tool ใน registry รวม KnowledgeTool +
+        # ทุก shape ที่มาจาก plugins/extra (กัน slug ที่ยังไม่ลง registry)
         self._code_tool_slugs = (
             frozenset(registry.code_tool_names)
             | frozenset(shape.slug for shape in self._plugin_shapes)
@@ -122,7 +124,8 @@ class ToolAdminService:
         """รายการ tool ทั้งสองชั้นในหน้าเดียว (D3.3)
 
         - code tool ทุกตัวที่อยู่ใน registry จริง (ปลั๊กอิน Python + built-in เช่น
-          KnowledgeTool) — อยู่รายการเดียวกันแต่ **แก้ไม่ได้**
+          KnowledgeTool) — อยู่รายการเดียวกันแต่ **แก้ไม่ได้** เปิด/ปิดได้ยกเว้น
+          knowledge ที่เป็น guard ของระบบ (P4)
         - declarative tool (source: db) ทุกแถวรวมที่ปิดอยู่
         - tool ที่ปิดตัวเอง (definition ผิด fail closed) แสดงพร้อมเหตุผล กัน "หายเงียบ"
         """
@@ -132,9 +135,10 @@ class ToolAdminService:
             tools.append(
                 {
                     **_shape_to_definition(shape),
-                    "enabled": True,
+                    "enabled": self._registry.code_tool_enabled(shape.slug),
                     "hasAuth": False,
                     "editable": False,
+                    "toggleDisabledReason": _toggle_disabled_reason(shape.slug),
                     "selfDisabledReason": None,
                 }
             )
@@ -143,6 +147,7 @@ class ToolAdminService:
                 {
                     **definition,
                     "editable": True,
+                    "toggleDisabledReason": None,
                     "selfDisabledReason": disabled_reasons.get(definition["slug"]),
                 }
             )
@@ -224,9 +229,24 @@ class ToolAdminService:
 
     async def set_enabled(self, slug: str, enabled: bool) -> None:
         if slug in self._code_tool_slugs:
-            raise NotFoundException(
-                detail="tool จากโค้ด (Python) เปิด/ปิดจากหน้าเว็บไม่ได้ — ตั้งค่า enabled ในโค้ดแล้ว deploy แทน"
+            # P4: code tool เปิด/ปิดจากหน้าเว็บได้แล้ว — แต่ registry ต้อง validate
+            # ก่อนแตะ DB เสมอ (guard ของ knowledge + สถานะ in-memory ต้องตรงกับ DB)
+            try:
+                self._registry.validate_code_tool_enabled(slug, enabled)
+            except ValueError as error:
+                raise ConflictException(detail=str(error)) from error
+            try:
+                await tool_repository.set_code_tool_enabled(self._db, slug, enabled)
+            except ValueError as error:
+                raise ConflictException(detail=str(error)) from error
+            # Persist first so a DB failure cannot leave the running registry ahead of
+            # durable state. The validation above makes this final in-memory update
+            # non-throwing for the current single-process registry.
+            self._registry.set_code_tool_enabled(slug, enabled)
+            logger.info(
+                "admin_tool_enabled_changed", extra=log_extra(slug=slug, enabled=enabled, source="code")
             )
+            return
         if not await tool_repository.set_tool_enabled(self._db, slug, enabled):
             raise NotFoundException(detail="ไม่พบ tool ที่ร้องขอ")
         await self.reload()
@@ -434,6 +454,21 @@ def _try_error(reason: str, message: str) -> dict[str, Any]:
     return {"ok": False, "reason": reason, "error": message}
 
 
+def _toggle_disabled_reason(slug: str) -> str | None:
+    """เหตุผลที่ห้ามเปิด/ปิด code tool ตัวนี้จากหน้าเว็บ — None = เปิด/ปิดได้ (P4)
+
+    knowledge เป็น built-in ที่ระบบบังคับว่าต้องมีเสมอ (ToolRegistry ยอมรับ registry
+    ที่ไม่มีอย่างอื่น แต่ห้ามไม่มี knowledge) การปิดจึงทำให้เส้นทางหลักใช้งานไม่ได้
+    จึงกันไว้ที่ server ตั้งแต่ registry.set_code_tool_enabled ไม่ให้แค่เตือนบน UI
+    """
+    if slug == ToolName.KNOWLEDGE.value:
+        return (
+            "ปิดเครื่องมือความรู้ (knowledge) ไม่ได้ — เป็นเส้นทางหลัก"
+            "ที่ระบบต้องใช้เสมอ"
+        )
+    return None
+
+
 def _secret_variants(auth_env_var: str | None, *, scheme: str = "Bearer") -> tuple[str, ...]:
     """ค่าจริงของ secret ทุกรูปแบบที่อาจปรากฏใน response — เพื่อนำไปแทนที่ด้วย [REDACTED]
 
@@ -477,14 +512,14 @@ def _code_shapes_from_registry(
 ) -> tuple[ToolShape, ...]:
     """ประกอบ shape ของ code tool ที่อยู่ใน registry จริงแต่ไม่มาจาก ``plugins`` (T6)
 
-    ใช้เฉพาะข้อมูลที่ registry รู้จริง: ``llm_catalogue`` (slug/description/action) และ
+    ใช้เฉพาะข้อมูลที่ registry รู้จริง: ``full_catalogue`` (slug/description/action) และ
     ``operation_specs`` (policy/mode/exposure/limits/clientContext) ส่วนที่ registry ไม่มี
     จะสะท้อนความจริงตรง ๆ (คำอธิบายต่อ operation เป็นค่าว่างเหมือน ``from_db_row``)
     ไม่กุข้อมูลปลอมขึ้นมาแทน
     """
     shapes: list[ToolShape] = []
     excluded: set[str] = set(exclude)
-    for definition in registry.llm_catalogue:
+    for definition in registry.full_catalogue:
         slug = definition.name
         if slug in excluded or slug not in registry.code_tool_names:
             continue

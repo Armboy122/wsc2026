@@ -14,7 +14,9 @@ from __future__ import annotations
 import asyncio
 import copy
 import json
+from pathlib import Path
 from typing import Any
+from uuid import uuid4
 
 import httpx
 import pytest
@@ -77,6 +79,24 @@ class _KnowledgeStub:
         )
 
 
+class _CodeToolStub:
+    name = "code_only_tool"
+    actions = frozenset({"do_something"})
+
+    async def execute(self, call: ToolCall, context: Any = None) -> ToolResult:
+        return ToolResult(
+            call_id=call.call_id,
+            name=call.name,
+            action=call.action,
+            status=ToolResultStatus.SUCCESS,
+            data={},
+            simulation=True,
+        )
+
+    def reset(self) -> None:
+        return None
+
+
 def _code_shape_stub() -> ToolShape:
     """ปลั๊กอิน Python ปลอมสำหรับเช็คว่าอยู่รายการเดียวกับ declarative tool แต่แก้ไม่ได้"""
     return ToolShape(
@@ -118,11 +138,13 @@ def _make_client(
     *,
     app_env: str = "development",
     transport: httpx.BaseTransport | None = None,
+    db_path: Path | str = ":memory:",
+    registered_code_tools: tuple[Any, ...] = (),
 ) -> tuple[TestClient, ToolRegistry, Database]:
     monkeypatch.setattr("app.core.admin_auth.admin_session_store", AdminSessionStore())
-    db = Database(":memory:")
+    db = Database(db_path)
     db.migrate()
-    registry = ToolRegistry([_KnowledgeStub()])
+    registry = ToolRegistry([_KnowledgeStub(), *registered_code_tools])
     service = ToolAdminService(
         db,
         settings=_settings(app_env),
@@ -507,3 +529,226 @@ def test_try_error_does_not_leak_secret_value(monkeypatch: pytest.MonkeyPatch) -
     assert body["reason"] == "missing_secret"
     assert _SECRET not in response.text
     assert "ADMIN_TRY_SECRET_NOT_SET" not in response.text
+
+
+# ------------------------------------------------------------------- P4: code tool toggle --
+
+
+def test_code_tool_toggle_persists_and_affects_list(monkeypatch: pytest.MonkeyPatch) -> None:
+    """P4: ปิด code tool จากหน้าเว็บได้จริง — สถานะสะท้อนในรายการและ persist ลง DB"""
+    client, registry, db = _make_client(monkeypatch)
+
+    response = client.patch(
+        "/api/v1/admin/tools/code_only_tool/enabled", json={"enabled": False}
+    )
+    assert response.status_code == 200
+
+    # รายการต้องแสดงสถานะจริง ไม่ใช่ hardcode True
+    by_slug = _tools_by_slug(client)
+    code_tool = by_slug["code_only_tool"]
+    assert code_tool["enabled"] is False
+    assert code_tool["editable"] is False  # แก้ definition ยังไม่ได้
+    assert code_tool["toggleDisabledReason"] is None  # แต่เปิด/ปิดได้
+
+    # persist เป็นแถว source='code' แยกจาก declarative
+    rows = asyncio.run(
+        db.fetch_all("SELECT slug, enabled, source FROM tool WHERE source = 'code'")
+    )
+    assert [(row["slug"], row["enabled"]) for row in rows] == [("code_only_tool", 0)]
+
+    # เปิดกลับได้
+    assert client.patch(
+        "/api/v1/admin/tools/code_only_tool/enabled", json={"enabled": True}
+    ).status_code == 200
+    assert _tools_by_slug(client)["code_only_tool"]["enabled"] is True
+
+
+def test_knowledge_shows_toggle_disabled_reason_in_list(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """knowledge ถูกกันไม่ให้ปิด — รายการต้องบอกเหตุผลให้ UI แสดงชัด"""
+    client, _, _ = _make_client(monkeypatch)
+    by_slug = _tools_by_slug(client)
+    assert by_slug["knowledge_tool"]["toggleDisabledReason"]
+    assert by_slug["knowledge_tool"]["enabled"] is True
+
+
+def test_code_tool_disabled_state_survives_restart(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    """P4: สถานะคงอยู่ข้าม restart — boot ใหม่ต้องอ่านจาก DB แล้วได้ registry เดิม"""
+    db_path = tmp_path / "code-tool-state.db"
+    client, _, db = _make_client(
+        monkeypatch,
+        db_path=db_path,
+        registered_code_tools=(_CodeToolStub(),),
+    )
+    try:
+        assert client.patch(
+            "/api/v1/admin/tools/code_only_tool/enabled", json={"enabled": False}
+        ).status_code == 200
+    finally:
+        db.close()
+
+    # จำลอง restart จริง: ปิด connection เดิม แล้วเปิด file DB ใหม่
+    from app.db import tool_repository
+
+    reopened = Database(db_path)
+    try:
+        reopened.migrate()
+        disabled = asyncio.run(tool_repository.disabled_code_tool_slugs(reopened))
+        rebooted = ToolRegistry(
+            [_KnowledgeStub(), _CodeToolStub()], disabled_code_tools=disabled
+        )
+        assert rebooted.code_tool_enabled("code_only_tool") is False
+
+        service = ToolAdminService(
+            reopened,
+            settings=_settings("development"),
+            registry=rebooted,
+            extra_code_shapes=(_code_shape_stub(),),
+        )
+        tools = asyncio.run(service.list_tools())["tools"]
+        by_slug = {tool["slug"]: tool for tool in tools}
+        assert by_slug["code_only_tool"]["enabled"] is False
+    finally:
+        reopened.close()
+
+
+@pytest.mark.asyncio
+async def test_code_toggle_db_failure_does_not_mutate_registry(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """DB failure must leave the running registry at its prior durable state."""
+    client, registry, db = _make_client(monkeypatch)
+    try:
+        async def fail_persist(*args: Any, **kwargs: Any) -> None:
+            raise RuntimeError("injected database failure")
+
+        monkeypatch.setattr(
+            "app.core.tool_admin.tool_repository.set_code_tool_enabled", fail_persist
+        )
+        with pytest.raises(RuntimeError, match="injected database failure"):
+            await client.app.state.tool_admin.set_enabled("code_only_tool", False)
+
+        assert registry.code_tool_enabled("code_only_tool") is True
+        assert await db.fetch_one(
+            "SELECT 1 FROM tool WHERE slug = 'code_only_tool'"
+        ) is None
+    finally:
+        db.close()
+
+
+@pytest.mark.asyncio
+async def test_disabled_stale_code_row_does_not_poison_new_declarative_tool(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A removed disabled plugin slug can be reused and dispatched as DB tool."""
+    db = Database(":memory:")
+    try:
+        db.migrate()
+        _db_write(
+            db,
+            "INSERT INTO tool (slug, display_name, enabled, source) VALUES (?, ?, 0, 'code')",
+            ("removed_plugin_tool", "Removed plugin"),
+        )
+        from app.db import tool_repository
+
+        disabled = await tool_repository.disabled_code_tool_slugs(db)
+        rebooted = ToolRegistry([_KnowledgeStub()], disabled_code_tools=disabled)
+        assert rebooted.disabled_code_tools == frozenset()
+        service = ToolAdminService(
+            db,
+            settings=_settings("development"),
+            registry=rebooted,
+            transport=_mock_transport(),
+        )
+        definition = copy.deepcopy(_VALID_DEFINITION)
+        definition["slug"] = "removed_plugin_tool"
+        definition["operations"][0]["outputSchema"]["properties"]["length"] = {
+            "type": "integer"
+        }
+        await service.save_tool(definition, update=False)
+
+        assert any(item.name == "removed_plugin_tool" for item in rebooted.llm_catalogue)
+        result = await rebooted.execute(
+            ToolCall(
+                call_id=uuid4(),
+                name="removed_plugin_tool",
+                action="get_random_fact",
+                input={},
+            ),
+            None,
+        )
+        assert result.status is ToolResultStatus.SUCCESS
+        tools = await service.list_tools()
+        row = next(item for item in tools["tools"] if item["slug"] == "removed_plugin_tool")
+        assert row["source"] == "db"
+        assert row["enabled"] is True
+    finally:
+        db.close()
+
+
+def test_code_toggle_rejects_declarative_slug_collision(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A code toggle must never change a same-slug source='db' definition."""
+    client, registry, db = _make_client(monkeypatch)
+    try:
+        _db_write(
+            db,
+            "INSERT INTO tool (slug, display_name, source) VALUES (?, ?, 'db')",
+            ("code_only_tool", "Declarative collision"),
+        )
+        response = client.patch(
+            "/api/v1/admin/tools/code_only_tool/enabled", json={"enabled": False}
+        )
+
+        assert response.status_code == 409
+        assert registry.code_tool_enabled("code_only_tool") is True
+        row = asyncio.run(
+            db.fetch_one("SELECT enabled, source FROM tool WHERE slug = ?", ("code_only_tool",))
+        )
+        assert row is not None
+        assert (row["enabled"], row["source"]) == (1, "db")
+    finally:
+        db.close()
+
+
+def test_stale_code_row_can_be_reused_for_declarative_tool(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Removing a code plugin must not strand its persisted slug for DB tools."""
+    client, registry, db = _make_client(monkeypatch)
+    try:
+        _db_write(
+            db,
+            "INSERT INTO tool (slug, display_name, source) VALUES (?, ?, 'code')",
+            ("code_only_tool", "Removed plugin"),
+        )
+
+        response = client.post(
+            "/api/v1/admin/tools",
+            json={**_VALID_DEFINITION, "slug": "code_only_tool"},
+        )
+
+        assert response.status_code == 201
+        row = asyncio.run(
+            db.fetch_one("SELECT source FROM tool WHERE slug = ?", ("code_only_tool",))
+        )
+        assert row is not None
+        assert row["source"] == "db"
+        assert "code_only_tool" in registry.names
+    finally:
+        db.close()
+
+
+def test_unknown_tool_toggle_is_404(monkeypatch: pytest.MonkeyPatch) -> None:
+    client, _, _ = _make_client(monkeypatch)
+    response = client.patch("/api/v1/admin/tools/no_such_tool/enabled", json={"enabled": False})
+    assert response.status_code == 404
+
+
+def _tools_by_slug(client: TestClient) -> dict[str, dict[str, Any]]:
+    body = client.get("/api/v1/admin/tools").json()
+    return {tool["slug"]: tool for tool in body["tools"]}

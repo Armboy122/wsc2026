@@ -200,17 +200,32 @@ def test_get_tool_of_code_tool_is_rejected(monkeypatch: pytest.MonkeyPatch) -> N
     assert "โค้ด" in response.json()["detail"]
 
 
-def test_set_enabled_of_code_tool_is_rejected(monkeypatch: pytest.MonkeyPatch) -> None:
-    client, registry, _ = _make_client(monkeypatch)
+def test_disable_knowledge_is_blocked_by_guard(monkeypatch: pytest.MonkeyPatch) -> None:
+    """P4: knowledge เป็นเส้นทางหลัก — ปิดไม่ได้ ต้องถูกปฏิเสธด้วยเหตุผลที่ชัด (409)"""
+    client, registry, db = _make_client(monkeypatch)
     response = client.patch(
         "/api/v1/admin/tools/knowledge_tool/enabled", json={"enabled": False}
     )
-    assert response.status_code == 404
-    assert "โค้ด" in response.json()["detail"]
-    # ถูกปฏิเสธแล้ว knowledge ยังอยู่ใน registry และยังแสดงว่าเปิดอยู่
+    assert response.status_code == 409
+    assert "ความรู้" in response.json()["detail"]
+    # ถูกกันแล้ว knowledge ยังอยู่ใน registry และยังแสดงว่าเปิดอยู่
     assert "knowledge_tool" in registry.names
     knowledge = _tools_by_slug(client)["knowledge_tool"]
     assert knowledge["enabled"] is True
+    # ห้ามหลุดลง DB ด้วย
+    rows = asyncio.run(
+        db.fetch_all("SELECT enabled FROM tool WHERE slug = 'knowledge_tool'")
+    )
+    assert rows == []
+
+
+def test_enable_knowledge_is_allowed_noop(monkeypatch: pytest.MonkeyPatch) -> None:
+    client, registry, _ = _make_client(monkeypatch)
+    response = client.patch(
+        "/api/v1/admin/tools/knowledge_tool/enabled", json={"enabled": True}
+    )
+    assert response.status_code == 200
+    assert registry.code_tool_enabled("knowledge_tool") is True
 
 
 def test_declarative_tool_edit_and_toggle_still_work(monkeypatch: pytest.MonkeyPatch) -> None:

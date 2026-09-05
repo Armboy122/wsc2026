@@ -3,13 +3,14 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import Any, Iterable, Mapping, Protocol, runtime_checkable
+from typing import Any, Callable, Iterable, Mapping, Protocol, runtime_checkable
 from uuid import UUID
 
 from pydantic import ValidationError
 
 from app.agent.operation_policy import OperationLimits, OperationPolicy, OperationSpec
 from app.agent.response_policy import ResponsePolicies, ResponsePolicy
+from app.core.logging import get_logger, log_extra
 from app.tools.declarative_tool import DeclarativeTool
 from app.contracts import (
     INPUT_MODELS,
@@ -26,6 +27,8 @@ from app.contracts import (
     validate_tool_success_data,
 )
 from app.llm.models import ToolDefinition
+
+logger = get_logger(__name__)
 
 # Knowledge เป็นความสามารถหลักที่ไม่ผ่านระบบปลั๊กอิน จึงประกาศแค็ตตาล็อกไว้ที่เดียว
 BUILT_IN_CATALOGUE: tuple[ToolDefinition, ...] = (
@@ -87,6 +90,8 @@ class ToolRegistry:
         catalogue: tuple[ToolDefinition, ...] | None = None,
         response_policies: tuple[ResponsePolicy, ...] = (),
         operation_specs: Mapping[Any, OperationSpec] | None = None,
+        disabled_code_tools: Iterable[str] | frozenset[str] = (),
+        code_tool_enabled_provider: Callable[[str], bool] | None = None,
     ) -> None:
         by_name: dict[str, Tool] = {}
         for tool in tools:
@@ -99,6 +104,21 @@ class ToolRegistry:
             if name is not ToolName.KNOWLEDGE and not callable(getattr(tool, "reset", None)):
                 raise ValueError(f"เครื่องมือปฏิบัติการต้องรีเซ็ตได้: {_display_name(name)}")
         self._tools = by_name
+        self._code_tool_state_listeners: list[Callable[[str, bool], None]] = []
+        self._code_tool_enabled_provider = code_tool_enabled_provider
+        # P4: สถานะปิดของ code tool (เก็บเป็น plain string เสมอ กัน hash ของ str-Enum)
+        # knowledge ถูกตัดทิ้งเสมอ เพราะ registry บังคับว่า built-in ตัวนี้ต้องใช้งานได้เสมอ
+        # (เส้นทางความรู้คือ critical path — ปิดแล้วคำตอบจะไม่ grounded อีก)
+        registered_code_tools = frozenset(
+            _display_name(name)
+            for name, tool in by_name.items()
+            if name != ToolName.KNOWLEDGE and not isinstance(tool, DeclarativeTool)
+        )
+        self._disabled_code_tools: frozenset[str] = frozenset(
+            _display_name(name)
+            for name in disabled_code_tools
+            if _display_name(name) in registered_code_tools
+        )
         self._response_policies = ResponsePolicies(response_policies)
         self._catalogue = BUILT_IN_CATALOGUE + tuple(catalogue or ())
         declared = {definition.name for definition in self._catalogue}
@@ -135,8 +155,79 @@ class ToolRegistry:
 
     @property
     def llm_catalogue(self) -> tuple[ToolDefinition, ...]:
-        """แค็ตตาล็อกที่ Main Agent ส่งให้ LLM โดยไม่รวม action ที่เป็น internal"""
+        """แค็ตตาล็อกที่ Main Agent ส่งให้ LLM โดยไม่รวม action ที่เป็น internal
+
+        code tool ที่ถูกปิดจากหน้า admin (P4) หายจากแค็ตตาล็อกนี้ด้วย — LLM ไม่เห็น
+        จึงไม่มีทางเรียก ส่วนแค็ตตาล็อกเต็มสำหรับหน้า admin อยู่ที่ ``full_catalogue``
+        """
+        disabled_code_tools = self.disabled_code_tools
+        if not disabled_code_tools:
+            return self._catalogue
+        return tuple(
+            definition
+            for definition in self._catalogue
+            if _display_name(definition.name) not in disabled_code_tools
+        )
+
+    @property
+    def full_catalogue(self) -> tuple[ToolDefinition, ...]:
+        """แค็ตตาล็อกทุกรายการโดยไม่กรอง tool ที่ถูกปิด — ใช้กับหน้า admin/ชั้นที่ต้องเห็นครบ"""
         return self._catalogue
+
+    @property
+    def disabled_code_tools(self) -> frozenset[str]:
+        """slug ของ code tool ที่ถูกปิดอยู่ (แหล่งเดียวกับที่ catalogue/dispatch ใช้)"""
+        if self._code_tool_enabled_provider is not None:
+            return frozenset(
+                name for name in self.code_tool_names
+                if not self._code_tool_enabled_provider(name)
+            )
+        return self._disabled_code_tools
+
+    def code_tool_enabled(self, slug: str) -> bool:
+        """สถานะเปิด/ปิดปัจจุบันของ code tool — ใช้แสดงผลในหน้า admin"""
+        if self._code_tool_enabled_provider is not None:
+            return self._code_tool_enabled_provider(_display_name(slug))
+        return _display_name(slug) not in self._disabled_code_tools
+
+    def set_code_tool_enabled(self, slug: str, enabled: bool) -> None:
+        """เปิด/ปิด code tool ใน registry (in-memory) — ผู้เรียกต้อง persist ลง DB เอง
+
+        เป็น guard ข้อเดียวของระบบ: ห้ามปิด knowledge เพราะ registry บังคับว่า
+        built-in ตัวนี้ต้องมีและใช้งานได้เสมอ (ปิดแล้วคำตอบความรู้ไม่ grounded)
+        ผู้เรียกควร validate ก่อนเขียน DB แล้วเรียกเมธอดนี้หลัง persist สำเร็จ
+        """
+        name = _display_name(slug)
+        self.validate_code_tool_enabled(name, enabled)
+        if enabled:
+            self._disabled_code_tools = self._disabled_code_tools - {name}
+        else:
+            self._disabled_code_tools = self._disabled_code_tools | {name}
+        for listener in tuple(self._code_tool_state_listeners):
+            try:
+                listener(name, enabled)
+            except Exception as exc:
+                # A failed observer must not turn a committed admin toggle into
+                # a 500 or prevent other observers from reaching fail-closed state.
+                logger.warning(
+                    "code_tool_state_listener_failed",
+                    extra=log_extra(
+                        slug=name, enabled=enabled, error_type=type(exc).__name__
+                    ),
+                )
+
+    def add_code_tool_state_listener(
+        self, listener: Callable[[str, bool], None]
+    ) -> None:
+        """Subscribe to code-tool transitions without exposing registry internals."""
+        self._code_tool_state_listeners.append(listener)
+
+    def validate_code_tool_enabled(self, slug: str, enabled: bool) -> None:
+        """ตรวจ guard ของสถานะ code tool โดยไม่เปลี่ยนสถานะใน registry."""
+        if _display_name(slug) == ToolName.KNOWLEDGE.value and not enabled:
+            raise ValueError(
+                "ปิดเครื่องมือความรู้ (knowledge) ไม่ได้ — เป็นเส้นทางหลักที่ระบบต้องใช้เสมอ"
+            )
 
     def replace_declarative_tools(
         self,
@@ -161,6 +252,9 @@ class ToolRegistry:
         merged = {n: t for n, t in self._tools.items() if n not in old_names}
         merged.update({t.name: t for t in new_tools})
         self._tools = merged
+        # A stale code-state row may be reused by a declarative definition after
+        # its plugin is removed; the live declarative tool must not inherit it.
+        self._disabled_code_tools = self._disabled_code_tools - new_names
         kept_catalogue = tuple(d for d in self._catalogue if d.name not in old_names)
         self._catalogue = kept_catalogue + tuple(catalogue)
         self._operation_specs = {
@@ -242,6 +336,14 @@ class ToolRegistry:
             allowed_actions = getattr(self._tools.get(call.name), "actions", None) or frozenset()
         if call.name not in self._tools or call.action not in allowed_actions:
             return _error_result(call, ToolErrorCode.INVALID_INPUT, "ไม่รู้จักเครื่องมือหรือการกระทำ")
+        # P4: code tool ที่ถูกปิดจากหน้า admin ต้องถูกปฏิเสธอย่างชัดเจนที่จุด dispatch เดียว
+        # (ครอบทุกช่องทางรวมช่องทางเสียงผ่าน scoped registry) — ไม่พึ่งแค่การหายจากแค็ตตาล็อก
+        if not self.code_tool_enabled(_display_name(call.name)):
+            return _error_result(
+                call,
+                ToolErrorCode.UNAVAILABLE,
+                "เครื่องมือนี้ถูกปิดใช้งานอยู่ — เปิดใหม่ได้จากหน้า admin",
+            )
         # INPUT_MODELS/OUTPUT_MODELS รู้จักเฉพาะ action ของ 3 tool เดิม (voc/knowledge/oms) —
         # จึงบังคับใช้เฉพาะคู่ (tool_slug, action) ที่เป็น legacy จริง (มีใน TOOL_ACTIONS) เท่านั้น
         # ประกอบด้วย action อย่างเดียวไม่พอ เพราะ declarative tool ตัวใหม่เลือกชื่อ action ชนกับ

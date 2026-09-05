@@ -97,7 +97,9 @@ async def save_tool(
     ]
 
     def _write(conn: sqlite3.Connection) -> None:
-        existing = conn.execute("SELECT id FROM tool WHERE slug = ?", (shape.slug,)).fetchone()
+        existing = conn.execute(
+            "SELECT id, source FROM tool WHERE slug = ?", (shape.slug,)
+        ).fetchone()
         if existing is None:
             cursor = conn.execute(
                 "INSERT INTO tool (slug, display_name, description, enabled, source) "
@@ -109,7 +111,8 @@ async def save_tool(
         else:
             tool_id = existing["id"]
             conn.execute(
-                "UPDATE tool SET display_name = ?, description = ?, enabled = ? WHERE id = ?",
+                "UPDATE tool SET display_name = ?, description = ?, enabled = ?, source = 'db' "
+                "WHERE id = ?",
                 (shape.display_name, shape.description, int(enabled), tool_id),
             )
             conn.execute("DELETE FROM tool_operation WHERE tool_id = ?", (tool_id,))
@@ -158,6 +161,40 @@ async def set_tool_enabled(db: Database, slug: str, enabled: bool) -> bool:
         return False
     await db.execute("UPDATE tool SET enabled = ? WHERE id = ?", (int(enabled), cursor_row["id"]))
     return True
+
+
+async def set_code_tool_enabled(db: Database, slug: str, enabled: bool) -> None:
+    """persist สถานะเปิด/ปิดของ code tool (P4) เป็นแถว ``source='code'`` ในตาราง tool เดิม
+
+    เลือกใช้ตารางเดิมเพราะมีคอลัมน์ enabled + source รองรับอยู่แล้ว (ไม่ต้อง migrate)
+    แถวนี้มีแค่ slug/enabled/source — ไม่มี operation/auth เหมือนแถว declarative และถูก
+    ตัดออกจากทุกเส้นทางของ declarative เพราะทุก query กรอง ``source='db'`` อยู่แล้ว
+    """
+
+    def _write(conn: sqlite3.Connection) -> None:
+        existing = conn.execute(
+            "SELECT source FROM tool WHERE slug = ?", (slug,)
+        ).fetchone()
+        if existing is not None and existing["source"] != "code":
+            raise ValueError(
+                "ไม่สามารถเก็บสถานะ code tool ทับ declarative tool ที่มีอยู่ได้"
+            )
+        conn.execute(
+            "INSERT INTO tool (slug, display_name, description, enabled, source) "
+            "VALUES (?, ?, '', ?, 'code') "
+            "ON CONFLICT(slug) DO UPDATE SET enabled = excluded.enabled",
+            (slug, slug, int(enabled)),
+        )
+
+    await db.run_in_transaction(_write)
+
+
+async def disabled_code_tool_slugs(db: Database) -> tuple[str, ...]:
+    """slug ของ code tool ที่ถูกปิดไว้ — main.py ใช้ตอน boot เพื่อ restore สถานะข้าม restart"""
+    rows = await db.fetch_all(
+        "SELECT slug FROM tool WHERE source = 'code' AND enabled = 0 ORDER BY slug"
+    )
+    return tuple(row["slug"] for row in rows)
 
 
 def _definition_from_rows(

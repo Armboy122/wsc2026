@@ -79,6 +79,14 @@ def test_saved_definition_round_trips_through_api_and_payload_builder(
     assert client.get("/api/v1/admin/tools/edit_contract_e2e").json() == before
 
 
+def test_code_tool_edit_reason_is_separate_from_toggle_guard() -> None:
+    js = ADMIN_JS.read_text()
+
+    assert "definition ของ tool นี้แก้ไขจากหน้าเว็บไม่ได้" in js
+    assert "editBtn.title = tool.toggleDisabledReason" not in js
+    assert "toggleBtn.title = tool.toggleDisabledReason" in js
+
+
 def test_authenticated_tool_payload_allows_preserve_header_edit_and_remove() -> None:
     result = run_node(
         "const base = {slug:'tool', displayName:'Tool', enabled:true, hasAuth:true, "

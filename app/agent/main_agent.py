@@ -102,7 +102,13 @@ class MainAgent:
         self._llm = llm_client
         self._tools = tool_registry
         # flow แบบกำหนดผลได้ของปลั๊กอิน ใช้เมื่อ write ต้องใช้รหัสจาก catalog ที่โมเดลเดาไม่ได้
-        self._guided_flows = guided_flows or GuidedFlows()
+        self._guided_flows = (
+            guided_flows if guided_flows is not None else GuidedFlows()
+        )
+        # Every MainAgent, including scoped channel agents, must observe the same
+        # live tool-enabled state before entering a plugin-owned flow.
+        self._guided_flows.bind_tool_enabled(self._tools.code_tool_enabled)
+        self._tools.add_code_tool_state_listener(self._guided_flows.code_tool_state_changed)
         self._response_policies = tool_registry.response_policies
         self._conversations = conversations or ConversationStore()
         self._pending_actions = pending_actions or PendingActionStore()

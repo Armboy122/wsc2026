@@ -260,11 +260,11 @@ Admin ปิดใช้งานโดยสมบูรณ์เมื่อ�
 | `POST /login` | `{password: string(1..256)}` | `200 {authenticated:true}` + cookie; รหัสผิด `401`; ไม่ตั้งค่า `503`; body ผิด `422` |
 | `GET /session` | cookie | `200 {authenticated:true}`; ไม่มี/ผิด `401` หรือ admin ปิด `503` |
 | `POST /logout` | ไม่ต้อง auth | `200 {authenticated:false}` + ลบ cookie |
-| `GET /tools` | admin session | `{appEnv, tools[]}` รวม code tool (`editable:false`) และ DB tool (`editable:true`) โดย `hasAuth` เป็น boolean เท่านั้น (ไม่คืน `authEnvVar`) · DB tool ที่มี auth คืน `authHeaderName`/`authScheme` ได้เพราะไม่ใช่ความลับ |
+| `GET /tools` | admin session | `{appEnv, tools[]}` รวม code tool (`editable:false`, `enabled` สะท้อนสถานะจริง) และ DB tool (`editable:true`) โดย `hasAuth` เป็น boolean เท่านั้น (ไม่คืน `authEnvVar`) · DB tool ที่มี auth คืน `authHeaderName`/`authScheme` ได้เพราะไม่ใช่ความลับ · code tool คืน `toggleDisabledReason` (null = เปิด/ปิดได้) |
 | `GET /tools/{slug}` | admin session | definition ของ DB tool; ไม่คืน `authEnvVar`; code tool/ไม่พบ `404` |
 | `POST /tools` | `AdminToolDefinitionInput` | บันทึก+hot reload, `201` พร้อม definition; ชน `409`, validation `400` |
 | `PUT /tools/{slug}` | `AdminToolDefinitionInput` | slug ต้องตรง URL; บันทึก+hot reload, `200`; ไม่พบ `404`, ชน/validation ตามข้างต้น |
-| `PATCH /tools/{slug}/enabled` | `{enabled:boolean}` | `200 {slug,enabled}` และ hot reload; ไม่พบหรือ code tool `404` |
+| `PATCH /tools/{slug}/enabled` | `{enabled:boolean}` | `200 {slug,enabled}` · DB tool hot reload, code tool ปรับสถานะ registry+DB ทันที (persist ข้าม restart); ไม่พบ `404`; ปิด knowledge `409` (guard เส้นทางหลัก) |
 | `POST /tools/try` | `{httpMethod,urlTemplate,input,inputSchema?,authEnvVar?,authHeaderName?,authScheme?}` | ผลสำเร็จ `{ok:true,request:{method,url,query,body},response:{statusCode,elapsedMs,body,isJson,text,textTruncated?}}`; ปฏิเสธ `{ok:false,reason,error}` ไม่ใช้ HTTP error; secret ถูก redact และไม่คืน request headers |
 | `GET /prompt` | admin session | `{key,content,updatedAt,isModified}` |
 | `PUT /prompt` | `{content:string(1..20000)}` | `200` พร้อมผลเดียวกับ GET; ว่าง/เกินเพดาน `400` |

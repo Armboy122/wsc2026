@@ -80,13 +80,15 @@ def _scoped_registry(
     ``ToolRegistry`` บังคับว่าต้องมีเสมอ ผู้เรียกจะถอยไปใช้ registry เดิม
     """
     tools = [tool for name, tool in registry._tools.items() if name in allowed]  # noqa: SLF001
+    # P4: ใช้ full_catalogue ไม่ใช่ llm_catalogue เพราะ llm_catalogue กรอง code tool
+    # ที่ถูกปิดออกแล้ว — สถานะ disabled ต้องถูกส่งต่อเข้า registry ใหม่แทน
     catalogue = tuple(
         definition
-        for definition in registry.llm_catalogue
+        for definition in registry.full_catalogue
         if definition.name in allowed
     )
     try:
-        return ToolRegistry(
+        scoped = ToolRegistry(
             tools,
             # BUILT_IN_CATALOGUE ถูกเติมโดย ToolRegistry เอง ส่งเฉพาะส่วนปลั๊กอิน
             catalogue=tuple(
@@ -101,6 +103,13 @@ def _scoped_registry(
             # เช่นเดียวกับ response_policies: policy ต่อ operation คงไว้ทั้งชุดได้
             # เพราะ action ของเครื่องมือที่ถูกกรองออกไม่มีทางถูกเรียกในช่องทางนี้
             operation_specs=registry.operation_specs,
+            # P4: สถานะเปิด/ปิดของ code tool ต้องเหมือน agent กลางทุกช่องทาง
+            disabled_code_tools=registry.disabled_code_tools,
+            # Read the shared registry on every catalogue/dispatch check so an
+            # open scoped session cannot retain a stale toggle state.
+            code_tool_enabled_provider=registry.code_tool_enabled,
         )
     except ValueError:
         return None
+
+    return scoped
