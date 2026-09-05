@@ -23,7 +23,11 @@ operations:
     description: โหลด catalog ทางเลือกและ taxonomy ล่าสุดจากระบบ VOC
     exposure: llm
     mode: read
-    inputContract: EmptyInput
+    inputSchema:
+      type: object
+      properties: {}
+      required: []
+      additionalProperties: false
     outputContract: VocCategoryListOutput
     policy: plain_read
 
@@ -32,7 +36,61 @@ operations:
     exposure: llm
     mode: prepare
     submitAction: submit_case
-    inputContract: VocPrepareCaseInput
+    inputSchema:
+      type: object
+      properties:
+        category:
+          type: string
+          enum:
+            - power_quality
+            - service
+            - compliment
+            - tip_off
+            - operations
+            - stakeholder_feedback
+          description: ประเภทเรื่องร้องเรียนตาม catalog ของ VOC
+        subject:
+          type: string
+          description: หัวข้อเรื่องสั้น ๆ
+        detail:
+          type: string
+          description: รายละเอียดเรื่องร้องเรียน
+        contactName:
+          type: string
+          description: ชื่อผู้แจ้ง
+        contactPhone:
+          type: string
+          description: เบอร์ติดต่อกลับ
+        location:
+          type: string
+          description: สถานที่ที่เกี่ยวข้อง
+        contactChannel:
+          type: string
+          enum: [phone, email, none]
+          description: ช่องทางที่ผู้แจ้งสะดวกให้ติดต่อกลับ
+        idempotencyKey:
+          type: string
+          description: กันการส่งซ้ำจากการเรียกซ้ำ
+        externalPayload:
+          anyOf:
+            - type: object
+              properties: {}
+              required: []
+              additionalProperties: false
+            - type: "null"
+          description: >
+            โครงข้อมูลตาม taxonomy จริงที่ guided flow เติมให้เองหลังผู้ใช้ตอบครบ
+            ไม่ใช่สิ่งที่ LLM สร้างเอง (ดู app/plugins/voc/intake.py)
+      required:
+        - category
+        - subject
+        - detail
+        - contactName
+        - contactPhone
+        - location
+        - contactChannel
+        - idempotencyKey
+      additionalProperties: false
     outputContract: VocPrepareCaseOutput
     policy: write_confirm
 
@@ -40,7 +98,17 @@ operations:
     description: ส่งเรื่อง VOC ไปยัง API หลังผู้ใช้ยืนยันอย่างชัดเจนแล้วเท่านั้น
     exposure: internal
     mode: submit
-    inputContract: SubmitPreparedActionInput
+    inputSchema:
+      type: object
+      properties:
+        pendingActionId:
+          type: string
+          description: รหัสของรายการที่เตรียมไว้และผู้ใช้ยืนยันแล้ว
+        idempotencyKey:
+          type: string
+          description: กันการส่งซ้ำจากการเรียกซ้ำ
+      required: [pendingActionId, idempotencyKey]
+      additionalProperties: false
     outputContract: VocCaseOutput
     policy: write_confirm
 
@@ -48,6 +116,16 @@ operations:
     description: ติดตามเคสเดียวด้วย VOC Number และ Key Code
     exposure: llm
     mode: read
-    inputContract: VocGetCaseInput
+    inputSchema:
+      type: object
+      properties:
+        vocId:
+          type: string
+          description: VOC Number ของเคส
+        trackingKey:
+          type: string
+          description: Key Code ที่ใช้ยืนยันตัวตนผู้ติดตาม
+      required: [vocId, trackingKey]
+      additionalProperties: false
     outputContract: VocGetCaseOutput
     policy: plain_read

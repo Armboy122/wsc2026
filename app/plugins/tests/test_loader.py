@@ -185,13 +185,41 @@ def test_manifest_operation_without_policy_defaults_closed_even_if_exposure_says
     assert "get_outage_by_ca" not in {op.action.value for op in manifest.llm_actions}
 
 
-def test_manifest_contract_drift_from_pydantic_fails_closed() -> None:
-    """YAML ต้องไม่กลายเป็น schema ชุดที่สองที่หลุดจาก app/contracts.py"""
+def test_manifest_output_contract_drift_from_pydantic_fails_closed() -> None:
+    """outputContract ยังอ้างชื่อคลาส Pydantic เดิม — D2.2 เปลี่ยนแค่ input เป็น inputSchema"""
     payload = _manifest_dict()
-    payload["operations"][0]["inputContract"] = "SomeOtherInput"
+    payload["operations"][0]["outputContract"] = "SomeOtherOutput"
 
-    with pytest.raises(ValueError, match="inputContract"):
+    with pytest.raises(ValueError, match="outputContract"):
         PluginManifest.model_validate(payload)
+
+
+def test_manifest_input_schema_outside_the_allowed_subset_fails_closed() -> None:
+    """D2.2/D1.2: inputSchema ที่หลุด subset ต้อง reject ตอน startup ไม่ใช่รอพังตอนรัน"""
+    payload = _manifest_dict()
+    payload["operations"][0]["inputSchema"] = {
+        "type": "object",
+        "properties": {"caNumber": {"type": "string", "pattern": "^[0-9]{12}$"}},
+        "required": ["caNumber"],
+        "additionalProperties": False,
+    }
+
+    with pytest.raises(ValueError, match="inputSchema"):
+        PluginManifest.model_validate(payload)
+
+
+def test_load_plugins_fails_closed_when_input_schema_breaks_the_subset(tmp_path: Path) -> None:
+    """D2.2 เกณฑ์เสร็จ: manifest ที่ schema ผิด = startup ล้ม (fail closed)"""
+    payload = _manifest_dict()
+    payload["operations"][0]["inputSchema"] = {
+        "type": "object",
+        "properties": {"caNumber": {"type": "string", "minLength": 12}},
+        "required": ["caNumber"],
+        "additionalProperties": False,
+    }
+
+    with pytest.raises(PluginError, match="manifest ไม่ถูกต้อง"):
+        load_plugins(load_settings(), plugin_root=_write(tmp_path, payload))
 
 
 def test_untrusted_factory_path_is_rejected() -> None:

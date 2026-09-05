@@ -25,7 +25,14 @@ operations:
       โดย OMS จะ resolve Meter → Transformer → Feeder
     exposure: llm
     mode: read
-    inputContract: OmsGetOutageByCaInput
+    inputSchema:
+      type: object
+      properties:
+        caNumber:
+          type: string
+          description: หมายเลขผู้ใช้ไฟ 12 หลัก
+      required: [caNumber]
+      additionalProperties: false
     outputContract: OmsGetOutageByCaOutput
     policy: plain_read
 
@@ -36,7 +43,30 @@ operations:
     exposure: llm
     mode: prepare
     submitAction: submit_outage_with_ca
-    inputContract: OmsPrepareOutageWithCaInput
+    inputSchema:
+      type: object
+      properties:
+        caNumber:
+          type: string
+          description: หมายเลขผู้ใช้ไฟ 12 หลัก
+        description:
+          type: string
+          description: อาการที่ผู้ใช้แจ้ง
+        contactPhone:
+          anyOf:
+            - type: string
+            - type: "null"
+          description: เบอร์ติดต่อกลับ (ไม่บังคับ)
+        locationNote:
+          anyOf:
+            - type: string
+            - type: "null"
+          description: จุดสังเกตเพิ่มเติมของสถานที่ (ไม่บังคับ)
+        idempotencyKey:
+          type: string
+          description: กันการส่งซ้ำจากการเรียกซ้ำ
+      required: [caNumber, description, idempotencyKey]
+      additionalProperties: false
     outputContract: OmsPrepareOutageOutput
     policy: write_confirm
 
@@ -45,7 +75,17 @@ operations:
       ส่งรายการที่ผ่านการยืนยันจากผู้ใช้แล้วไปยัง OMS
     exposure: internal
     mode: submit
-    inputContract: SubmitPreparedActionInput
+    inputSchema:
+      type: object
+      properties:
+        pendingActionId:
+          type: string
+          description: รหัสของรายการที่เตรียมไว้และผู้ใช้ยืนยันแล้ว
+        idempotencyKey:
+          type: string
+          description: กันการส่งซ้ำจากการเรียกซ้ำ
+      required: [pendingActionId, idempotencyKey]
+      additionalProperties: false
     outputContract: OmsCreateOutageWithCaOutput
     policy: write_confirm
 
@@ -56,7 +96,33 @@ operations:
     exposure: llm
     mode: prepare
     submitAction: submit_anonymous_outage
-    inputContract: OmsPrepareAnonymousOutageInput
+    inputSchema:
+      type: object
+      properties:
+        description:
+          type: string
+          description: อาการที่ผู้ใช้แจ้ง
+        location:
+          type: string
+          description: สถานที่เกิดเหตุ
+        contactPhone:
+          type: string
+          description: เบอร์ติดต่อกลับ
+        idempotencyKey:
+          type: string
+          description: กันการส่งซ้ำจากการเรียกซ้ำ
+        lat:
+          anyOf:
+            - type: number
+            - type: "null"
+          description: พิกัดละติจูดจากอุปกรณ์ผู้ใช้ (เติมจาก clientContext ไม่ใช่ให้ LLM กรอกเอง)
+        lon:
+          anyOf:
+            - type: number
+            - type: "null"
+          description: พิกัดลองจิจูดจากอุปกรณ์ผู้ใช้ (เติมจาก clientContext ไม่ใช่ให้ LLM กรอกเอง)
+      required: [description, location, contactPhone, idempotencyKey]
+      additionalProperties: false
     outputContract: OmsPrepareOutageOutput
     policy: write_confirm
     clientContext:
@@ -68,6 +134,16 @@ operations:
       ส่งรายการแจ้งเหตุแบบไม่ทราบหมายเลขผู้ใช้ไฟหลังผู้ใช้ยืนยัน
     exposure: internal
     mode: submit
-    inputContract: SubmitPreparedActionInput
+    inputSchema:
+      type: object
+      properties:
+        pendingActionId:
+          type: string
+          description: รหัสของรายการที่เตรียมไว้และผู้ใช้ยืนยันแล้ว
+        idempotencyKey:
+          type: string
+          description: กันการส่งซ้ำจากการเรียกซ้ำ
+      required: [pendingActionId, idempotencyKey]
+      additionalProperties: false
     outputContract: OmsCreateAnonymousOutageOutput
     policy: write_confirm

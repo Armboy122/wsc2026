@@ -245,8 +245,8 @@ loader จะสแกน `app/plugins/*/plugin.yaml` ตอนเปิดเ�
 **ใช้ชื่ออะไรก็ได้** เช่น `./scripts/add-plugin billing` สำหรับ REST ตัวใหม่ที่ยังไม่มีใน contracts
 
 - ถ้าเครื่องมือนั้น**ประกาศไว้แล้ว** ใน `app/contracts.py` script จะ generate `operations` ให้ครบ
-  ทั้งรายการ action, `inputContract`/`outputContract`, คู่ `prepare_* → submit_*`
-  และตั้ง `exposure: internal` ให้ทุก `submit_*` อัตโนมัติ — จึงไม่มีทาง drift จาก Pydantic
+  ทั้งรายการ action, โครง `inputSchema` เปล่า (ต้องเติมฟิลด์เอง), `outputContract`,
+  คู่ `prepare_* → submit_*` และตั้ง `exposure: internal` ให้ทุก `submit_*` อัตโนมัติ
 - ถ้าเป็น**ชื่อใหม่** จะได้โครง `operations` พร้อมคำแนะนำไว้ให้ (`enabled: false`)
   เพิ่ม contract แล้วรัน `--force` ซ้ำเพื่อ generate ของจริงทับ
 
@@ -286,8 +286,10 @@ metadata:
 | `app/tools/*.py` | HTTP, authentication, payload/error mapping | planning/presentation |
 | `app/contracts.py` | **source of truth เดียว** ของ schema | — |
 
-YAML เก็บเพียง *ชื่อ* คลาส contract (เช่น `inputContract: OmsGetOutageByCaInput`) แล้ว loader
-ตรวจกับ Pydantic จริงตอน startup — ถ้าไม่ตรงจะ **fail closed** ทันที จึงไม่มี JSON Schema ชุดที่สอง
+`inputSchema` ฝัง JSON Schema จริง (subset ที่ `app/tools/schema_subset.py` ตรวจตาม CONTRACTS-V2.md §2)
+ตรง ๆ ใน YAML — schema ที่หลุด subset ทำให้ startup **fail closed** ทันที (D1.2/D2.2)
+ส่วน `outputContract` ยังเก็บเพียง *ชื่อ* คลาส Pydantic แล้ว loader ตรวจกับ `app/contracts.py` จริงตอน
+startup เช่นเดิม — ถ้าไม่ตรงจะ fail closed เหมือนกัน
 
 ### สิ่งที่ระบบบังคับให้เสมอ (write safety)
 

@@ -1,18 +1,20 @@
-"""สัญญาของ plugin manifest ที่ตรวจสอบกับ Pydantic contracts จริงเสมอ
+"""สัญญาของ plugin manifest — D2.2: ``inputSchema`` เป็นข้อมูลจริง ไม่ใช่ชื่อคลาส
 
-manifest เป็น trusted configuration ที่ commit อยู่ใน repository ทำหน้าที่เพียง
-discovery และ metadata ส่วน schema ของ input/output ยังคงมาจาก ``app/contracts.py``
-เพื่อไม่ให้เกิด schema สองชุดที่ drift ออกจากกัน
+manifest เป็น trusted configuration ที่ commit อยู่ใน repository ``inputSchema`` ฝัง
+JSON Schema (subset ที่ ``app/tools/schema_subset.py`` ตรวจ ตาม D1.2) โดยตรง แทนที่จะ
+เทียบชื่อคลาส Pydantic ใน ``app/contracts.py`` — นี่คือก้าวแรกที่ manifest พูดภาษาเดียวกับ
+DB-backed declarative tool ในอนาคต (ARCHITECTURE-V2.md §3.4) ``outputContract`` ยังอ้าง
+ชื่อคลาสเดิมต่อไป (outputSchema เป็นข้อมูลจริงอยู่นอกขอบเขตของ D2.2)
 """
 
 from __future__ import annotations
 
 from enum import Enum
+from typing import Any
 
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 from app.contracts import (
-    INPUT_MODELS,
     OUTPUT_MODELS,
     PREPARE_TO_SUBMIT,
     TOOL_ACTIONS,
@@ -26,6 +28,7 @@ from app.agent.operation_policy import (
     OperationPolicy,
     OperationSpec,
 )
+from app.tools.schema_subset import SchemaSubsetError, validate_schema_subset
 
 # factory ต้องอยู่ใต้แพ็กเกจปลั๊กอินของ repository เท่านั้น ไม่รับ path จากภายนอก
 TRUSTED_FACTORY_ROOT = "app.plugins."
@@ -56,7 +59,9 @@ class PluginOperation(BaseModel):
     exposure: OperationExposure
     mode: OperationMode
     submit_action: ToolAction | None = Field(default=None, alias="submitAction")
-    input_contract: str = Field(min_length=1, alias="inputContract")
+    # D2.2: schema เป็นข้อมูลจริงแทนชื่อคลาส Pydantic (ARCHITECTURE-V2.md §3.4)
+    # ต้องอยู่ใน JSON Schema subset ที่ allowlist ไว้ (CONTRACTS-V2.md §2, D1.2)
+    input_schema: dict[str, Any] = Field(alias="inputSchema")
     output_contract: str = Field(min_length=1, alias="outputContract")
     # D1.4: policy 4 แบบ + limits + clientContext (ARCHITECTURE-V2.md §4, CONTRACTS-V2.md §3)
     # ไม่ประกาศ policy => ค่าเริ่มต้น plain_read + ถูกบังคับเป็น exposure: internal (fail safe)
@@ -65,18 +70,31 @@ class PluginOperation(BaseModel):
     client_context: dict[str, str] | None = Field(default=None, alias="clientContext")
 
     @model_validator(mode="after")
-    def _check_contracts(self) -> PluginOperation:
-        """ยึด Pydantic contracts เป็น source of truth และ fail closed เมื่อ manifest drift"""
-        expected_input = INPUT_MODELS[self.action].__name__
-        if self.input_contract != expected_input:
-            raise ValueError(
-                f"inputContract ของ {self.action.value} ต้องเป็น {expected_input} ไม่ใช่ {self.input_contract}"
-            )
+    def _check_input_schema(self) -> PluginOperation:
+        """inputSchema ต้องอยู่ใน JSON Schema subset ที่ระบบรับ (D1.2, CONTRACTS-V2.md §2)
+
+        ทำที่ save/startup เสมอ — schema ที่หลุด subset ทำให้ tool "บันทึกผ่านแต่รันไม่ได้"
+        ซึ่งเป็นบั๊กที่หาสาเหตุยากที่สุด (ARCHITECTURE-V2.md §3.2)
+        """
+        try:
+            validate_schema_subset(self.input_schema)
+        except SchemaSubsetError as error:
+            raise ValueError(f"inputSchema ของ {self.action.value} ไม่ถูกต้อง: {error}") from error
+        return self
+
+    @model_validator(mode="after")
+    def _check_output_contract(self) -> PluginOperation:
+        """output ยังอ้างชื่อคลาส Pydantic เดิม — outputSchema เป็นข้อมูลจริงอยู่นอกขอบเขต D2.2"""
         expected_output = OUTPUT_MODELS[self.action].__name__
         if self.output_contract != expected_output:
             raise ValueError(
                 f"outputContract ของ {self.action.value} ต้องเป็น {expected_output} ไม่ใช่ {self.output_contract}"
             )
+        return self
+
+    @model_validator(mode="after")
+    def _check_operation_shape(self) -> PluginOperation:
+        """ตรวจความสอดคล้องของ mode/submitAction/policy/exposure — ไม่เกี่ยวกับ schema"""
         expected_submit = PREPARE_TO_SUBMIT.get(self.action)
         if self.mode is OperationMode.PREPARE:
             if expected_submit is None:

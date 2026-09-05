@@ -1,10 +1,10 @@
 #!/usr/bin/env python3
 """สร้างโครงปลั๊กอินเปล่าใต้ ``app/plugins/<id>/`` จากสัญญาที่ประกาศไว้แล้ว
 
-ใช้เมื่อจะเพิ่มเครื่องมือใหม่เข้าระบบ โดย script จะอ่าน action, input/output contract
-และ prepare→submit mapping จาก ``app/contracts.py`` ซึ่งเป็น source of truth จริง
-แล้วเขียน ``plugin.yaml`` กับ ``factory.py`` ให้ตรงกันตั้งแต่ต้น จึงไม่ต้องพิมพ์เอง
-และไม่มีโอกาสที่ manifest จะ drift จาก Pydantic
+ใช้เมื่อจะเพิ่มเครื่องมือใหม่เข้าระบบ โดย script จะอ่าน action, prepare→submit mapping
+และชื่อคลาส output จาก ``app/contracts.py`` ซึ่งเป็น source of truth ของ action ที่มี
+แล้วเขียน ``plugin.yaml`` กับ ``factory.py`` ให้ตรงกันตั้งแต่ต้น (D2.2: ``inputSchema``
+เป็น JSON Schema ที่ต้องเติมเองให้ตรงกับ input จริงของ action นั้น ไม่ใช่ชื่อคลาสที่ generate ได้)
 
 ตัวอย่าง:
 
@@ -24,7 +24,6 @@ _REPO_ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(_REPO_ROOT))
 
 from app.contracts import (  # noqa: E402 - ต้องตั้ง sys.path ให้ import แพ็กเกจ app ได้ก่อน
-    INPUT_MODELS,
     OUTPUT_MODELS,
     PREPARE_TO_SUBMIT,
     TOOL_ACTIONS,
@@ -46,7 +45,7 @@ def _mode_of(action: ToolAction) -> str:
 
 
 _PLACEHOLDER_OPERATIONS = """  # TODO: ยังไม่มี action ของเครื่องมือนี้ใน app/contracts.py
-  # เพิ่ม ToolName/ToolAction/TOOL_ACTIONS และ INPUT_MODELS/OUTPUT_MODELS ก่อน
+  # เพิ่ม ToolName/ToolAction/TOOL_ACTIONS และ OUTPUT_MODELS ก่อน
   # แล้วรัน ./scripts/add-plugin <ชื่อ> --force ซ้ำเพื่อ generate บล็อกนี้ให้อัตโนมัติ
   #
   # - action: ตัวอย่างชื่อ action
@@ -54,7 +53,11 @@ _PLACEHOLDER_OPERATIONS = """  # TODO: ยังไม่มี action ของ
   #     อธิบายว่า action นี้ทำอะไรให้ผู้ใช้
   #   exposure: llm          # ใช้ internal สำหรับ submit_* เท่านั้น
   #   mode: read             # read | prepare | submit
-  #   inputContract: ชื่อคลาส Pydantic ใน app/contracts.py
+  #   inputSchema:           # JSON Schema subset ที่ CONTRACTS-V2.md §2 รับ (ดู app/tools/schema_subset.py)
+  #     type: object
+  #     properties: {}
+  #     required: []
+  #     additionalProperties: false
   #   outputContract: ชื่อคลาส Pydantic ใน app/contracts.py"""
 
 
@@ -80,8 +83,16 @@ def _operations_yaml(tool: ToolName | None) -> str:
         submit_action = PREPARE_TO_SUBMIT.get(action)
         if submit_action is not None:
             lines.append(f"    submitAction: {submit_action.value}")
-        lines.append(f"    inputContract: {INPUT_MODELS[action].__name__}")
-        lines.append(f"    outputContract: {OUTPUT_MODELS[action].__name__}")
+        lines.extend(
+            [
+                "    inputSchema:",
+                "      type: object",
+                "      properties: {}  # TODO: เติมฟิลด์จริงของ action นี้ (ดู CONTRACTS-V2.md §2)",
+                "      required: []",
+                "      additionalProperties: false",
+                f"    outputContract: {OUTPUT_MODELS[action].__name__}",
+            ]
+        )
         blocks.append("\n".join(lines))
     return "\n\n".join(blocks)
 
