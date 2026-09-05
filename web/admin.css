@@ -72,6 +72,14 @@ h3 { font-size: 1.05rem; margin: 0 0 0.5rem; }
 h5 { font-size: 0.9rem; margin: 0.75rem 0 0.35rem; color: var(--text-600); }
 
 /* ---------- โครงหน้า ---------- */
+
+/* กฎ [hidden] ของเบราว์เซอร์มี specificity ต่ำกว่า class selector จึงถูก
+   .auth-wrap { display: grid } ทับ ทำให้หน้าล็อกอินยังแสดงทับหน้าแอดมิน
+   แม้ล็อกอินสำเร็จแล้ว (showApp ตั้ง hidden แต่ไม่มีผล) — บังคับไว้ที่เดียว */
+[hidden] {
+  display: none !important;
+}
+
 .auth-wrap {
   min-height: 100vh;
   min-height: 100dvh;
