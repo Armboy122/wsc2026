@@ -35,6 +35,7 @@ from app.agent.tool_shape import ToolOperationShape, ToolShape, from_plugin
 from app.contracts import INPUT_MODELS, ToolAction
 from app.core.config import Settings
 from app.core.errors import ConflictException, NotFoundException
+from app.core.logging import get_logger, log_extra
 from app.db import Database
 from app.db import tool_repository
 from app.plugins.loader import LoadedPlugin
@@ -57,6 +58,7 @@ _TRY_TOOL_SLUG = "admin_try"
 
 # token แทนที่ตำแหน่งของ secret ใน response ของปุ่ม "ลองยิงดู" (D3.5 hardening)
 _REDACTED = "[REDACTED]"
+logger = get_logger(__name__)
 
 
 class ToolAdminService:
@@ -184,6 +186,16 @@ class ToolAdminService:
         await self.reload()
         saved = await tool_repository.get_tool_definition(self._db, shape.slug)
         assert saved is not None  # เขียนสำเร็จแล้วต้องอ่านกลับได้
+        logger.info(
+            "admin_tool_saved",
+            extra=log_extra(
+                slug=shape.slug,
+                operation_count=len(shape.operations),
+                update=update,
+                enabled=enabled,
+                has_auth=auth_env_var is not None,
+            ),
+        )
         return saved
 
     async def set_enabled(self, slug: str, enabled: bool) -> None:
@@ -194,6 +206,7 @@ class ToolAdminService:
         if not await tool_repository.set_tool_enabled(self._db, slug, enabled):
             raise NotFoundException(detail="ไม่พบ tool ที่ร้องขอ")
         await self.reload()
+        logger.info("admin_tool_enabled_changed", extra=log_extra(slug=slug, enabled=enabled))
 
     async def reload(self) -> None:
         """โหลด declarative tool จาก DB ทั้งชุดใหม่แล้วแทนที่ใน registry ทันที

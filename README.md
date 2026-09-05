@@ -33,6 +33,10 @@ uv run uvicorn app.main:app --reload --host 127.0.0.1 --port 8000
 open http://127.0.0.1:8000
 ```
 
+### หน้า Admin
+
+ตั้ง `ADMIN_PASSWORD` ใน `.env` หรือ environment ของระบบเพื่อเปิดหน้า admin สำหรับจัดการ tool และ prompt หากไม่ตั้งค่า (หรือเป็นค่าว่าง) admin จะถูกปิดทั้งหมดแบบ fail-closed และ endpoint ที่ต้องยืนยันตัวตนจะตอบ `503` ไม่มีรหัสผ่านเริ่มต้นหรือค่าตัวอย่างในเอกสาร
+
 เสร็จแล้ว พิมพ์ถามได้เลย เช่น *"ต้องการขอใช้ไฟฟ้าต้องมีเอกสารอะไรบ้าง"*
 
 > **ข้อสำคัญสำหรับโหมดเสียง:** ถ้าจะใช้ Voice ต้องกดปุ่มไมโครโฟน 🎙 แล้วกดปุ่ม **"อนุญาต" (Allow)**
@@ -194,6 +198,7 @@ roles:
 | `OMS_BASE_URL` / `OMS_API_KEY` | OMS จำลอง (REST) | `http://127.0.0.1:8080/api/v1/oms` / `88888888` |
 | `VOC_BASE_URL` / `VOC_API_KEY` / `VOC_TIMEOUT_SECONDS` | VOC REST gateway (simulation) | `http://127.0.0.1:8080/api/v1/voc` / `88888888` / `5` |
 | `APP_ENV` / `LOG_LEVEL` | environment และระดับ log | `development` / `info` |
+| `ADMIN_PASSWORD` | รหัสผ่านเปิดหน้า admin; ไม่ตั้งค่า = ปิด admin ทั้งหมด | ไม่มีค่าเริ่มต้น |
 
 ---
 

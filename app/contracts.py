@@ -36,6 +36,61 @@ class FrozenModel(BaseModel):
     )
 
 
+class AdminModel(BaseModel):
+    """ฐานสัญญา request ของ admin API ใช้ alias camelCase และห้าม field ส่วนเกิน"""
+
+    model_config = ConfigDict(
+        extra="forbid",
+        populate_by_name=True,
+        alias_generator=to_camel,
+    )
+
+
+class AdminLoginRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    password: str = Field(min_length=1, max_length=256)
+
+
+class AdminOperationInput(AdminModel):
+    action: str = Field(min_length=1, max_length=64)
+    policy: str = "plain_read"
+    exposure: str = "llm"
+    mode: str = "read"
+    submit_action: str | None = None
+    http_method: str | None = None
+    url_template: str | None = None
+    input_schema: dict[str, Any]
+    output_schema: dict[str, Any] | None = None
+    limits: dict[str, Any] | None = None
+    client_context: dict[str, str] | None = None
+
+
+class AdminToolDefinitionInput(AdminModel):
+    slug: str = Field(min_length=1, max_length=64)
+    display_name: str = Field(min_length=1, max_length=200)
+    description: str = Field(default="", max_length=1000)
+    enabled: bool = True
+    auth_env_var: str | None = Field(default=None, min_length=1, max_length=128)
+    operations: list[AdminOperationInput] = Field(min_length=1)
+
+
+class AdminToolEnabledInput(AdminModel):
+    enabled: bool
+
+
+class AdminTryOperationInput(AdminModel):
+    http_method: str
+    url_template: str = Field(min_length=1, max_length=2048)
+    input: dict[str, Any] = Field(default_factory=dict)
+    input_schema: dict[str, Any] | None = None
+    auth_env_var: str | None = Field(default=None, max_length=128)
+
+
+class AdminPromptInput(AdminModel):
+    content: str = Field(min_length=1, max_length=20_000)
+
+
 class ToolName(str, Enum):
     KNOWLEDGE = "knowledge_tool"
     VOC = "voc_tool"
