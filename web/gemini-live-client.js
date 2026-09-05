@@ -13,6 +13,7 @@ export class GeminiLiveClient {
     this.ready = false;
     this.resolveReady = null;
     this.rejectReady = null;
+    this.currentAcknowledgement = null;
   }
 
   async connect() {
@@ -46,6 +47,7 @@ export class GeminiLiveClient {
 
   handleMessage(event) {
     if (event.data instanceof ArrayBuffer) {
+      this.cancelAcknowledgement();
       this.media.playPcm16(event.data);
       this.handlers.onState?.('speaking');
       return;
@@ -58,36 +60,84 @@ export class GeminiLiveClient {
       this.resolveReady?.();
     } else if (message.type === 'transcript' || message.type === 'transcript.user' || message.type === 'transcript.assistant') {
       const role = message.role || (message.type.endsWith('.user') ? 'user' : 'assistant');
+      if (role === 'user') this.cancelAcknowledgement();
       this.handlers.onTranscript?.(role, String(message.text || ''), message.final !== false);
       if (role === 'user') this.handlers.onState?.('listening');
     } else if (message.type === 'audio.interrupted') {
+      this.cancelAcknowledgement();
       this.media.flushPlayback();
       this.handlers.onInterrupted?.();
       this.handlers.onState?.('interrupted');
     } else if (message.type === 'state') {
       this.handlers.onState?.(message.state || 'listening');
+    } else if (message.type === 'assistant.progress') {
+      const text = String(message.text || '').trim();
+      if (text) this.speakAcknowledgement(text);
+      this.handlers.onProgress?.(text);
     } else if (message.type === 'turn.complete') {
+      this.cancelAcknowledgement();
       this.handlers.onTurnComplete?.();
       this.handlers.onState?.('listening');
     } else if (message.type === 'agent.response') {
       this.handlers.onAgentResponse?.(message.operation, message.response || {});
     } else if (message.type === 'error') {
+      this.cancelAcknowledgement();
       const error = new Error(message.message || 'โหมดเสียงเกิดข้อผิดพลาด');
       if (!this.ready) this.failReady(error);
       else this.handlers.onError?.(error.message);
     }
   }
 
+  speakAcknowledgement(text) {
+    this.cancelAcknowledgement();
+    if (!text) return;
+    const synth = typeof globalThis !== 'undefined' ? globalThis.speechSynthesis : null;
+    const Utterance = typeof globalThis !== 'undefined' ? globalThis.SpeechSynthesisUtterance : null;
+    if (!synth || !Utterance) return;
+    try {
+      const utterance = new Utterance(text);
+      utterance.lang = 'th-TH';
+      utterance.rate = 1.0;
+      this.currentAcknowledgement = utterance;
+      utterance.onend = () => {
+        if (this.currentAcknowledgement === utterance) {
+          this.currentAcknowledgement = null;
+        }
+      };
+      utterance.onerror = () => {
+        if (this.currentAcknowledgement === utterance) {
+          this.currentAcknowledgement = null;
+        }
+      };
+      synth.speak(utterance);
+    } catch (_) {
+      this.currentAcknowledgement = null;
+    }
+  }
+
+  cancelAcknowledgement() {
+    const synth = typeof globalThis !== 'undefined' ? globalThis.speechSynthesis : null;
+    if (synth) {
+      try {
+        synth.cancel();
+      } catch (_) {}
+    }
+    this.currentAcknowledgement = null;
+  }
+
   failReady(error) {
+    this.cancelAcknowledgement();
     if (!this.ready) this.rejectReady?.(error);
   }
 
   async handleClose() {
+    this.cancelAcknowledgement();
     this.failReady(new Error('การเชื่อมต่อโหมดเสียงถูกปิด'));
     await this.finish('disconnected');
   }
 
   async disconnect() {
+    this.cancelAcknowledgement();
     this.closed = true;
     const socket = this.socket;
     this.socket = null;
@@ -97,6 +147,7 @@ export class GeminiLiveClient {
   }
 
   async finish(state) {
+    this.cancelAcknowledgement();
     if (this.closed) return;
     this.closed = true;
     this.socket = null;
