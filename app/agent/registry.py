@@ -212,6 +212,20 @@ class ToolRegistry:
     def names(self) -> frozenset[str]:
         return frozenset(self._tools)
 
+    @property
+    def code_tool_names(self) -> frozenset[str]:
+        """ชื่อ (slug) ของ tool ที่มาจากโค้ด — built-in + ปลั๊กอิน Python ไม่รวม declarative จาก DB
+
+        ใช้เพื่อ admin/ส่วนแสดงผลจัดการขอบเขต "tool ที่แก้จากหน้าเว็บไม่ได้" โดยอ่านจาก
+        registry จริงเสมอ (แหล่งเดียวกับที่ dispatch ใช้) คืนเป็น plain string เสมอ
+        เพื่อไม่ให้ hash ของ str-Enum กลายเป็นบั๊กการเทียบค่า
+        """
+        return frozenset(
+            _display_name(name)
+            for name, tool in self._tools.items()
+            if not isinstance(tool, DeclarativeTool)
+        )
+
     async def execute(self, call: ToolCall, context: ToolContext) -> ToolResult:
         # D2.5: action_belongs_to_tool ย้ายมาตรวจตรงนี้แทนที่จะเป็น validator ของ ToolCall
         # เพราะ ToolCall.name/action เป็น string ล้วนแล้ว ไม่รู้ล่วงหน้าว่า tool ไหนมี action อะไร

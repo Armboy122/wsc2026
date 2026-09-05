@@ -221,12 +221,15 @@
         toggleTool(tool.slug, !tool.enabled);
       });
     } else {
-      // ปลั๊กอิน Python: ช่องที่แก้ไม่ได้ถูก disable พร้อมบอกเหตุผล (D3.3)
-      var reason = "tool จากโค้ด (Python plugin) — ต้องแก้ที่ plugin.yaml แล้ว deploy";
+      // tool จากโค้ด (Python): ปุ่มยังแสดงแต่ถูก disable พร้อมเหตุผลที่อ่านได้
+      // ทั้งแบบ hover (title) และข้อความบนการ์ด — กันดูเหมือนระบบลืม render (D3.3/T6)
+      var reason =
+        "tool นี้มาจากโค้ด (Python) — แก้ไข/เปิด-ปิดจากหน้าเว็บไม่ได้ ต้องแก้ที่โค้ดแล้ว deploy แทน";
       editBtn.disabled = true;
       toggleBtn.disabled = true;
       editBtn.title = reason;
       toggleBtn.title = reason;
+      card.appendChild(el("p", "hint-note", reason));
     }
     actions.appendChild(editBtn);
     actions.appendChild(toggleBtn);
