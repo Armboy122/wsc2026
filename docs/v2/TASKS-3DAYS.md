@@ -11,7 +11,7 @@
 กรรมการตัดสินจาก **สิ่งที่เห็นบนจอ** ไม่ใช่จำนวนโมดูลที่ refactor
 งานที่ไม่มีใครเห็นในห้องเดโม = เลื่อนไปเฟสหน้า แม้จะถูกต้องทางวิศวกรรม
 
-**ของที่มีอยู่แล้วและทำงานได้ ห้ามแตะ**: LINE bridge · voice · knowledge grounding · `prepare→confirm→submit` · เทส 307 ตัวที่รันผ่านใน 1.7 วินาที
+**ของที่มีอยู่แล้วและทำงานได้ ห้ามแตะ**: LINE bridge · voice · knowledge grounding · `prepare→confirm→submit` · full test suite ที่ต้องรายงานผลจริง
 
 ---
 
@@ -48,7 +48,7 @@
 
 ### D1.1 เพิ่ม `jsonschema[format]`
 `pyproject.toml` + `uv.lock` · ยืนยัน `import jsonschema` ผ่าน
-**เสร็จเมื่อ**: `pytest` 307 ตัวยังผ่านครบ
+**เสร็จเมื่อ**: full `pytest` suite ยังผ่านครบ
 
 ### D1.2 🔒 validator ของ JSON Schema subset
 - ตรวจ allowlist ตาม `CONTRACTS-V2.md` §2.1 · reject list §2.2
@@ -182,6 +182,11 @@ shape ตาม `ARCHITECTURE-V2.md` §3.4 · `source` ห้ามใช้ต�
 แก้ `SYSTEM_PROMPT` · มี preview · save แล้วมีผลเทิร์นถัดไป
 
 ### D3.7 ซ้อมเดโม + ตรวจครั้งสุดท้าย
+
+> สถานะ P5: automated checks ตรวจแล้ว (grep=0, `app/prompts/` ไม่มี, full pytest และ
+> production SSRF ผ่าน); manual evaluate/knowledge/OMS/LINE/voice/admin-tool demo
+> ยังรอมนุษย์ยืนยันตาม `docs/v2/DEMO-VERIFICATION.md`
+
 ```bash
 grep -c "ToolName\.\|ToolAction\." app/agent/main_agent.py   # = 0
 ls app/prompts/                                               # ต้องไม่มีแล้ว
@@ -206,7 +211,7 @@ ls app/prompts/                                               # ต้องไ�
 | D3.5 | ปุ่มทดสอบไม่ข้าม SSRF | ช่องโหว่ที่ซ่อนอยู่หลังปุ่มที่ดูปลอดภัย |
 
 **ที่เหลือไม่ต้องเขียนเทส** — `AGENTS.md` บอกไว้ชัด: *"Test where failure is expensive"*
-เทส 307 ตัวที่มีอยู่รันใน 1.7 วินาที ⇒ รันบ่อย ๆ ระหว่างทางแทนการเขียนเทสใหม่ทุกฟังก์ชัน
+full test suite ที่มีอยู่รันได้เร็ว ⇒ รันบ่อย ๆ ระหว่างทางแทนการเขียนเทสใหม่ทุกฟังก์ชัน
 
 ---
 
@@ -233,7 +238,7 @@ ls app/prompts/                                               # ต้องไ�
 | 4–5 | กลับมาแชต ถามคำถามที่ต้องใช้ tool ใหม่ AI เรียกได้เลย | "ระบบรู้จัก tool ใหม่ทันทีในเทิร์นถัดไป" |
 | 5–6 | ลองใส่ URL `169.254.169.254` → ระบบปฏิเสธพร้อมเหตุผล | "เปิดกว้างแต่ไม่ประมาท" |
 | 6–7 | `grep ToolName app/agent/main_agent.py` → 0 | "agent ไม่รู้จักชื่อ tool แม้แต่ตัวเดียว" |
-| 7–8 | รัน `pytest` 307 ตัวใน 2 วินาที | "ของเดิมไม่พังสักตัว" |
+| 7–8 | รัน full `pytest` suite แล้วรายงานผลจริง | "ของเดิมไม่พังสักตัว" |
 
 ---
 
