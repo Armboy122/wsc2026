@@ -74,7 +74,7 @@ class ScriptedMainAgent:
             name=action.tool_name,
             action=action.submit_action,
             status=ToolResultStatus.SUCCESS,
-            data={"receipt_id": "R-1", "account_ref": "A-1", "amount_thb": "100.00", "status": "accepted"},
+            data={"event_id": "E-1", "ca_number": "123456789012", "status": "RECEIVED", "message": "รับแจ้งแล้ว"},
             simulation=True,
         )
         confirmed = action.model_copy(
@@ -156,11 +156,11 @@ async def test_confirm_pending_action(client: AsyncClient, app: FastAPI) -> None
     agent.pending[pending_id] = PendingAction(
         pending_action_id=pending_id,
         conversation_id=uuid.uuid4(),
-        tool_name=ToolName.SABUY,
-        prepare_action=ToolAction.SABUY_PREPARE_PAYMENT,
-        submit_action=ToolAction.SABUY_SUBMIT_PAYMENT,
+        tool_name=ToolName.OMS,
+        prepare_action=ToolAction.OMS_PREPARE_OUTAGE_WITH_CA,
+        submit_action=ToolAction.OMS_SUBMIT_OUTAGE_WITH_CA,
         prepared_input={},
-        summary="Pay 100 THB",
+        summary="แจ้งไฟดับ CA 123456789012",
         status=PendingActionStatus.PENDING_CONFIRMATION,
         idempotency_key="idem-1",
         created_at=datetime.now(UTC),

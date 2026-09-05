@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from datetime import date, datetime
+from datetime import datetime
 from decimal import Decimal
 from enum import Enum
 from typing import Any, ClassVar, Literal
@@ -30,16 +30,12 @@ class FrozenModel(BaseModel):
 
 class ToolName(str, Enum):
     KNOWLEDGE = "knowledge_tool"
-    SABUY = "sabuy_tool"
     VOC = "voc_tool"
     OMS = "oms_tool"
 
 
 class ToolAction(str, Enum):
     KNOWLEDGE_SEARCH = "search"
-    SABUY_ACCOUNT_SUMMARY = "get_account_summary"
-    SABUY_PREPARE_PAYMENT = "prepare_payment"
-    SABUY_SUBMIT_PAYMENT = "submit_payment"
     VOC_LIST_CATEGORIES = "list_categories"
     VOC_PREPARE_CASE = "prepare_case"
     VOC_SUBMIT_CASE = "submit_case"
@@ -51,17 +47,12 @@ class ToolAction(str, Enum):
     OMS_SUBMIT_ANONYMOUS_OUTAGE = "submit_anonymous_outage"
 
 
-# D2.5: ยังเป็น dict กลางที่นี่โดยตั้งใจ — คงไว้เป็น alias สำหรับ 4 tool เดิม (voc/knowledge/
-# oms/sabuy) เท่านั้นในช่วง 3 วันนี้ ตามแผนเต็ม (docs/v2/TASKS.md T2.4) การย้ายเป็น "data ต่อ
+# D2.5: ยังเป็น dict กลางที่นี่โดยตั้งใจ — คงไว้เป็น alias สำหรับ 3 tool เดิม (voc/knowledge/
+# oms) เท่านั้นในช่วง 3 วันนี้ ตามแผนเต็ม (docs/v2/TASKS.md T2.4) การย้ายเป็น "data ต่อ
 # tool" จริงจะเกิดพร้อมกับตอนที่ ToolRegistry เริ่ม dispatch จาก ToolShape (D2.6/D2.7 เป็นต้นไป)
 # ที่ tool ใหม่แต่ละตัวประกาศ action ของตัวเองอยู่แล้วโดยไม่ต้องพึ่ง dict นี้เลย
 TOOL_ACTIONS: dict[ToolName, frozenset[ToolAction]] = {
     ToolName.KNOWLEDGE: frozenset({ToolAction.KNOWLEDGE_SEARCH}),
-    ToolName.SABUY: frozenset({
-        ToolAction.SABUY_ACCOUNT_SUMMARY,
-        ToolAction.SABUY_PREPARE_PAYMENT,
-        ToolAction.SABUY_SUBMIT_PAYMENT,
-    }),
     ToolName.VOC: frozenset({
         ToolAction.VOC_LIST_CATEGORIES,
         ToolAction.VOC_PREPARE_CASE,
@@ -78,8 +69,6 @@ TOOL_ACTIONS: dict[ToolName, frozenset[ToolAction]] = {
 }
 
 PREPARE_TO_SUBMIT: dict[ToolAction, ToolAction] = {
-    # คง mapping ของ Sabuy ไว้สำหรับสัญญาเดิมที่ไม่ถูกลงทะเบียนใน runtime
-    ToolAction.SABUY_PREPARE_PAYMENT: ToolAction.SABUY_SUBMIT_PAYMENT,
     ToolAction.VOC_PREPARE_CASE: ToolAction.VOC_SUBMIT_CASE,
     ToolAction.OMS_PREPARE_OUTAGE_WITH_CA: ToolAction.OMS_SUBMIT_OUTAGE_WITH_CA,
     ToolAction.OMS_PREPARE_ANONYMOUS_OUTAGE: ToolAction.OMS_SUBMIT_ANONYMOUS_OUTAGE,
@@ -172,7 +161,7 @@ class PendingActionStatus(str, Enum):
 class PendingAction(FrozenModel):
     pending_action_id: UUID = Field(serialization_alias="pendingActionId")
     conversation_id: UUID = Field(serialization_alias="conversationId")
-    tool_name: Literal[ToolName.SABUY, ToolName.VOC, ToolName.OMS] = Field(serialization_alias="toolName")
+    tool_name: Literal[ToolName.VOC, ToolName.OMS] = Field(serialization_alias="toolName")
     prepare_action: ToolAction = Field(serialization_alias="prepareAction")
     submit_action: ToolAction = Field(serialization_alias="submitAction")
     prepared_input: dict[str, Any] = Field(serialization_alias="preparedInput")
@@ -332,22 +321,6 @@ class KnowledgeSearchInput(FrozenModel):
     max_results: int = Field(default=3, ge=1, le=5, serialization_alias="maxResults")
 
 
-class SabuyAccountSummaryInput(FrozenModel):
-    account_ref: str = Field(min_length=1, max_length=64, serialization_alias="accountRef")
-
-
-class PaymentMethod(str, Enum):
-    DEMO_CARD = "demo_card"
-    DEMO_BANK = "demo_bank"
-
-
-class SabuyPreparePaymentInput(FrozenModel):
-    account_ref: str = Field(min_length=1, max_length=64, serialization_alias="accountRef")
-    amount_thb: Decimal = Field(gt=0, serialization_alias="amountThb")
-    payment_method: PaymentMethod = Field(serialization_alias="paymentMethod")
-    idempotency_key: str = Field(min_length=1, max_length=128, serialization_alias="idempotencyKey")
-
-
 class EmptyInput(FrozenModel):
     pass
 
@@ -475,34 +448,6 @@ class KnowledgeSearchOutput(FrozenModel):
     result_count: int = Field(ge=0, le=5, serialization_alias="resultCount")
 
 
-class PaymentStatus(str, Enum):
-    CURRENT = "current"
-    OVERDUE = "overdue"
-    PAID = "paid"
-
-
-class SabuyAccountSummaryOutput(FrozenModel):
-    account_ref: str = Field(min_length=1, serialization_alias="accountRef")
-    customer_display_name: str = Field(min_length=1, serialization_alias="customerDisplayName")
-    outstanding_balance_thb: Decimal = Field(ge=0, serialization_alias="outstandingBalanceThb")
-    due_date: date | None = Field(serialization_alias="dueDate")
-    payment_status: PaymentStatus = Field(serialization_alias="paymentStatus")
-
-
-class SabuyPreparePaymentOutput(FrozenModel):
-    account_ref: str = Field(min_length=1, serialization_alias="accountRef")
-    amount_thb: Decimal = Field(gt=0, serialization_alias="amountThb")
-    payment_method: PaymentMethod = Field(serialization_alias="paymentMethod")
-    summary: str = Field(min_length=1, max_length=500)
-
-
-class SabuyPaymentReceiptOutput(FrozenModel):
-    receipt_id: str = Field(min_length=1, serialization_alias="receiptId")
-    account_ref: str = Field(min_length=1, serialization_alias="accountRef")
-    amount_thb: Decimal = Field(gt=0, serialization_alias="amountThb")
-    status: Literal["accepted"]
-
-
 class VocCategoryItem(FrozenModel):
     code: VocCategory
     label: str = Field(min_length=1, max_length=100)
@@ -606,9 +551,6 @@ class OmsCreateAnonymousOutageOutput(FrozenModel):
 
 INPUT_MODELS: ClassVar[dict[ToolAction, type[FrozenModel]]] = {
     ToolAction.KNOWLEDGE_SEARCH: KnowledgeSearchInput,
-    ToolAction.SABUY_ACCOUNT_SUMMARY: SabuyAccountSummaryInput,
-    ToolAction.SABUY_PREPARE_PAYMENT: SabuyPreparePaymentInput,
-    ToolAction.SABUY_SUBMIT_PAYMENT: SubmitPreparedActionInput,
     ToolAction.VOC_LIST_CATEGORIES: EmptyInput,
     ToolAction.VOC_PREPARE_CASE: VocPrepareCaseInput,
     ToolAction.VOC_SUBMIT_CASE: SubmitPreparedActionInput,
@@ -623,9 +565,6 @@ INPUT_MODELS: ClassVar[dict[ToolAction, type[FrozenModel]]] = {
 
 OUTPUT_MODELS: ClassVar[dict[ToolAction, type[FrozenModel]]] = {
     ToolAction.KNOWLEDGE_SEARCH: KnowledgeSearchOutput,
-    ToolAction.SABUY_ACCOUNT_SUMMARY: SabuyAccountSummaryOutput,
-    ToolAction.SABUY_PREPARE_PAYMENT: SabuyPreparePaymentOutput,
-    ToolAction.SABUY_SUBMIT_PAYMENT: SabuyPaymentReceiptOutput,
     ToolAction.VOC_LIST_CATEGORIES: VocCategoryListOutput,
     ToolAction.VOC_PREPARE_CASE: VocPrepareCaseOutput,
     ToolAction.VOC_SUBMIT_CASE: VocCaseOutput,
