@@ -377,3 +377,74 @@ def test_try_rejects_input_not_matching_schema(monkeypatch: pytest.MonkeyPatch) 
     body = response.json()
     assert body["ok"] is False
     assert body["reason"] == "invalid_input"
+
+
+# ------------------------------------------------------- D3.5 secret redaction --
+
+
+_SECRET = "super-secret-token-9f2a"
+
+
+def _echo_auth_transport() -> httpx.MockTransport:
+    """ปลายทางจอมกวน: echo Authorization header กลับมาทุกรูปแบบที่ฝังได้"""
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        echoed = request.headers.get("authorization", "")
+        return httpx.Response(
+            200,
+            json={
+                "echo": echoed,
+                "nested": {"token": echoed, "deep": {"value": echoed}},
+                "list": [echoed, {"inside": echoed}, "ข้อมูลปกติ"],
+            },
+        )
+
+    return httpx.MockTransport(handler)
+
+
+def test_try_redacts_echoed_secret_from_response(monkeypatch: pytest.MonkeyPatch) -> None:
+    """D3.5 (hardening): ปลายทาง echo Authorization กลับมา — ค่า secret ต้องไม่ปรากฏใน response
+
+    ครอบคลุมทั้งระดับบนสุด object/list ซ้อนกันและ string ที่ฝังอยู่"""
+    monkeypatch.setenv("ADMIN_TRY_SECRET", _SECRET)
+    client, _, _ = _make_client(
+        monkeypatch, app_env="development", transport=_echo_auth_transport()
+    )
+    response = client.post(
+        "/api/v1/admin/tools/try",
+        json={
+            "httpMethod": "GET",
+            "urlTemplate": "http://127.0.0.1:9999/echo",
+            "authEnvVar": "ADMIN_TRY_SECRET",
+        },
+    )
+    body = response.json()
+    assert body["ok"] is True, body
+    # ค่าจริงห้ามปรากฏที่ไหนใน response แม้แต่ตัวเดียว (เทียบ raw text ทั้งก้อน)
+    assert _SECRET not in response.text
+    # ทุกตำแหน่งที่เคยมี secret กลายเป็น [REDACTED] — รวม object/list ซ้อนกัน
+    response_body = body["response"]["body"]
+    assert response_body["echo"] == "[REDACTED]"
+    assert response_body["nested"] == {
+        "token": "[REDACTED]",
+        "deep": {"value": "[REDACTED]"},
+    }
+    assert response_body["list"] == ["[REDACTED]", {"inside": "[REDACTED]"}, "ข้อมูลปกติ"]
+
+
+def test_try_error_does_not_leak_secret_value(monkeypatch: pytest.MonkeyPatch) -> None:
+    """D3.5 (hardening): error (เช่น missing_secret) ต้องไม่มีค่าจริงของ secret ปรากฏ"""
+    monkeypatch.setenv("ADMIN_TRY_SECRET", _SECRET)
+    client, _, _ = _make_client(monkeypatch, app_env="development", transport=_mock_transport())
+    response = client.post(
+        "/api/v1/admin/tools/try",
+        json={
+            "httpMethod": "GET",
+            "urlTemplate": "http://127.0.0.1:9999/fact",
+            "authEnvVar": "ADMIN_TRY_SECRET_NOT_SET",
+        },
+    )
+    body = response.json()
+    assert body["ok"] is False
+    assert body["reason"] == "missing_secret"
+    assert _SECRET not in response.text

@@ -15,12 +15,16 @@
   blocklist ก่อนยิง) เหตุผลการถูกบล็อกแสดงให้ admin เห็นได้เพราะ admin เป็นผู้ตั้งค่าเอง
   (ข้อห้ามรั่วของ CONTRACTS-V2 §9.4 ใช้กับผู้ใช้/LLM ไม่ใช่หน้า admin)
 - **secret ปลอดภัย** — รับเฉพาะ *ชื่อ* environment variable ค่าจริงถูกอ่านตอน execute เท่านั้น
-  และไม่เคยส่งกลับไปแสดงใน response ใด ๆ
+  และไม่เคยส่งกลับไปแสดงใน response ใด ๆ — response ของปุ่ม "ลองยิงดู" (D3.5) ถูก redact
+  ค่า secret ทุกตำแหน่ง (รวม object/list/string ซ้อนกัน) ก่อนคืนเสมอ กันปลายทาง echo
+  Authorization header กลับมา
 """
 
 from __future__ import annotations
 
+import os
 from typing import Any, Iterable
+from urllib.parse import quote
 
 import httpx
 
@@ -48,6 +52,9 @@ from app.tools.schema_subset import SchemaSubsetError, validate_schema_subset
 
 # slug ปลอมของ "ลองยิงดู" — ไม่ลง registry ไม่ถูก dispatch เป็น tool จริง
 _TRY_TOOL_SLUG = "admin_try"
+
+# token แทนที่ตำแหน่งของ secret ใน response ของปุ่ม "ลองยิงดู" (D3.5 hardening)
+_REDACTED = "[REDACTED]"
 
 
 class ToolAdminService:
@@ -190,7 +197,32 @@ class ToolAdminService:
         ผ่านชั้นเดียวกับ declarative tool จริงทุกขั้น: validate URL/นโยบาย → resolve DNS
         เทียบ blocklist → ยิง → เพดาน timeout/ขนาด response ผลรวมถึงตัวเหตุผลการบล็อก
         (เช่น ``169.254.169.254``) แสดงให้ admin เห็นพร้อมเหตุผล
+
+        D3.5 (hardening): ก่อนคืนผลทุกเส้นทาง (response สำเร็จหรือ error) ค่าจริงของ secret
+        ที่อ่านจาก ``authEnvVar`` จะถูกแทนที่ด้วย ``[REDACTED]`` ทุกตำแหน่งที่พบ — รวม
+        object/list/string ซ้อนกันและรูปแบบ ``Bearer <secret>`` — เพราะปลายทางอาจ echo
+        Authorization header กลับมาใน body ทำให้ secret ปรากฏในหน้า admin ได้
         """
+        secret_variants = _secret_variants(auth_env_var)
+        result = await self._try_operation_raw(
+            http_method=http_method,
+            url_template=url_template,
+            input=input,
+            input_schema=input_schema,
+            auth_env_var=auth_env_var,
+        )
+        return _redact_secrets(result, secret_variants) if secret_variants else result
+
+    async def _try_operation_raw(
+        self,
+        *,
+        http_method: str,
+        url_template: str,
+        input: dict[str, Any],
+        input_schema: dict[str, Any] | None,
+        auth_env_var: str | None,
+    ) -> dict[str, Any]:
+        """ยิงจริงโดยไม่แตะ response — เรียกจาก ``try_operation`` เท่านั้น (redaction อยู่ที่นั่น)"""
         allowlist = await self._allowlist()
         if input_schema is not None:
             # inputSchema ที่ยังไม่เคย save = untrusted — ตรวจ allowlist ก่อนใช้เทียบ input
@@ -291,6 +323,39 @@ class ToolAdminService:
 
 def _try_error(reason: str, message: str) -> dict[str, Any]:
     return {"ok": False, "reason": reason, "error": message}
+
+
+def _secret_variants(auth_env_var: str | None) -> tuple[str, ...]:
+    """ค่าจริงของ secret ทุกรูปแบบที่อาจปรากฏใน response — เพื่อนำไปแทนที่ด้วย [REDACTED]
+
+    อ่านค่าจาก environment variable ตัวเดียวกับที่ executor ใช้ตอนยิงจริง (D2.4 ฉีด header
+    ``<scheme> <secret>``) ครอบคลุมทั้งค่าดิบ รูปแบบ ``Bearer <secret>`` และรูปแบบ
+    URL-encoded — เก็บไว้ใช้แทนที่ในหน่วยความจำเท่านั้น ห้าม log หรือส่งกลับใน response/error
+    """
+    if not auth_env_var:
+        return ()
+    secret = os.environ.get(auth_env_var, "")
+    if not secret:
+        return ()
+    variants = (secret, f"Bearer {secret}", quote(secret, safe=""))
+    return tuple(dict.fromkeys(variant for variant in variants if variant))
+
+
+def _redact_secrets(value: Any, secrets: tuple[str, ...]) -> Any:
+    """แทนที่ค่า secret ทุกตำแหน่งในโครงสร้างข้อมูล (object/list/string ซ้อนกัน) ด้วย [REDACTED]"""
+    if not secrets:
+        return value
+    if isinstance(value, dict):
+        return {key: _redact_secrets(item, secrets) for key, item in value.items()}
+    if isinstance(value, list):
+        return [_redact_secrets(item, secrets) for item in value]
+    if isinstance(value, str):
+        redacted = value
+        # แทนที่รูปแบบที่ยาวที่สุดก่อน (เช่น "Bearer <secret>") กันการแยกส่วนที่ไม่จำเป็น
+        for variant in sorted(set(secrets), key=len, reverse=True):
+            redacted = redacted.replace(variant, _REDACTED)
+        return redacted
+    return value
 
 
 def _shape_to_definition(shape: ToolShape) -> dict[str, Any]:
