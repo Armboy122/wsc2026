@@ -116,3 +116,17 @@ class TestOperationSpec:
         # dict is fine; Mapping is accepted
         spec = OperationSpec(client_context={"lat": "lat"})
         assert spec.client_context["lat"] == "lat"
+
+    def test_max_calls_per_turn_reads_through_limits(self) -> None:
+        assert OperationSpec().max_calls_per_turn is None
+        spec = OperationSpec(limits=OperationLimits(max_calls_per_turn=2))
+        assert spec.max_calls_per_turn == 2
+
+    def test_effective_dedupe_reads_through_limits_or_policy_default(self) -> None:
+        assert OperationSpec(policy=OperationPolicy.PLAIN_READ).effective_dedupe() is True
+        assert OperationSpec(policy=OperationPolicy.WRITE_CONFIRM).effective_dedupe() is False
+        spec = OperationSpec(
+            policy=OperationPolicy.PLAIN_READ,
+            limits=OperationLimits(dedupe_identical_input=False),
+        )
+        assert spec.effective_dedupe() is False

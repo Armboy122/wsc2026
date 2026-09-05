@@ -67,3 +67,14 @@ class OperationSpec:
                     )
                 if not self.client_context[key]:
                     raise ValueError("clientContext field must be non-empty string")
+
+    @property
+    def max_calls_per_turn(self) -> int | None:
+        """เดิม hardcode ต่อ tool ในตัว agent — ตอนนี้เป็นข้อมูลของ operation เอง"""
+        return self.limits.max_calls_per_turn if self.limits is not None else None
+
+    def effective_dedupe(self) -> bool:
+        """ค่า dedupeIdenticalInput จริงของ operation นี้ (ตกลงตาม limits หรือ default ของ policy)"""
+        if self.limits is not None:
+            return self.limits.effective_dedupe(self.policy)
+        return dedupe_default(self.policy)
