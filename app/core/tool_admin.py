@@ -23,14 +23,16 @@
 from __future__ import annotations
 
 import os
-from typing import Any, Iterable
+from typing import Any, Iterable, Mapping
 from urllib.parse import quote
 
 import httpx
 
 from app.agent.declarative_tools import DeclarativeToolBundle, load_declarative_tools
+from app.agent.operation_policy import OperationLimits, OperationSpec
 from app.agent.registry import ToolRegistry
 from app.agent.tool_shape import ToolOperationShape, ToolShape, from_plugin
+from app.contracts import INPUT_MODELS, ToolAction
 from app.core.config import Settings
 from app.core.errors import ConflictException, NotFoundException
 from app.db import Database
@@ -78,6 +80,19 @@ class ToolAdminService:
             *(from_plugin(loaded) for loaded in plugins),
             *extra_code_shapes,
         )
+        # T6: รายการต้องครบทุก code tool ที่อยู่ใน registry จริง — ตัวที่ไม่ได้มาจาก
+        # ``plugins`` (เช่น KnowledgeTool built-in) ประกอบ shape จากข้อมูลจริงของ registry
+        # (``llm_catalogue`` + ``operation_specs``) โดยไม่สร้าง source of truth ซ้ำ
+        self._registry_code_shapes = _code_shapes_from_registry(
+            registry, exclude=frozenset(shape.slug for shape in self._plugin_shapes)
+        )
+        # ขอบเขต "tool จากโค้ด" สำหรับกัน get_tool/set_enabled: ทุก code tool ใน registry
+        # รวม KnowledgeTool + ทุก shape ที่มาจาก plugins/extra (กัน slug ที่ยังไม่ลง registry)
+        self._code_tool_slugs = (
+            frozenset(registry.code_tool_names)
+            | frozenset(shape.slug for shape in self._plugin_shapes)
+            | frozenset(shape.slug for shape in self._registry_code_shapes)
+        )
         self._transport = transport
         # main.py โหลด bundle แรกมาแล้วตอน startup — รับมาเก็บเพื่อไม่ต้องโหลดซ้ำ
         self._bundle = initial_bundle or DeclarativeToolBundle(
@@ -87,13 +102,14 @@ class ToolAdminService:
     async def list_tools(self) -> dict[str, Any]:
         """รายการ tool ทั้งสองชั้นในหน้าเดียว (D3.3)
 
-        - ปลั๊กอิน Python (source: code) — อยู่รายการเดียวกันแต่ **แก้ไม่ได้**
+        - code tool ทุกตัวที่อยู่ใน registry จริง (ปลั๊กอิน Python + built-in เช่น
+          KnowledgeTool) — อยู่รายการเดียวกันแต่ **แก้ไม่ได้**
         - declarative tool (source: db) ทุกแถวรวมที่ปิดอยู่
         - tool ที่ปิดตัวเอง (definition ผิด fail closed) แสดงพร้อมเหตุผล กัน "หายเงียบ"
         """
         disabled_reasons = {item.slug: item.reason for item in self._bundle.disabled}
         tools: list[dict[str, Any]] = []
-        for shape in self._plugin_shapes:
+        for shape in (*self._plugin_shapes, *self._registry_code_shapes):
             tools.append(
                 {
                     **_shape_to_definition(shape),
@@ -119,9 +135,9 @@ class ToolAdminService:
         ไม่คืน ``authEnvVar`` ย้อนกลับ — เขียนได้อย่างเดียว (CONTRACTS-V2 §10.2:
         secret_ref ห้ามปรากฏใน response)
         """
-        if any(shape.slug == slug for shape in self._plugin_shapes):
+        if slug in self._code_tool_slugs:
             raise NotFoundException(
-                detail="ปลั๊กอิน Python แก้ไขจากหน้าเว็บไม่ได้ — แก้ที่โค้ดแล้ว deploy แทน"
+                detail="tool จากโค้ด (Python) แก้ไขจากหน้าเว็บไม่ได้ — แก้ที่โค้ดแล้ว deploy แทน"
             )
         definition = await tool_repository.get_tool_definition(self._db, slug)
         if definition is None:
@@ -171,9 +187,9 @@ class ToolAdminService:
         return saved
 
     async def set_enabled(self, slug: str, enabled: bool) -> None:
-        if any(shape.slug == slug for shape in self._plugin_shapes):
+        if slug in self._code_tool_slugs:
             raise NotFoundException(
-                detail="ปลั๊กอิน Python เปิด/ปิดจากหน้าเว็บไม่ได้ — ตั้งค่า enabled ใน plugin.yaml แทน"
+                detail="tool จากโค้ด (Python) เปิด/ปิดจากหน้าเว็บไม่ได้ — ตั้งค่า enabled ในโค้ดแล้ว deploy แทน"
             )
         if not await tool_repository.set_tool_enabled(self._db, slug, enabled):
             raise NotFoundException(detail="ไม่พบ tool ที่ร้องขอ")
@@ -387,6 +403,88 @@ def _redact_secrets(value: Any, secrets: tuple[str, ...]) -> Any:
             redacted = redacted.replace(variant, _REDACTED)
         return redacted
     return value
+
+
+def _code_shapes_from_registry(
+    registry: ToolRegistry, *, exclude: frozenset[str]
+) -> tuple[ToolShape, ...]:
+    """ประกอบ shape ของ code tool ที่อยู่ใน registry จริงแต่ไม่มาจาก ``plugins`` (T6)
+
+    ใช้เฉพาะข้อมูลที่ registry รู้จริง: ``llm_catalogue`` (slug/description/action) และ
+    ``operation_specs`` (policy/mode/exposure/limits/clientContext) ส่วนที่ registry ไม่มี
+    จะสะท้อนความจริงตรง ๆ (คำอธิบายต่อ operation เป็นค่าว่างเหมือน ``from_db_row``)
+    ไม่กุข้อมูลปลอมขึ้นมาแทน
+    """
+    shapes: list[ToolShape] = []
+    excluded: set[str] = set(exclude)
+    for definition in registry.llm_catalogue:
+        slug = definition.name
+        if slug in excluded or slug not in registry.code_tool_names:
+            continue
+        excluded.add(slug)
+        shapes.append(
+            ToolShape(
+                slug=slug,
+                # registry ไม่มี display name แยกต่างหาก — ใช้ slug ตามความจริง
+                display_name=slug,
+                description=definition.description,
+                operations=tuple(
+                    _code_operation_shape(slug, action, registry.operation_specs)
+                    for action in definition.actions
+                ),
+                executor=None,
+                source="code",
+            )
+        )
+    return tuple(shapes)
+
+
+def _code_operation_shape(
+    slug: str,
+    action: str,
+    operation_specs: Mapping[tuple[str, str], OperationSpec],
+) -> ToolOperationShape:
+    """หนึ่ง operation ของ code tool จากข้อมูลจริงของ registry
+
+    policy ที่ไม่ได้ประกาศ = ค่าเริ่มต้น plain_read ตาม ``OperationSpec`` (fail safe
+    เหมือนที่ dispatch ใช้) — inputSchema derive จากสัญญากลาง INPUT_MODELS เมื่อมี
+    (เช่น knowledge.search) ไม่มี = None ตามจริง
+    """
+    spec = operation_specs.get((slug, action)) or OperationSpec()
+    return ToolOperationShape(
+        action=action,
+        # registry ไม่เก็บคำอธิบายต่อ operation — แสดงเป็นค่าว่างตามจริง
+        description="",
+        input_schema=_code_input_schema(action),
+        output_schema=None,
+        exposure=spec.exposure,
+        mode=spec.mode,
+        submit_action=spec.submit_action,
+        policy=spec.policy.value,
+        limits=_operation_limits_to_dict(spec.limits),
+        client_context=dict(spec.client_context) if spec.client_context else None,
+        http_method=None,
+        url_template=None,
+    )
+
+
+def _code_input_schema(action: str) -> dict[str, Any] | None:
+    """schema ขาเข้าจริงของ action — derive จากสัญญากลาง INPUT_MODELS เช่นเดียวกับ
+    ``tool_catalogue`` (app/llm/prompting.py); action ที่ไม่มีสัญญา Pydantic คืน None"""
+    tool_action = next((item for item in ToolAction if item.value == action), None)
+    if tool_action is None or tool_action not in INPUT_MODELS:
+        return None
+    return INPUT_MODELS[tool_action].model_json_schema(by_alias=True, mode="validation")
+
+
+def _operation_limits_to_dict(limits: OperationLimits | None) -> dict[str, Any] | None:
+    """รูปเดียวกับที่ ``from_plugin`` ใช้กับ limits ของปลั๊กอิน"""
+    if limits is None:
+        return None
+    return {
+        "maxCallsPerTurn": limits.max_calls_per_turn,
+        "dedupeIdenticalInput": limits.dedupe_identical_input,
+    }
 
 
 def _shape_to_definition(shape: ToolShape) -> dict[str, Any]:

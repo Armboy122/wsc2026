@@ -38,7 +38,9 @@ class ToolOperationShape:
 
     action: str
     description: str
-    input_schema: dict[str, Any]
+    # T6: None = แหล่งที่มาไม่มี inputSchema ของตัวเอง (เช่น code tool ที่ไม่มีสัญญา
+    # Pydantic ให้ derive) — สะท้อนความจริง ไม่กุ schema ว่างแทน
+    input_schema: dict[str, Any] | None
     output_schema: dict[str, Any] | None
     exposure: str
     mode: str
