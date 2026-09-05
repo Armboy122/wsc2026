@@ -6,12 +6,13 @@ import asyncio
 import json
 import re
 from datetime import UTC, datetime
-from typing import Any
+from typing import Any, Callable
 from uuid import UUID, uuid4
 
 from pydantic import ValidationError
 
 from app.agent.guided_flow import GuidedFlows, GuidedTurn
+from app.agent.operation_policy import OperationPolicy, OperationSpec
 from app.agent.registry import ToolContext, ToolRegistry, _error_result
 from app.agent.stores import ConversationStore, PendingActionStore, TraceStore
 from app.agent.response_policy import ErrorPresentation, ResponsePolicies
@@ -25,11 +26,9 @@ from app.contracts import (
     PendingActionStatus,
     ResetResponse,
     SubmitPreparedActionInput,
-    ToolAction,
     ToolCall,
     ToolError,
     ToolErrorCode,
-    ToolName,
     ToolResult,
     ToolResultStatus,
     TraceEventKind,
@@ -47,9 +46,6 @@ from app.llm import (
 
 # Keep the loop bounded while allowing a short clarification/tool chain.
 _MAX_TOOL_STEPS = 12
-# planner มักขยายถ้อยคำค้นหาภาษาไทยเล็กน้อยทุกรอบ ทำให้ guard กัน input ซ้ำตรง ๆ จับไม่ได้
-# จึงจำกัดจำนวนค้นหาความรู้ต่อเทิร์น แล้วใช้ผลที่ค้นได้แล้วไปเรียบเรียงคำตอบต่อ
-_MAX_KNOWLEDGE_SEARCHES_PER_TURN = 2
 _SUBMIT_ACTIONS = frozenset(PREPARE_TO_SUBMIT.values())
 # แค็ตตาล็อกที่ LLM เห็นมาจาก registry (Knowledge built-in + ปลั๊กอินที่โหลดได้)
 # เพิ่มเครื่องมือใหม่จึงไม่ต้องแก้ Main Agent อีก
@@ -137,10 +133,10 @@ class MainAgent:
         final_text = ""
         direct_completion_text: str | None = None
         direct_response_kind: str | None = None
-        seen_knowledge_calls: set[tuple[str, str]] = set()
-        duplicate_knowledge_call = False
-        knowledge_searches = 0
-        knowledge_search_limit_reached = False
+        seen_calls: set[tuple[str, str, str]] = set()
+        duplicate_read_call = False
+        operation_call_counts: dict[tuple[str, str], int] = {}
+        operation_call_limit_reached = False
         planner_retried = False
 
         for _ in range(_MAX_TOOL_STEPS):
@@ -189,31 +185,34 @@ class MainAgent:
                 call for call in calls if call.action in PREPARE_TO_SUBMIT
             )
             for call in ordered_calls:
-                # planner ขยายถ้อยคำค้นหาใหม่ทุกรอบ ทำให้ guard กัน input ซ้ำจับไม่ได้
-                # จึงตัดการค้นหาที่เกินโควตาต่อเทิร์น แล้วใช้ผลที่ค้นได้แล้วไปตอบแทน
-                if call.name is ToolName.KNOWLEDGE:
-                    if knowledge_searches >= _MAX_KNOWLEDGE_SEARCHES_PER_TURN:
-                        self._traces.append(trace_id, TraceEventKind.ERROR, {"stage": "knowledge_search_limit", "maximum": _MAX_KNOWLEDGE_SEARCHES_PER_TURN})
-                        knowledge_search_limit_reached = True
+                spec = self._tools.operation_spec_for_call(call)
+                # planner ขยายถ้อยคำค้นหาใหม่ทุกรอบ ทำให้ guard กัน input ซ้ำจับไม่ได้ จึงตัดการเรียก
+                # ที่เกินโควตาต่อเทิร์นตามที่ operation ประกาศไว้ (limits.maxCallsPerTurn) แล้วใช้ผล
+                # ที่เรียกได้แล้วไปตอบแทน
+                if spec.max_calls_per_turn is not None:
+                    count_key = (call.name.value, call.action.value)
+                    if operation_call_counts.get(count_key, 0) >= spec.max_calls_per_turn:
+                        self._traces.append(trace_id, TraceEventKind.ERROR, {"stage": "operation_call_limit", "action": call.action.value, "maximum": spec.max_calls_per_turn})
+                        operation_call_limit_reached = True
                         break
-                    knowledge_searches += 1
-                # การเรียกอ่านข้อมูลด้วย input ชุดเดิมซ้ำย่อมให้ผลเหมือนเดิม
+                    operation_call_counts[count_key] = operation_call_counts.get(count_key, 0) + 1
+                # การเรียกอ่านข้อมูลด้วย input ชุดเดิมซ้ำย่อมให้ผลเหมือนเดิม (dedupeIdenticalInput)
                 # จึงหยุดทันที เพื่อไม่ให้ผู้ใช้เห็นข้อความล้มเหลวซ้ำหลายรอบ
-                if call.name is ToolName.KNOWLEDGE or call.action not in PREPARE_TO_SUBMIT:
+                if spec.effective_dedupe():
                     key = (call.name.value, call.action.value, json.dumps(call.input, sort_keys=True, default=str))
-                    if key in seen_knowledge_calls:
+                    if key in seen_calls:
                         self._traces.append(trace_id, TraceEventKind.ERROR, {"stage": "duplicate_read_call", "action": call.action.value})
-                        duplicate_knowledge_call = True
+                        duplicate_read_call = True
                         break
-                    seen_knowledge_calls.add(key)
-                _inject_client_location(call, request)
+                    seen_calls.add(key)
+                _inject_client_context(call, request, spec)
                 result = await self._execute_chat_call(call, conversation_id, trace_id)
                 all_results.append(result)
                 history += (LLMMessage("tool", _result_message(result, self._response_policies)),)
                 if result.status is ToolResultStatus.SUCCESS and result.action in PREPARE_TO_SUBMIT:
                     prepared = True
                     break
-            if prepared or duplicate_knowledge_call or knowledge_search_limit_reached:
+            if prepared or duplicate_read_call or operation_call_limit_reached:
                 break
         else:  # pragma: no cover - มีเงื่อนไขป้องกันไว้ด้านบน เพื่อระบุขีดจำกัดตายตัวให้ชัดเจน
             final_text = "ไม่สามารถดำเนินการตามคำขอได้ภายในขีดจำกัดขั้นตอนเครื่องมือครับ"
@@ -228,6 +227,7 @@ class MainAgent:
             delivered_assistant_messages,
             user_message=request.message,
             response_policies=self._response_policies,
+            is_grounded_answer=self._is_grounded_answer,
         )
         if direct_completion_text is not None and (not all_results or repeats_delivered_facts):
             final_text = _safe_direct_message(
@@ -253,13 +253,18 @@ class MainAgent:
                 pending,
                 user_message=request.message,
                 response_policies=self._response_policies,
+                is_grounded_answer=self._is_grounded_answer,
             )
         self._conversations.append(conversation_id, LLMMessage("user", request.message))
         knowledge_context = next(
             (
                 context
                 for result in reversed(all_results)
-                if (context := _knowledge_context_from_result(request.message, result))
+                if (context := _knowledge_context_from_result(
+                    request.message,
+                    result,
+                    is_grounded_answer=self._is_grounded_answer(result),
+                ))
                 is not None
             ),
             None,
@@ -399,6 +404,7 @@ class MainAgent:
                     results,
                     user_message=request.message,
                     response_policies=self._response_policies,
+                    is_grounded_answer=self._is_grounded_answer,
                 )
             ) or message
         elif pending is not None:
@@ -433,6 +439,10 @@ class MainAgent:
         result = _sanitize_error_result(result, self._response_policies)
         self._traces.append(trace_id, TraceEventKind.TOOL_RESULT, {"name": result.name.value, "action": result.action.value, "status": result.status.value, "errorCode": result.error.code.value if result.error else None})
         return result
+
+    def _is_grounded_answer(self, result: ToolResult) -> bool:
+        """ผลลัพธ์นี้อยู่ภายใต้ policy grounded_answer หรือไม่ — ไม่รู้จักชื่อ tool (ARCHITECTURE-V2.md §4)"""
+        return self._tools.operation_spec_for_result(result).policy is OperationPolicy.GROUNDED_ANSWER
 
     def _create_pending_from_results(self, conversation_id: UUID, trace_id: UUID, results: list[ToolResult]) -> PendingAction | None:
         prepared = [result for result in results if result.status is ToolResultStatus.SUCCESS and result.action in PREPARE_TO_SUBMIT]
@@ -478,19 +488,30 @@ class MainAgent:
         return trace_id
 
 
-def _inject_client_location(call: ToolCall, request: ChatRequest) -> None:
-    """เติมพิกัดเบราว์เซอร์ให้ tool call แจ้งเหตุแบบไม่ทราบ CA — ไม่มี CA จึง
-    หาพิกัดจาก MST GIS ไม่ได้ (ดู OmsTool + oms.enrichAnonymousLocation ฝั่ง
-    Go BE) เป็น device state ไม่ใช่เนื้อหาสนทนา จึงเติมนอกรอบ LLM ไม่ใช่ให้
-    โมเดลสร้างพิกัดเอง (ป้องกันพิกัดหลอน) และไม่ overwrite ถ้า LLM ใส่มาเองแล้ว"""
-    if (
-        call.name is not ToolName.OMS
-        or call.action is not ToolAction.OMS_PREPARE_ANONYMOUS_OUTAGE
-        or request.client_location is None
-    ):
+_CLIENT_CONTEXT_SOURCES: dict[str, Callable[[ChatRequest], float | None]] = {
+    "lat": lambda request: request.client_location.lat if request.client_location else None,
+    "lon": lambda request: request.client_location.lon if request.client_location else None,
+}
+
+
+def _inject_client_context(call: ToolCall, request: ChatRequest, spec: OperationSpec) -> None:
+    """เติม device state ตามที่ operation ประกาศไว้ใน clientContext โดยไม่รู้จักชื่อ tool
+
+    เดิมเติมพิกัดเบราว์เซอร์เฉพาะ oms_tool.prepare_anonymous_outage ตรง ๆ (ไม่มี CA จึงหา
+    พิกัดจาก MST GIS ไม่ได้ — ดู OmsTool + oms.enrichAnonymousLocation ฝั่ง Go BE) ตอนนี้
+    operation ประกาศชื่อ context ที่ต้องการเอง (enum ปิด lat/lon) แทน เป็น device state
+    ไม่ใช่เนื้อหาสนทนา จึงเติมนอกรอบ LLM ไม่ใช่ให้โมเดลสร้างพิกัดเอง (ป้องกันพิกัดหลอน)
+    และไม่ overwrite ถ้า LLM ใส่มาเองแล้ว (ARCHITECTURE-V2.md §4.4)
+    """
+    if not spec.client_context:
         return
-    call.input.setdefault("lat", request.client_location.lat)
-    call.input.setdefault("lon", request.client_location.lon)
+    for context_key, field_name in spec.client_context.items():
+        source = _CLIENT_CONTEXT_SOURCES.get(context_key)
+        if source is None:
+            continue
+        value = source(request)
+        if value is not None:
+            call.input.setdefault(field_name, value)
 
 
 def _calls_from_response(
@@ -528,6 +549,7 @@ def _repeats_delivered_facts(
     *,
     user_message: str,
     response_policies: ResponsePolicies,
+    is_grounded_answer: Callable[[ToolResult], bool],
 ) -> bool:
     """ตรวจว่ารอบนี้อ่านข้อมูลเดิมซ้ำ โดยไม่มีข้อเท็จจริงใหม่ที่ผู้ใช้ยังไม่เคยเห็น
 
@@ -539,15 +561,20 @@ def _repeats_delivered_facts(
         return False
     if any(
         result.status is not ToolResultStatus.SUCCESS
-        # Knowledge มีคำตอบและ citation ที่ต้องคงไว้เสมอ จึงไม่เข้าเงื่อนไขนี้
-        or result.name is ToolName.KNOWLEDGE
+        # grounded_answer มีคำตอบและ citation ที่ต้องคงไว้เสมอ จึงไม่เข้าเงื่อนไขนี้
+        or is_grounded_answer(result)
         # การเตรียมหรือส่งรายการเปลี่ยนสถานะจริง ห้ามถูกมองว่าเป็นการอ่านซ้ำ
         or result.action in PREPARE_TO_SUBMIT
         or result.action in _SUBMIT_ACTIONS
         for result in results
     ):
         return False
-    facts = _result_facts(results, user_message=user_message, response_policies=response_policies)
+    facts = _result_facts(
+        results,
+        user_message=user_message,
+        response_policies=response_policies,
+        is_grounded_answer=is_grounded_answer,
+    )
     if not facts:
         return False
     return all(
@@ -616,12 +643,12 @@ def _result_message(result: ToolResult, response_policies: ResponsePolicies) -> 
 
 
 def _knowledge_context_from_result(
-    question: str, result: ToolResult
+    question: str, result: ToolResult, *, is_grounded_answer: bool
 ) -> KnowledgeConversationContext | None:
-    """สร้าง context ต่อเนื่องเฉพาะ Knowledge ที่สำเร็จและมี citation จริง"""
+    """สร้าง context ต่อเนื่องเฉพาะผล grounded_answer ที่สำเร็จและมี citation จริง"""
     data = result.data or {}
     if (
-        result.name is not ToolName.KNOWLEDGE
+        not is_grounded_answer
         or result.status is not ToolResultStatus.SUCCESS
         or not isinstance(data.get("answerContext"), str)
         or not data["answerContext"].strip()
@@ -653,6 +680,7 @@ def _authoritative_message(
     *,
     user_message: str = "",
     response_policies: ResponsePolicies,
+    is_grounded_answer: Callable[[ToolResult], bool],
 ) -> str:
     if not results:
         return text or _default_message(results)
@@ -660,20 +688,25 @@ def _authoritative_message(
     if (
         not pending
         and all(result.status is ToolResultStatus.ERROR for result in results)
-        and all(result.name is not ToolName.KNOWLEDGE for result in results)
+        and all(not is_grounded_answer(result) for result in results)
     ):
         presentations = tuple(_error_presentation(result, response_policies) for result in results)
         if _safe_llm_error_wording(text, presentations):
             codes = ", ".join(dict.fromkeys(item.code.value for item in presentations))
             return f"{text.strip()}\n\nรหัสข้อผิดพลาด: {codes}"
 
-    facts = _result_facts(results, user_message=user_message, response_policies=response_policies)
+    facts = _result_facts(
+        results,
+        user_message=user_message,
+        response_policies=response_policies,
+        is_grounded_answer=is_grounded_answer,
+    )
     if pending:
         facts.append("กรุณายืนยันรายการที่เสนอนี้อย่างชัดเจนเพื่อส่งรายการครับ")
         return "\n\n".join(facts) or _default_message(results)
     if (
         all(result.status is ToolResultStatus.SUCCESS for result in results)
-        and all(result.name is not ToolName.KNOWLEDGE for result in results)
+        and all(not is_grounded_answer(result) for result in results)
         and _safe_llm_operational_wording(text, tuple(facts))
     ):
         return text.strip()
@@ -782,12 +815,16 @@ def _operational_error_fact(result: ToolResult, response_policies: ResponsePolic
 
 
 def _result_facts(
-    results: list[ToolResult], *, user_message: str = "", response_policies: ResponsePolicies
+    results: list[ToolResult],
+    *,
+    user_message: str = "",
+    response_policies: ResponsePolicies,
+    is_grounded_answer: Callable[[ToolResult], bool],
 ) -> list[str]:
     """จัดรูปแบบเฉพาะข้อมูลผลลัพธ์ที่ผ่านการตรวจสอบ โดยไม่ใช้ข้อความของ planner หลังเรียกเครื่องมือ"""
     facts: list[str] = []
     knowledge_has_grounded = any(
-        result.name is ToolName.KNOWLEDGE
+        is_grounded_answer(result)
         and result.status is ToolResultStatus.SUCCESS
         and result.citations
         and isinstance((result.data or {}).get("answerContext"), str)
@@ -795,12 +832,12 @@ def _result_facts(
     )
     seen_knowledge_facts: set[str] = set()
     for result in results:
-        if result.name is ToolName.KNOWLEDGE and knowledge_has_grounded and not result.citations:
+        if is_grounded_answer(result) and knowledge_has_grounded and not result.citations:
             continue
         if result.status is ToolResultStatus.ERROR:
             fact = (
                 _KNOWLEDGE_ESCALATION_MESSAGE
-                if result.name is ToolName.KNOWLEDGE
+                if is_grounded_answer(result)
                 else _operational_error_fact(result, response_policies)
             )
             # การลองซ้ำของโมเดลต้องไม่ทำให้ผู้ใช้เห็นข้อความเดิมซ้ำหลายรอบ
@@ -808,7 +845,7 @@ def _result_facts(
                 facts.append(fact)
             continue
         data = result.data or {}
-        if result.name is ToolName.KNOWLEDGE and isinstance(data.get("answerContext"), str):
+        if is_grounded_answer(result) and isinstance(data.get("answerContext"), str):
             fact = (
                 _knowledge_fact(data["answerContext"], user_message)
                 if result.citations

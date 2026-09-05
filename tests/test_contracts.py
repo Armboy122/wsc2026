@@ -21,6 +21,7 @@ from app.contracts import (
     ToolName,
 )
 from app.llm import DemoLLMAdapter, LLMClient, LLMResponse, ScriptedLLMAdapter
+from app.plugins import load_operation_specs
 from app.plugins.oms.demo import OmsDemoBehavior
 from app.plugins.oms.response import OmsResponsePolicy
 from app.tools.knowledge_tool import KnowledgeTool
@@ -91,6 +92,7 @@ def _isolated_registry(post_counter: list[int] | None = None) -> ToolRegistry:
             OmsTool(base_url="http://oms.test/api/v1/oms", transport=httpx.MockTransport(oms_handler)),
         ],
         response_policies=(OmsResponsePolicy(),),
+        operation_specs=load_operation_specs(ToolName.OMS),
     )
 
 

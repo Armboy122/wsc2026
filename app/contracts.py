@@ -258,7 +258,7 @@ class ChatRequest(FrozenModel):
     message: str = Field(min_length=1, max_length=4000)
     request_id: UUID | None = Field(default=None, serialization_alias="requestId")
     # เสริมนอกสัญญาเดิม (optional, backward-compatible) — ไม่ผ่าน LLM เพราะเป็น
-    # device state ไม่ใช่เนื้อหาการสนทนา ดู main_agent._inject_client_location
+    # device state ไม่ใช่เนื้อหาการสนทนา ดู main_agent._inject_client_context
     client_location: ChatClientLocation | None = Field(default=None, serialization_alias="clientLocation")
     # ค่าที่ผู้ใช้กดเลือกจาก ChoicePrompt รอบก่อน ต้องตรวจกับ catalog เสมอ ห้ามเชื่อ client
     selected_prompt_id: str | None = Field(default=None, max_length=64, serialization_alias="selectedPromptId")
@@ -445,7 +445,7 @@ class OmsPrepareAnonymousOutageInput(FrozenModel):
     contact_phone: str = Field(min_length=8, max_length=32, serialization_alias="contactPhone")
     idempotency_key: str = Field(min_length=1, max_length=128, serialization_alias="idempotencyKey")
     # ไม่มี CA จึงหา MST GIS ไม่ได้ — เติมจาก ChatRequest.clientLocation แทน
-    # (main_agent._inject_client_location) ไม่ใช่ค่าที่ LLM สร้างเอง
+    # (main_agent._inject_client_context ตาม clientContext ที่ operation ประกาศ) ไม่ใช่ค่าที่ LLM สร้างเอง
     lat: float | None = Field(default=None, ge=-90, le=90)
     lon: float | None = Field(default=None, ge=-180, le=180)
 

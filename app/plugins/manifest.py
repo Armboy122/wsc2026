@@ -20,9 +20,11 @@ from app.contracts import (
     ToolName,
 )
 from app.agent.operation_policy import (
+    DEFAULT_POLICY,
     KNOWN_CLIENT_CONTEXT,
     OperationLimits,
     OperationPolicy,
+    OperationSpec,
 )
 
 # factory ต้องอยู่ใต้แพ็กเกจปลั๊กอินของ repository เท่านั้น ไม่รับ path จากภายนอก
@@ -104,6 +106,27 @@ class PluginOperation(BaseModel):
                     raise ValueError(f"clientContext ของ {self.action.value} ต้องมีชื่อ field ที่ไม่ว่าง")
         return self
 
+    @property
+    def effective_policy(self) -> OperationPolicy:
+        """ไม่ประกาศ policy => plain_read เสมอ (fail safe) — ARCHITECTURE-V2.md §4.5"""
+        return self.policy if self.policy is not None else DEFAULT_POLICY
+
+    @property
+    def effective_exposure(self) -> OperationExposure:
+        """ไม่ประกาศ policy => บังคับ internal เสมอ ไม่ว่า manifest จะเขียน exposure อะไรไว้"""
+        if self.policy is None:
+            return OperationExposure.INTERNAL
+        return self.exposure
+
+    @property
+    def operation_spec(self) -> OperationSpec:
+        """ค่าที่ Main Agent ถามได้จริง — ไม่รู้จักชื่อ tool หรือ action นี้เลย"""
+        return OperationSpec(
+            policy=self.effective_policy,
+            limits=self.limits,
+            client_context=self.client_context,
+        )
+
 
 class PluginConfiguration(BaseModel):
     """ชื่อ environment variable ที่ปลั๊กอินใช้ (ไม่เก็บค่า secret ใน manifest)"""
@@ -177,9 +200,14 @@ class PluginManifest(BaseModel):
 
     @property
     def llm_actions(self) -> tuple[PluginOperation, ...]:
-        """เฉพาะ operation ที่เปิดให้ LLM เห็นในแคตตาล็อก"""
+        """เฉพาะ operation ที่เปิดให้ LLM เห็นในแคตตาล็อก
+
+        ใช้ ``effective_exposure`` ไม่ใช่ ``exposure`` ตรง ๆ เพื่อบังคับ fail safe:
+        operation ที่ไม่ได้ประกาศ policy ต้องไม่ถูกเปิดให้ LLM เรียกไม่ว่า manifest
+        จะเขียน exposure อะไรไว้ก็ตาม (ARCHITECTURE-V2.md §4.5)
+        """
         return tuple(
             operation
             for operation in self.operations
-            if operation.exposure is OperationExposure.LLM
+            if operation.effective_exposure is OperationExposure.LLM
         )

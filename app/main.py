@@ -100,6 +100,11 @@ tool_registry = ToolRegistry(
     response_policies=tuple(
         policy for plugin in plugins if (policy := plugin.response_policy) is not None
     ),
+    operation_specs={
+        action: spec
+        for plugin in plugins
+        for action, spec in plugin.operation_specs.items()
+    },
 )
 main_llm_client = LLMClient(llm_adapter)
 guided_flows = GuidedFlows(

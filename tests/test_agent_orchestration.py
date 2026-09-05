@@ -7,13 +7,8 @@ from uuid import uuid4
 import httpx
 import pytest
 
-from app.agent.main_agent import (
-    MainAgent,
-    _MAX_KNOWLEDGE_SEARCHES_PER_TURN,
-    _MAX_TOOL_STEPS,
-    _knowledge_fact,
-)
-from app.agent.registry import ToolRegistry
+from app.agent.main_agent import MainAgent, _MAX_TOOL_STEPS, _knowledge_fact
+from app.agent.registry import _MAX_KNOWLEDGE_SEARCHES_PER_TURN, ToolRegistry
 from app.agent.response_policy import ErrorPresentation
 from app.backends.full_document_knowledge import GroundedEvidence, KnowledgeBackendError
 from app.contracts import (
@@ -29,6 +24,7 @@ from app.contracts import (
 )
 from app.llm import DemoLLMAdapter, LLMClient, LLMResponse, ScriptedLLMAdapter, ToolDefinition
 from app.llm.prompting import SYSTEM_PROMPT
+from app.plugins import load_operation_specs
 from app.plugins.oms.demo import OmsDemoBehavior
 from app.plugins.oms.response import OmsResponsePolicy
 from app.tools.knowledge_tool import KnowledgeTool
@@ -67,6 +63,7 @@ def _registry(knowledge_backend: FakeKnowledgeBackend | None = None) -> ToolRegi
             OmsTool(base_url="http://oms.test/api/v1/oms", transport=httpx.MockTransport(oms_handler)),
         ],
         response_policies=(OmsResponsePolicy(),),
+        operation_specs=load_operation_specs(ToolName.OMS),
     )
 
 
@@ -170,6 +167,7 @@ def test_voice_like_operational_wrapper_keeps_the_typed_oms_fact_verbatim() -> N
         [result],
         None,
         response_policies=ResponsePolicies((OmsResponsePolicy(),)),
+        is_grounded_answer=lambda result: False,
     )
 
     assert message == f"ตรวจสอบแล้วครับ {fact}"
@@ -201,6 +199,7 @@ def test_unsafe_operational_wrapper_uses_deterministic_fact() -> None:
         [result],
         None,
         response_policies=ResponsePolicies((OmsResponsePolicy(),)),
+        is_grounded_answer=lambda result: False,
     )
 
     assert message == fact
@@ -642,6 +641,7 @@ async def test_failed_confirmed_submit_redacts_secret_from_response_and_terminal
         [KnowledgeTool(FakeKnowledgeBackend()), SecretFailingSubmitOms()],
         catalogue=(ToolDefinition(ToolName.OMS, "OMS", ("prepare_outage_with_ca",)),),
         response_policies=(OmsResponsePolicy(),),
+        operation_specs=load_operation_specs(ToolName.OMS),
     )
     agent = MainAgent(
         LLMClient(ScriptedLLMAdapter([LLMResponse(tool_calls=(prepare_call,))])),
@@ -658,6 +658,120 @@ async def test_failed_confirmed_submit_redacts_secret_from_response_and_terminal
     assert decision.pending_action.submission_result.error is not None
     assert "submit-super-secret" not in decision.pending_action.submission_result.error.message
     assert decision.pending_action.status.value == "failed"
+
+
+@pytest.mark.asyncio
+async def test_client_location_is_injected_into_anonymous_outage_prepare_input() -> None:
+    """D1.5/ARCHITECTURE-V2.md §4.4: clientContext (enum ปิด lat/lon) เติมพิกัดเบราว์เซอร์
+    ให้ operation ที่ประกาศไว้ โดย agent ไม่รู้จักชื่อ tool หรือ action นี้เลย"""
+    from app.contracts import ChatClientLocation
+
+    captured_inputs: list[dict] = []
+
+    class RecordingOms:
+        name = ToolName.OMS
+
+        async def execute(self, call: ToolCall, context: object) -> ToolResult:
+            captured_inputs.append(dict(call.input))
+            return ToolResult(
+                call_id=call.call_id,
+                name=call.name,
+                action=call.action,
+                status=ToolResultStatus.SUCCESS,
+                data={"summary": "เตรียมแจ้งเหตุไฟดับ"},
+                simulation=True,
+            )
+
+        def reset(self) -> None:
+            return None
+
+    call = ToolCall(
+        call_id=uuid4(),
+        name=ToolName.OMS,
+        action=ToolAction.OMS_PREPARE_ANONYMOUS_OUTAGE,
+        input={
+            "description": "ไฟดับทั้งอาคาร",
+            "location": "อาคารสาธิต",
+            "contactPhone": "0812345678",
+            "idempotencyKey": "idem-clientctx-1",
+        },
+    )
+    registry = ToolRegistry(
+        [KnowledgeTool(FakeKnowledgeBackend()), RecordingOms()],
+        operation_specs=load_operation_specs(ToolName.OMS),
+    )
+    agent = MainAgent(
+        LLMClient(ScriptedLLMAdapter([LLMResponse(tool_calls=(call,))])),
+        registry,
+    )
+
+    response = await agent.handle_chat(
+        ChatRequest(
+            message="แจ้งเหตุไฟดับ",
+            client_location=ChatClientLocation(lat=13.75, lon=100.5),
+        )
+    )
+
+    assert response.pending_action is not None
+    assert captured_inputs[0]["lat"] == 13.75
+    assert captured_inputs[0]["lon"] == 100.5
+
+
+@pytest.mark.asyncio
+async def test_client_location_never_overwrites_a_value_the_llm_already_set() -> None:
+    """setdefault เดิม — ต้องไม่ทับพิกัดที่ LLM ใส่มาเอง"""
+    from app.contracts import ChatClientLocation
+
+    captured_inputs: list[dict] = []
+
+    class RecordingOms:
+        name = ToolName.OMS
+
+        async def execute(self, call: ToolCall, context: object) -> ToolResult:
+            captured_inputs.append(dict(call.input))
+            return ToolResult(
+                call_id=call.call_id,
+                name=call.name,
+                action=call.action,
+                status=ToolResultStatus.SUCCESS,
+                data={"summary": "เตรียมแจ้งเหตุไฟดับ"},
+                simulation=True,
+            )
+
+        def reset(self) -> None:
+            return None
+
+    call = ToolCall(
+        call_id=uuid4(),
+        name=ToolName.OMS,
+        action=ToolAction.OMS_PREPARE_ANONYMOUS_OUTAGE,
+        input={
+            "description": "ไฟดับทั้งอาคาร",
+            "location": "อาคารสาธิต",
+            "contactPhone": "0812345678",
+            "idempotencyKey": "idem-clientctx-2",
+            "lat": 1.23,
+            "lon": 4.56,
+        },
+    )
+    registry = ToolRegistry(
+        [KnowledgeTool(FakeKnowledgeBackend()), RecordingOms()],
+        operation_specs=load_operation_specs(ToolName.OMS),
+    )
+    agent = MainAgent(
+        LLMClient(ScriptedLLMAdapter([LLMResponse(tool_calls=(call,))])),
+        registry,
+    )
+
+    await agent.handle_chat(
+        ChatRequest(
+            message="แจ้งเหตุไฟดับ",
+            client_location=ChatClientLocation(lat=13.75, lon=100.5),
+        )
+    )
+
+    assert captured_inputs[0]["lat"] == 1.23
+    assert captured_inputs[0]["lon"] == 4.56
 
 
 @pytest.mark.asyncio
@@ -1196,6 +1310,7 @@ async def test_repeated_read_suppression_requires_every_fact_already_delivered()
             ("เรื่องร้องเรียนเลขที่ SIM-CASE-0001 มีสถานะ IN_PROGRESS ครับ",),
             user_message="ติดตามเรื่อง",
             response_policies=policies,
+            is_grounded_answer=lambda result: False,
         )
         is True
     )
@@ -1206,6 +1321,7 @@ async def test_repeated_read_suppression_requires_every_fact_already_delivered()
             ("ข้อความก่อนหน้าที่ไม่เกี่ยวข้อง",),
             user_message="ติดตามเรื่อง",
             response_policies=policies,
+            is_grounded_answer=lambda result: False,
         )
         is False
     )

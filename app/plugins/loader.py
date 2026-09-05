@@ -15,7 +15,8 @@ from typing import Any, Protocol
 import yaml
 from pydantic import ValidationError
 
-from app.contracts import ToolName
+from app.agent.operation_policy import OperationSpec
+from app.contracts import ToolAction, ToolName
 from app.llm.models import ToolDefinition
 from app.plugins.aliases import PluginAliasError, load_alias_guidance
 from app.plugins.manifest import PluginManifest
@@ -67,6 +68,11 @@ class LoadedPlugin:
         )
 
     @property
+    def operation_specs(self) -> dict[ToolAction, OperationSpec]:
+        """policy ต่อ operation ที่ manifest ประกาศไว้ — สิ่งเดียวที่ Main Agent ถามได้ (ARCHITECTURE-V2.md §4)"""
+        return _operation_specs_from_manifest(self.manifest)
+
+    @property
     def tool_definition(self) -> ToolDefinition:
         """แค็ตตาล็อกที่ LLM เห็น โดยตัด operation ที่เป็น internal ออก"""
         return ToolDefinition(
@@ -111,6 +117,28 @@ def load_plugins(settings: Any, *, plugin_root: Path | None = None) -> tuple[Loa
             )
         )
     return tuple(loaded)
+
+
+def load_operation_specs(
+    tool_name: ToolName, *, plugin_root: Path | None = None
+) -> dict[ToolAction, OperationSpec]:
+    """โหลด policy ต่อ operation ของปลั๊กอินตัวเดียวตรงจาก manifest จริง โดยไม่ต้องมี settings
+
+    ใช้เป็นแหล่งเดียวกับที่ ``load_plugins`` ใช้จริง กันเทสกับ production ประกาศ policy
+    ไม่ตรงกันจนพฤติกรรมที่เทสผ่านไม่ตรงกับที่รันจริง
+    """
+    root = plugin_root or _PLUGIN_ROOT
+    for manifest_path in sorted(root.glob(f"*/{_MANIFEST_FILENAME}")):
+        raw = _read_yaml(manifest_path)
+        if not isinstance(raw.get("metadata"), dict) or raw["metadata"].get("id") != tool_name.value:
+            continue
+        manifest = _validate_manifest(raw, manifest_path)
+        return _operation_specs_from_manifest(manifest)
+    raise PluginError(f"ไม่พบ manifest ของ {tool_name.value}")
+
+
+def _operation_specs_from_manifest(manifest: PluginManifest) -> dict[ToolAction, OperationSpec]:
+    return {operation.action: operation.operation_spec for operation in manifest.operations}
 
 
 def _read_yaml(path: Path) -> dict[str, Any]:

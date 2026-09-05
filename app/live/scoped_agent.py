@@ -98,6 +98,9 @@ def _scoped_registry(
             # เพราะ policy จัดรูปแบบจาก ToolResult ที่เกิดขึ้นจริงเท่านั้น และ
             # เครื่องมือที่ถูกกรองออกจะไม่มีทางสร้างผลลัพธ์ในช่องทางนี้ได้เลย
             response_policies=registry.response_policies.policies,
+            # เช่นเดียวกับ response_policies: policy ต่อ operation คงไว้ทั้งชุดได้
+            # เพราะ action ของเครื่องมือที่ถูกกรองออกไม่มีทางถูกเรียกในช่องทางนี้
+            operation_specs=registry.operation_specs,
         )
     except ValueError:
         return None

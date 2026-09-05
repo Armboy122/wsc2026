@@ -149,6 +149,20 @@ def test_manifest_that_exposes_submit_to_the_llm_fails_closed() -> None:
         PluginManifest.model_validate(payload)
 
 
+def test_manifest_operation_without_policy_defaults_closed_even_if_exposure_says_llm() -> None:
+    """D1.6/§4.5: ไม่ประกาศ policy => plain_read + บังคับ internal เสมอ ไม่ว่า exposure จะเขียนว่าอะไร"""
+    payload = _manifest_dict()
+    for operation in payload["operations"]:
+        if operation["action"] == "get_outage_by_ca":
+            del operation["policy"]
+
+    manifest = PluginManifest.model_validate(payload)
+    operation = next(op for op in manifest.operations if op.action.value == "get_outage_by_ca")
+
+    assert operation.effective_policy.value == "plain_read"
+    assert "get_outage_by_ca" not in {op.action.value for op in manifest.llm_actions}
+
+
 def test_manifest_contract_drift_from_pydantic_fails_closed() -> None:
     """YAML ต้องไม่กลายเป็น schema ชุดที่สองที่หลุดจาก app/contracts.py"""
     payload = _manifest_dict()

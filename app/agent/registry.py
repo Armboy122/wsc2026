@@ -3,11 +3,12 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import Any, Protocol, runtime_checkable
+from typing import Any, Mapping, Protocol, runtime_checkable
 from uuid import UUID
 
 from pydantic import ValidationError
 
+from app.agent.operation_policy import OperationLimits, OperationPolicy, OperationSpec
 from app.agent.response_policy import ResponsePolicies, ResponsePolicy
 from app.contracts import (
     TOOL_ACTIONS,
@@ -31,6 +32,19 @@ BUILT_IN_CATALOGUE: tuple[ToolDefinition, ...] = (
         ("search",),
     ),
 )
+
+# planner มักขยายถ้อยคำค้นหาภาษาไทยเล็กน้อยทุกรอบ ทำให้ guard กัน input ซ้ำตรง ๆ จับไม่ได้
+# จึงจำกัดจำนวนค้นหาความรู้ต่อเทิร์น แล้วใช้ผลที่ค้นได้แล้วไปเรียบเรียงคำตอบต่อ
+_MAX_KNOWLEDGE_SEARCHES_PER_TURN = 2
+
+# Knowledge ไม่ผ่าน plugin manifest จึงประกาศ policy ของตัวเองไว้ที่เดียวตรงนี้
+# (ปลั๊กอินอื่นประกาศผ่าน operations ใน plugin.yaml — ดู app/plugins/manifest.py)
+BUILT_IN_OPERATION_SPECS: dict[ToolAction, OperationSpec] = {
+    ToolAction.KNOWLEDGE_SEARCH: OperationSpec(
+        policy=OperationPolicy.GROUNDED_ANSWER,
+        limits=OperationLimits(max_calls_per_turn=_MAX_KNOWLEDGE_SEARCHES_PER_TURN),
+    ),
+}
 
 
 @dataclass(frozen=True, slots=True)
@@ -60,6 +74,7 @@ class ToolRegistry:
         *,
         catalogue: tuple[ToolDefinition, ...] | None = None,
         response_policies: tuple[ResponsePolicy, ...] = (),
+        operation_specs: Mapping[ToolAction, OperationSpec] | None = None,
     ) -> None:
         by_name: dict[ToolName, Tool] = {}
         for tool in tools:
@@ -80,11 +95,30 @@ class ToolRegistry:
             raise ValueError(
                 f"แค็ตตาล็อกอ้างถึงเครื่องมือที่ไม่ได้ลงทะเบียน: {sorted(name.value for name in unknown)}"
             )
+        self._operation_specs: dict[ToolAction, OperationSpec] = {
+            **BUILT_IN_OPERATION_SPECS,
+            **(operation_specs or {}),
+        }
 
     @property
     def llm_catalogue(self) -> tuple[ToolDefinition, ...]:
         """แค็ตตาล็อกที่ Main Agent ส่งให้ LLM โดยไม่รวม action ที่เป็น internal"""
         return self._catalogue
+
+    @property
+    def operation_specs(self) -> Mapping[ToolAction, OperationSpec]:
+        """policy ต่อ operation ทั้งหมดที่ประกาศไว้ (built-in + ปลั๊กอิน)"""
+        return self._operation_specs
+
+    def operation_spec(self, action: ToolAction) -> OperationSpec:
+        """policy ของ operation นี้ — ไม่ประกาศ = ค่าเริ่มต้น plain_read (fail safe, ARCHITECTURE-V2.md §4.5)"""
+        return self._operation_specs.get(action, OperationSpec())
+
+    def operation_spec_for_call(self, call: ToolCall) -> OperationSpec:
+        return self.operation_spec(call.action)
+
+    def operation_spec_for_result(self, result: ToolResult) -> OperationSpec:
+        return self.operation_spec(result.action)
 
     @property
     def response_policies(self) -> ResponsePolicies:
