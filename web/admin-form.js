@@ -81,6 +81,23 @@ export function detectMetadataLoss(baseline, candidate, path = "") {
       }
     });
   }
+  if (baseline.items || candidate.items) {
+    losses.push(...detectMetadataLoss(
+      baseline.items,
+      candidate.items,
+      path ? `${path}.items` : "items",
+    ));
+  }
+  if (Array.isArray(baseline.anyOf) && Array.isArray(candidate.anyOf)) {
+    baseline.anyOf.forEach((branch, index) => {
+      const matching = candidate.anyOf.find((item) => item.type === branch.type) || candidate.anyOf[index];
+      losses.push(...detectMetadataLoss(
+        branch,
+        matching,
+        `${path ? `${path}.` : ""}anyOf.${index}`,
+      ));
+    });
+  }
   if (baseline.inputSchema || candidate.inputSchema) {
     losses.push(...detectMetadataLoss(
       baseline.inputSchema,
@@ -141,13 +158,42 @@ export function validateToolPayload(payload) {
   return null;
 }
 
+const REQUEST_OPERATION_KEYS = new Set([
+  "action", "policy", "exposure", "mode", "submitAction", "httpMethod",
+  "urlTemplate", "inputSchema", "outputSchema", "limits", "clientContext",
+]);
+const REQUEST_TOOL_KEYS = new Set([
+  "slug", "displayName", "description", "enabled", "authEnvVar", "operations",
+]);
+
+function filterRequestKeys(value, keys) {
+  return Object.fromEntries(Object.entries(value || {}).filter(([key]) => keys.has(key)));
+}
+
+function baselineOperationFor(operation, baselines, used) {
+  const action = String(operation.action || "").trim();
+  if (!action) return undefined;
+  const index = (baselines || []).findIndex((candidate, candidateIndex) =>
+    !used.has(candidateIndex) && candidate && candidate.action === action,
+  );
+  if (index < 0) return undefined;
+  used.add(index);
+  return baselines[index];
+}
+
 export function buildToolPayload(values, baseline) {
-  const payload = mergeObject(baseline, values);
+  const payload = filterRequestKeys(mergeObject(baseline, values), REQUEST_TOOL_KEYS);
   delete payload.authEnvVar;
   payload.slug = String(values.slug || "").trim();
   payload.displayName = String(values.displayName || "").trim();
-  payload.operations = (values.operations || []).map((operation, index) =>
-    buildOperationPayload(operation, baseline && baseline.operations[index]),
+  const usedBaselines = new Set();
+  payload.operations = (values.operations || []).map((operation) =>
+    filterRequestKeys(
+      buildOperationPayload(operation, baselineOperationFor(
+        operation, baseline && baseline.operations, usedBaselines,
+      )),
+      REQUEST_OPERATION_KEYS,
+    ),
   );
   return payload;
 }

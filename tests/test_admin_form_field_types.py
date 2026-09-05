@@ -59,9 +59,30 @@ def test_object_is_not_an_editable_dropdown_type() -> None:
 
 
 def test_array_builder_has_items_and_preview_uses_save_baseline() -> None:
-    source = ADMIN_JS.read_text()
-    assert 'prop.items = { type: $(\'[data-field="items-type"]\', row).value || "string" };' in source
-    assert 'buildSchemaFromRows(fieldsContainer, JSON.parse(card.dataset.baselineSchema || "{}"))' in source
+    baseline = {
+        "action": "read",
+        "mode": "read",
+        "httpMethod": "GET",
+        "urlTemplate": "https://example.test",
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "tags": {"type": "array", "items": {"type": "string"}},
+            },
+            "required": [],
+            "additionalProperties": False,
+        },
+    }
+    values = json.loads(json.dumps(baseline))
+    values["inputSchema"]["properties"]["tags"]["items"]["type"] = "integer"
+    result = run_node(
+        "const base = " + json.dumps(baseline) + "; const values = "
+        + json.dumps(values)
+        + "; console.log(JSON.stringify(form.buildOperationPayload(values, base)));"
+    )
+    assert result["inputSchema"]["properties"]["tags"]["type"] == "array"
+    assert result["inputSchema"]["properties"]["tags"]["items"]["type"] == "integer"
+    assert 'buildSchemaFromRows(fieldsContainer, JSON.parse(card.dataset.baselineSchema || "{}"))' in ADMIN_JS.read_text()
 
 
 def test_array_items_schema_is_accepted_by_real_validator() -> None:
