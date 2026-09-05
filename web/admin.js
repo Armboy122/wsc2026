@@ -701,15 +701,29 @@
         "สำเร็จ · HTTP " + response.statusCode + " · " + response.elapsedMs + " ms"
       )
     );
+    // แสดงผลครบตามสเปก D3.5: method + final URL + query + request body + response
+    // (headers ไม่ส่งกลับมาจาก API เลย — fail-safe กัน credential หลุดขึ้นจอ)
     var request = data.request || {};
     var query = request.query || {};
     var queryText = Object.keys(query).length
       ? "?" + Object.keys(query).map(function (key) { return key + "=" + query[key]; }).join("&")
       : "";
+    var sections = [request.method + " " + request.url + queryText];
+    if (request.body !== null && request.body !== undefined) {
+      sections.push("\n[request body]\n" + JSON.stringify(request.body, null, 2));
+    }
+    sections.push("\n[response]");
+    if (response.isJson) {
+      sections.push(JSON.stringify(response.body, null, 2));
+    } else {
+      // response ไม่ใช่ JSON: แสดงเป็นข้อความ (backend ตัดความยาวแล้วแจ้งผ่าน textTruncated)
+      sections.push(response.text || "(response ว่าง)");
+      if (response.textTruncated) {
+        sections.push("… (ข้อความถูกตัดให้สั้นลง — แสดงเฉพาะช่วงต้น)");
+      }
+    }
     var output = el("pre", "json-preview try-output");
-    output.textContent =
-      request.method + " " + request.url + queryText + "\n\n" +
-      (response.isJson ? JSON.stringify(response.body, null, 2) : "(response ไม่ใช่ JSON)");
+    output.textContent = sections.join("\n");
     tryPanel.appendChild(output);
   }
 
