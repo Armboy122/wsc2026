@@ -13,53 +13,45 @@ from typing import Annotated, Any
 
 from fastapi import APIRouter, Depends, HTTPException, Request, status
 from fastapi.responses import JSONResponse
-from pydantic import BaseModel, ConfigDict, Field
 
-from app.contracts import to_camel
+from app.contracts import (
+    AdminLoginRequest,
+    AdminOperationInput,
+    AdminPromptInput,
+    AdminToolDefinitionInput,
+    AdminToolEnabledInput,
+    AdminTryOperationInput,
+)
 from app.core import admin_auth
 from app.core.admin_auth import ADMIN_SESSION_COOKIE, require_admin
 from app.core.config import Settings
 from app.core.errors import ConflictException
-from app.core.prompt_admin import MAX_PROMPT_LENGTH, PromptAdminService, PromptValidationError
+from app.core.logging import get_logger, log_extra
+from app.core.prompt_admin import PromptAdminService, PromptValidationError
 from app.core.tool_admin import ToolAdminService
 from app.tools.declarative_validator import DeclarativeValidationError
 
 router = APIRouter(prefix="/api/v1/admin", tags=["admin"])
-
-
-class AdminModel(BaseModel):
-    """ฐานของ request body admin — กติกาเดียวกับ app.contracts.FrozenModel
-
-    ไม่ frozen เพราะเป็น input ชั่วคราว ไม่ใช่ค่าที่ส่งต่อข้ามโมดูล
-    """
-
-    model_config = ConfigDict(
-        extra="forbid",
-        populate_by_name=True,
-        alias_generator=to_camel,
-    )
-
-
-class AdminLoginRequest(BaseModel):
-    model_config = ConfigDict(extra="forbid")
-
-    password: str = Field(min_length=1, max_length=256)
+logger = get_logger(__name__)
 
 
 @router.post("/login")
 async def login(request: Request, body: AdminLoginRequest) -> JSONResponse:
     settings: Settings = request.app.state.settings
     if not settings.admin_password:
+        logger.warning("admin_login_disabled", extra=log_extra(reason="not_configured"))
         # แยก 503 (admin ปิด) ออกจาก 401 (รหัสผ่านผิด) เพื่อไม่ให้เดาได้ว่ารหัสผ่านเป็นอะไร
         raise HTTPException(
             status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
             detail="ปิดใช้งานหน้า admin: ยังไม่ได้ตั้งค่า ADMIN_PASSWORD",
         )
     if not admin_auth.verify_admin_password(settings.admin_password, body.password):
+        logger.warning("admin_login_failed", extra=log_extra(reason="invalid_password"))
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail="รหัสผ่าน admin ไม่ถูกต้อง",
         )
+    logger.info("admin_login_succeeded", extra=log_extra())
     response = JSONResponse({"authenticated": True})
     response.set_cookie(
         ADMIN_SESSION_COOKIE,
@@ -88,47 +80,6 @@ async def session_status(_: Annotated[None, Depends(require_admin)]) -> dict[str
 # ---------------------------------------------------------------- D3.3/D3.4/D3.5 --
 
 
-class AdminOperationInput(AdminModel):
-    """หนึ่ง operation ในฟอร์มสร้าง/แก้ tool — รูป camelCase ตาม CONTRACTS-V2 §1.3"""
-
-    action: str = Field(min_length=1, max_length=64)
-    policy: str = Field(default="plain_read")
-    exposure: str = Field(default="llm")
-    mode: str = Field(default="read")
-    submit_action: str | None = None
-    http_method: str | None = None
-    url_template: str | None = None
-    input_schema: dict[str, Any]
-    output_schema: dict[str, Any] | None = None
-    limits: dict[str, Any] | None = None
-    client_context: dict[str, str] | None = None
-
-
-class AdminToolDefinitionInput(AdminModel):
-    """definition ทั้งชุดของฟอร์ม D3.4 — validation เชิงนโยบายทำที่ ToolAdminService"""
-
-    slug: str = Field(min_length=1, max_length=64)
-    display_name: str = Field(min_length=1, max_length=200)
-    description: str = Field(default="", max_length=1000)
-    enabled: bool = True
-    auth_env_var: str | None = Field(default=None, min_length=1, max_length=128)
-    operations: list[AdminOperationInput] = Field(min_length=1)
-
-
-class AdminToolEnabledInput(AdminModel):
-    enabled: bool
-
-
-class AdminTryOperationInput(AdminModel):
-    """คำขอปุ่ม "ลองยิงดู" (D3.5) — ยิงก่อน save ได้ เพื่อเห็น response ก่อนเปิดใช้"""
-
-    http_method: str
-    url_template: str = Field(min_length=1, max_length=2048)
-    input: dict[str, Any] = Field(default_factory=dict)
-    input_schema: dict[str, Any] | None = None
-    auth_env_var: str | None = Field(default=None, max_length=128)
-
-
 def _tool_admin(request: Request) -> ToolAdminService:
     return request.app.state.tool_admin
 
@@ -138,12 +89,6 @@ def _prompt_admin(request: Request) -> PromptAdminService:
 
 
 # ---------------------------------------------------------------------- D3.6 --
-
-
-class AdminPromptInput(AdminModel):
-    """ฟอร์มแก้ SYSTEM_PROMPT (D3.6) — เพดานยาวเดียวกับ PromptAdminService"""
-
-    content: str = Field(min_length=1, max_length=MAX_PROMPT_LENGTH)
 
 
 @router.get("/prompt")
@@ -161,7 +106,9 @@ async def save_prompt(
     service: Annotated[PromptAdminService, Depends(_prompt_admin)],
 ) -> JSONResponse:
     try:
-        return JSONResponse(await service.save_prompt(body.content))
+        result = await service.save_prompt(body.content)
+        logger.info("admin_prompt_saved", extra=log_extra(content_length=len(body.content)))
+        return JSONResponse(result)
     except PromptValidationError as error:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(error)) from error
 
@@ -228,15 +175,18 @@ async def try_tool_operation(
 ) -> JSONResponse:
     # ผลเป็น {ok: false, reason, error} เสมอเมื่อถูกปฏิเสธ — ไม่ใช่ HTTP error เพราะ
     # ฝั่ง UI ต้องแสดงเหตุผล (เช่น SSRF บล็อก) ตรงจุด ไม่ใช่ฟ้องว่า request พัง
-    return JSONResponse(
-        await service.try_operation(
-            http_method=body.http_method,
-            url_template=body.url_template,
-            input=body.input,
-            input_schema=body.input_schema,
-            auth_env_var=body.auth_env_var,
-        )
+    result = await service.try_operation(
+        http_method=body.http_method,
+        url_template=body.url_template,
+        input=body.input,
+        input_schema=body.input_schema,
+        auth_env_var=body.auth_env_var,
     )
+    logger.info(
+        "admin_external_tool_try",
+        extra=log_extra(ok=bool(result.get("ok")), reason=result.get("reason")),
+    )
+    return JSONResponse(result)
 
 
 async def _save(

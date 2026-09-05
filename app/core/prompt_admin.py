@@ -14,12 +14,14 @@ from __future__ import annotations
 
 from typing import Any
 
+from app.core.logging import get_logger, log_extra
 from app.db import Database
 from app.db.bootstrap_prompt import SYSTEM_PROMPT_KEY
 from app.llm.prompting import SYSTEM_PROMPT
 
 # เพดานกันพิมพ์หลุด — SYSTEM_PROMPT เริ่มต้นยาว ~1.5k ตัวอักษร ตัวนี้เหลือให้แก้ได้อิสระ
 MAX_PROMPT_LENGTH = 20_000
+logger = get_logger(__name__)
 
 
 class PromptValidationError(ValueError):
@@ -62,4 +64,5 @@ class PromptAdminService:
             "updated_at = excluded.updated_at",
             (SYSTEM_PROMPT_KEY, content),
         )
+        logger.info("admin_prompt_saved", extra=log_extra(content_length=len(content)))
         return await self.get_prompt()

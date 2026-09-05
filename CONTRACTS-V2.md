@@ -463,7 +463,7 @@ query string อันตรายเป็นพิเศษเพราะ API
 | `GET /health` | — | ห้ามบอกรายละเอียดภายใน |
 | `GET /api/v1/traces/{id}` | **admin session** | ⚠️ เปลี่ยนจาก V1 ที่เปิดสาธารณะ |
 | `POST /api/v1/reset` | **admin session** | ⚠️ เปลี่ยนจาก V1 |
-| `/api/admin/*` | admin session | กลุ่มใหม่ |
+| `/api/v1/admin/*` | admin session | กลุ่มใหม่: tool และ prompt administration |
 | `POST /webhook/line` | LINE signature | ไม่เปลี่ยน |
 | `POST /webhook/telegram` | `X-Telegram-Bot-Api-Secret-Token` | 🆕 |
 | `WS /ws/live` | ตามเดิม | |
