@@ -81,11 +81,17 @@ class DeclarativeHttpRequest:
 
 @dataclass(frozen=True, slots=True)
 class DeclarativeHttpResponse:
-    """ผลลัพธ์ของ request หนึ่งครั้ง — เก็บเฉพาะสิ่งที่ปลอดภัยให้ trace บันทึกต่อ (CONTRACTS-V2 §8.3)"""
+    """ผลลัพธ์ของ request หนึ่งครั้ง — เก็บเฉพาะสิ่งที่ปลอดภัยให้ trace บันทึกต่อ (CONTRACTS-V2 §8.3)
+
+    ``text_body`` เป็นช่องทางรายงานผลของปุ่ม "ลองยิงดู" (D3.5) เท่านั้น: response ที่ไม่ใช่ JSON
+    ถูก decode เป็นข้อความ (ทนต่อไบต์ที่ไม่ใช่ UTF-8) เพื่อให้ admin เห็น response จริง —
+    declarative tool จริงอ่านเฉพาะ ``json_body`` จึงไม่มีผลกับเส้นทางอื่น
+    """
 
     status_code: int
     json_body: Any | None
     elapsed_seconds: float
+    text_body: str | None = None
 
 
 class DeclarativeToolExecutor:
@@ -182,6 +188,13 @@ class DeclarativeToolExecutor:
             except ValueError:
                 json_body = None
 
+        # ช่องทางรายงานผลของ "ลองยิงดู" (D3.5): response ที่ไม่ใช่ JSON decode เป็นข้อความ
+        # (ผ่านเพดาน max_response_bytes มาแล้ว จึงมีขอบเขตชัดเจน) — errors="replace" กัน
+        # response ที่ไม่ใช่ UTF-8 ทำให้ยิงสำเร็จแต่รายงานผลพัง
+        text_body: str | None = None
+        if json_body is None and body:
+            text_body = bytes(body).decode("utf-8", errors="replace")
+
         try:
             elapsed_seconds = response.elapsed.total_seconds()
         except RuntimeError:
@@ -192,4 +205,5 @@ class DeclarativeToolExecutor:
             status_code=response.status_code,
             json_body=json_body,
             elapsed_seconds=elapsed_seconds,
+            text_body=text_body,
         )

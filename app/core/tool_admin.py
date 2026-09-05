@@ -202,6 +202,10 @@ class ToolAdminService:
         ที่อ่านจาก ``authEnvVar`` จะถูกแทนที่ด้วย ``[REDACTED]`` ทุกตำแหน่งที่พบ — รวม
         object/list/string ซ้อนกันและรูปแบบ ``Bearer <secret>`` — เพราะปลายทางอาจ echo
         Authorization header กลับมาใน body ทำให้ secret ปรากฏในหน้า admin ได้
+
+        response ที่ไม่ใช่ JSON แสดงเป็นข้อความแบบจำกัดขนาด (truncate ที่ 2000 อักขระ
+        พร้อม flag ``textTruncated``) — **truncate หลัง redact เสมอ** เพราะถ้าตัดก่อน
+        secret ที่อยู่คร่อมจุดตัดจะเหลือเฉพาะบางส่วนจน redaction จับไม่เจอ
         """
         secret_variants = _secret_variants(auth_env_var)
         result = await self._try_operation_raw(
@@ -211,7 +215,15 @@ class ToolAdminService:
             input_schema=input_schema,
             auth_env_var=auth_env_var,
         )
-        return _redact_secrets(result, secret_variants) if secret_variants else result
+        if secret_variants:
+            result = _redact_secrets(result, secret_variants)
+        if result.get("ok"):
+            response = result.get("response") or {}
+            text = response.get("text")
+            if isinstance(text, str) and len(text) > 2000:
+                response["text"] = text[:2000]
+                response["textTruncated"] = True
+        return result
 
     async def _try_operation_raw(
         self,
@@ -304,6 +316,9 @@ class ToolAdminService:
                 "method": request.method,
                 "url": request.url,
                 "query": dict(request.query),
+                # JSON request body เฉพาะ method ที่มี body (POST/PUT/PATCH) — GET/DELETE เป็น None
+                # แสดงให้ admin เห็นว่ายิงอะไรไปจริง (redact ที่ try_operation ก่อนคืนเสมอ)
+                "body": request.json_body,
             },
             "response": {
                 "statusCode": response.status_code,
@@ -311,6 +326,9 @@ class ToolAdminService:
                 # แสดงเฉพาะ JSON — response รูปแบบอื่นคืน null พร้อม flag
                 "body": response.json_body,
                 "isJson": response.json_body is not None,
+                # response ที่ไม่ใช่ JSON: ข้อความดิบจาก executor (truncate ที่ try_operation
+                # หลัง redact เสมอ — ดู docstring ของ try_operation)
+                "text": response.text_body,
             },
         }
 
