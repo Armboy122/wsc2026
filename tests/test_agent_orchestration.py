@@ -25,10 +25,10 @@ from app.contracts import (
 from app.llm import DemoLLMAdapter, LLMClient, LLMResponse, ScriptedLLMAdapter, ToolDefinition
 from app.llm.prompting import SYSTEM_PROMPT
 from app.plugins import load_operation_specs
+from app.plugins.oms.declarative_shape import oms_declarative_tool
 from app.plugins.oms.demo import OmsDemoBehavior
 from app.plugins.oms.response import OmsResponsePolicy
 from app.tools.knowledge_tool import KnowledgeTool
-from app.tools.oms_tool import OmsTool
 
 
 class FakeKnowledgeBackend:
@@ -60,7 +60,7 @@ def _registry(knowledge_backend: FakeKnowledgeBackend | None = None) -> ToolRegi
     return ToolRegistry(
         [
             KnowledgeTool(knowledge_backend or FakeKnowledgeBackend()),
-            OmsTool(base_url="http://oms.test/api/v1/oms", transport=httpx.MockTransport(oms_handler)),
+            oms_declarative_tool("http://oms.test/api/v1/oms", transport=httpx.MockTransport(oms_handler)),
         ],
         response_policies=(OmsResponsePolicy(),),
         operation_specs=load_operation_specs(ToolName.OMS),

@@ -307,10 +307,15 @@ class MainAgent:
             call_id=uuid4(),
             name=confirmed.tool_name,
             action=confirmed.submit_action,
+            # mode="json" เสมอ: ToolCall.input ต้องเป็นชนิด JSON ล้วน (CONTRACTS-V2.md §4.1)
+            # ไม่ใช่แค่สิ่งที่ Pydantic model ยอมรับ — declarative tool (D2.7) ตรวจ input
+            # ด้วย jsonschema ตรง ๆ ซึ่งไม่รู้จัก uuid.UUID ที่ model_dump() แบบไม่ระบุ mode
+            # ทิ้งไว้เป็นค่าดิบ (ปลั๊กอิน Python เดิมรอดมาตลอดเพราะ validate_tool_input()
+            # แปลงกลับเป็น Pydantic model ก่อนใช้งานเสมอ ไม่เคยตรวจกับ jsonschema)
             input=SubmitPreparedActionInput(
                 pending_action_id=pending_action_id,
                 idempotency_key=confirmed.idempotency_key,
-            ).model_dump(by_alias=True),
+            ).model_dump(by_alias=True, mode="json"),
         )
         self._traces.append(trace_id, TraceEventKind.ACTION_SUBMITTED, {"pendingActionId": str(pending_action_id), "action": call.action})
         result = await self._execute_internal(call, confirmed.conversation_id, trace_id)

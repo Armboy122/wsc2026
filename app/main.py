@@ -24,6 +24,7 @@ from app.backends.full_document_knowledge import (
     SUPPORTED_PROVIDERS,
     FullDocumentKnowledgeBackend,
 )
+from app.contracts import ToolAction, ToolName
 from app.core.config import LLMRuntimeSettings, load_settings
 from app.core.di import adapter_service, agent_service
 from app.core.errors import ConflictException, NotFoundException, platform_exception_handler
@@ -31,6 +32,10 @@ from app.core.startup import create_platform_app, startup_event
 from app.db import Database
 from app.llm import JudgeLLMClient, LLMClient, LLMProviderConfig, create_llm_adapter
 from app.plugins import load_plugins
+from app.plugins.oms.declarative_shape import OMS_OPERATIONS
+from app.plugins.oms.demo import OmsDemoBehavior
+from app.plugins.oms.response import OmsResponsePolicy
+from app.plugins.runtime import BoundDemoBehavior
 from app.tools.knowledge_tool import KnowledgeTool
 
 
@@ -89,10 +94,22 @@ knowledge_backend = FullDocumentKnowledgeBackend(
 )
 # โหลด plugin contributions ก่อนประกอบ demo adapter; provider จริงรับเฉพาะข้อความคำสั่ง
 plugins = load_plugins(settings)
+# D2.7: oms_tool ย้ายขึ้น declarative tool contract (DB) แล้ว plugin.yaml ของมันถูกปิดไว้
+# (soft delete) จึงไม่อยู่ใน `plugins` อีกต่อไป แต่ OmsResponsePolicy/OmsDemoBehavior เป็นแค่ชั้น
+# presentation/demo ที่ไม่ผูกกับว่า tool ตัวจริงมาจาก DB หรือโค้ด จึงยังผูกตรงที่นี่ได้ — ดึง
+# action ที่ LLM เรียกได้จาก OMS_OPERATIONS (ต้นฉบับเดียวกับที่ scripts/seed_oms_tool.py ใช้)
+# แทนการพิมพ์ ToolAction.OMS_* ซ้ำมือ กันไม่ให้หลุดตามหลังถ้า operations ของ OMS เปลี่ยน
+_oms_llm_actions = frozenset(
+    ToolAction(op.action) for op in OMS_OPERATIONS if op.exposure == "llm"
+)
+oms_demo_behavior = BoundDemoBehavior(
+    behavior=OmsDemoBehavior(), tool_name=ToolName.OMS, allowed_actions=_oms_llm_actions
+)
 llm_adapter = create_llm_adapter(
     _provider_config(settings.main_llm),
-    demo_behaviors=tuple(
-        behavior for plugin in plugins if (behavior := plugin.demo_behavior) is not None
+    demo_behaviors=(
+        oms_demo_behavior,
+        *(behavior for plugin in plugins if (behavior := plugin.demo_behavior) is not None),
     ),
 )
 judge_llm_adapter = create_llm_adapter(_provider_config(settings.judge_llm))
@@ -124,8 +141,9 @@ tool_registry = ToolRegistry(
         *declarative_bundle.tools,
     ],
     catalogue=tuple(plugin.tool_definition for plugin in plugins) + declarative_bundle.catalogue,
-    response_policies=tuple(
-        policy for plugin in plugins if (policy := plugin.response_policy) is not None
+    response_policies=(
+        OmsResponsePolicy(),
+        *(policy for plugin in plugins if (policy := plugin.response_policy) is not None),
     ),
     operation_specs={
         **{

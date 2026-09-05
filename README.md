@@ -228,7 +228,7 @@ roles:
 | ชั้น | ตัวอย่าง | ประกอบที่ไหน |
 |---|---|---|
 | **Built-in** | `knowledge_tool` | `app/main.py` โดยตรง |
-| **Plugin** | `oms_tool` | `app/plugins/<id>/plugin.yaml` (ค้นพบตอน startup) |
+| **Plugin** | `voc_tool` | `app/plugins/<id>/plugin.yaml` (ค้นพบตอน startup) |
 
 เพิ่มเครื่องมือใหม่จึง **ไม่ต้องแก้ Main Agent, registry, `main.py` หรือ `startup.py`**
 loader จะสแกน `app/plugins/*/plugin.yaml` ตอนเปิดเซิร์ฟเวอร์แล้วลงทะเบียนให้เอง

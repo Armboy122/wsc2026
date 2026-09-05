@@ -39,8 +39,11 @@ CREATE TABLE tool_operation (
     exposure TEXT NOT NULL CHECK (exposure IN ('llm', 'internal')),
     mode TEXT NOT NULL CHECK (mode IN ('read', 'prepare', 'submit')),
     submit_action TEXT,
-    -- NULL เฉพาะ operation ที่มาจาก Python plugin (source='code') ซึ่งประกอบ request เองในโค้ด —
-    -- operation ของ declarative tool (source='db') ต้องมีทั้งคู่เสมอ (ตรวจตอน save โดยชั้น admin)
+    -- NULL เฉพาะ operation ที่มาจาก Python plugin (source='code' ซึ่งประกอบ request เองในโค้ด)
+    -- หรือ operation ของ declarative tool (source='db') ที่ mode='prepare' — write_confirm
+    -- ต้องไม่มี side effect จริงตอนเตรียมรายการ (CONTRACTS-V2.md §3.1) จึงไม่ยิง HTTP เลย
+    -- (D2.7, ดู app/tools/declarative_tool.py) mode อื่นของ source='db' ต้องมีทั้งคู่เสมอ
+    -- (ตรวจตอน save โดยชั้น admin)
     http_method TEXT CHECK (http_method IN ('GET', 'POST', 'PUT', 'PATCH', 'DELETE')),
     url_template TEXT,
     limits TEXT,

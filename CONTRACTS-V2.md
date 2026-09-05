@@ -60,12 +60,18 @@
 | `limits` | object/null | ตาม §3.3 |
 | `clientContext` | object/null | ตาม §3.4 |
 | `voiceConfirm` | boolean | **default `true`** ตาม §5.2 |
-| `httpMethod` | `GET`/`POST`/`PUT`/`PATCH`/`DELETE` / null | **required** เมื่อ `source: db` · **ต้องเป็น null** เมื่อ `source: code` (ประกอบ request เองในโค้ด) |
-| `urlTemplate` | string/null | **required** เมื่อ `source: db` · placeholder `{fieldName}` ดึงจาก `input` — กลไก "LLM เติมค่า" เดียวที่ระบบรับ ดู ARCHITECTURE-V2.md §3.4.1 |
+| `httpMethod` | `GET`/`POST`/`PUT`/`PATCH`/`DELETE` / null | **required** เมื่อ `source: db` และ `mode != prepare` · **ต้องเป็น null** เมื่อ `source: code` หรือ `mode: prepare` |
+| `urlTemplate` | string/null | **required** เมื่อ `source: db` และ `mode != prepare` · **ต้องเป็น null** เมื่อ `mode: prepare` · placeholder `{fieldName}` ดึงจาก `input` — กลไก "LLM เติมค่า" เดียวที่ระบบรับ ดู ARCHITECTURE-V2.md §3.4.1 |
 
 ⚠️ **เติมใน D2.6**: ฉบับก่อนหน้าตารางนี้มีแค่ policy/mode/schema แต่ไม่เคยระบุว่า declarative
 tool รู้ URL/method ปลายทางจากไหน — ค้นพบตอนสร้าง declarative tool ตัวแรกที่ยิง REST จริง
 (TASKS-3DAYS.md D2.6) `httpMethod`+`urlTemplate` คือฟิลด์ที่เติมเพื่อปิดช่องนี้
+
+⚠️ **แก้ไขใน D2.7**: ตารางเดิมบังคับ `httpMethod`/`urlTemplate` ให้ไม่เป็น null ทุก operation
+ของ `source: db` โดยไม่แยกตาม `mode` — ค้นพบตอนย้าย `oms_tool` ขึ้น contract นี้ว่า
+`mode: prepare` ของ `write_confirm` **ต้องไม่มี side effect จริงตามสัญญา** (§3.1) จึงไม่ยิง
+HTTP เลย (เก็บ payload รอ `submit` ในหน่วยความจำของ tool แทน เหมือนที่ Python plugin เดิม
+ทำกับ draft ภายใน process) มีแต่ `mode: submit` เท่านั้นที่ยิงจริงและต้องมีทั้งสองฟิลด์เสมอ
 
 ---
 
@@ -152,6 +158,8 @@ clientContext:
 | `clientContext` อ้าง context นอก enum ปิด | reject |
 | `mode: prepare` แต่ไม่มี `submitAction` | reject |
 | `mode != prepare` แต่มี `submitAction` | reject |
+| `source: db` และ `mode != prepare` แต่ `httpMethod`/`urlTemplate` เป็น null | reject |
+| `source: db` และ `mode: prepare` แต่ `httpMethod`/`urlTemplate` ไม่เป็น null | reject |
 
 **ตอน runtime — ผิด = ปฏิเสธผล (ไม่ใช่แค่เตือน) และบันทึก `POLICY_REJECTED`**
 
@@ -173,7 +181,15 @@ clientContext:
 | `callId` | UUID | สร้างโดย runtime |
 | `toolSlug` | string | **string ไม่ใช่ enum** · ต้องมีอยู่ใน registry |
 | `action` | string | **string ไม่ใช่ enum** · ต้องเป็นของ tool นั้น |
-| `input` | object | ผ่าน `inputSchema` แล้ว |
+| `input` | object | ผ่าน `inputSchema` แล้ว · **ค่าทุกฟิลด์ต้องเป็นชนิด JSON ล้วน** (str/int/float/bool/null/object/array) ห้ามมี `UUID` หรือ Python object อื่นหลงเหลือ |
+
+⚠️ **เติมใน D2.7**: ตอนสร้าง `ToolCall` ของ `submit_*` จาก `pendingActionId`/`idempotencyKey`
+ภายใน (`SubmitPreparedActionInput(...).model_dump(...)`) ต้องเรียกด้วย `mode="json"` เสมอ —
+ไม่งั้น `pendingActionId` เหลือเป็น `uuid.UUID` แทนที่จะเป็น string ปลั๊กอิน Python เดิม
+รอดมาตลอดเพราะ validate ด้วย Pydantic model ก่อนใช้งานเสมอ (Pydantic ยอมรับ `UUID` object
+สำหรับ field ชนิด `UUID`) แต่ declarative tool ตรวจ `input` กับ `jsonschema` ตรง ๆ ซึ่งถือว่า
+`UUID` object ไม่ใช่ `string` ที่ถูกต้อง — พบตอนย้าย `oms_tool` ขึ้น contract นี้ (`prepare_anonymous_outage`
+สำเร็จแต่ `submit_anonymous_outage` ปฏิเสธด้วย `invalid_input` เสมอ)
 
 ### 4.2 `ToolResult`
 
@@ -189,6 +205,18 @@ clientContext:
 
 `ToolError.code` เป็นชุดปิด: `invalid_input` · `not_found` · `unavailable` · `conflict` · `confirmation_required` · `internal`
 `ToolError.message` ปลอดภัยสำหรับผู้ใช้ สูงสุด 500 อักขระ **ห้ามมี stack trace / URL ปลายทาง / ชื่อ header**
+
+⚠️ **เติมใน D2.7**: declarative tool (source: db) แปล HTTP status code ของปลายทางเป็น
+`ToolError.code` ตามธรรมเนียม REST ทั่วไปนี้เสมอ (ไม่ผูกกับ tool ใดตัวหนึ่ง — ข้อความยัง
+เป็นข้อความกลางที่ไม่รั่วรายละเอียดปลายทาง response policy ของแต่ละ tool เป็นผู้แปลงเป็น
+ข้อความเฉพาะให้ผู้ใช้เห็นอีกชั้นหนึ่งจาก `code` นี้):
+
+| HTTP status | `ToolError.code` |
+|---|---|
+| 400 | `invalid_input` |
+| 404 | `not_found` |
+| 409 | `conflict` |
+| อื่นทั้งหมด (รวม 5xx, เครือข่าย/นโยบายล้มเหลว) | `unavailable` |
 
 ### 4.3 `Citation` — ไม่เปลี่ยนจาก V1
 

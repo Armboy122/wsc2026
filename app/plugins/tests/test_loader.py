@@ -20,7 +20,15 @@ _OMS_MANIFEST = Path(__file__).resolve().parents[1] / "oms" / "plugin.yaml"
 
 
 def _manifest_dict() -> dict:
-    return yaml.safe_load(_OMS_MANIFEST.read_text(encoding="utf-8"))
+    """สำเนา manifest จริงของ oms ที่บังคับ ``enabled: true`` เสมอ
+
+    D2.7 ย้าย oms_tool ขึ้น declarative tool contract แล้วปิดปลั๊กอิน Python ตัวจริงไว้
+    (soft delete) การทดสอบ *shape* ของ manifest (validation, alias, schema subset ฯลฯ)
+    ในไฟล์นี้ไม่เกี่ยวกับว่าปลั๊กอินตัวจริงเปิดอยู่ไหม จึงบังคับเปิดในสำเนานี้เสมอ
+    """
+    payload = yaml.safe_load(_OMS_MANIFEST.read_text(encoding="utf-8"))
+    payload["metadata"]["enabled"] = True
+    return payload
 
 
 def _write(tmp_path: Path, payload: dict, *, directory: str = "oms") -> Path:
@@ -32,19 +40,14 @@ def _write(tmp_path: Path, payload: dict, *, directory: str = "oms") -> Path:
     return tmp_path
 
 
-def test_real_oms_manifest_loads_and_builds_the_existing_tool() -> None:
-    """critical path: OMS ถูก discover จาก manifest จริงและได้ OmsTool ตัวเดิม"""
+def test_real_oms_manifest_is_disabled_since_it_moved_to_the_declarative_contract() -> None:
+    """D2.7: oms_tool ย้ายขึ้น declarative tool contract (DB) แล้ว — plugin.yaml ของมัน
+    ถูกปิดไว้แบบ soft delete ไม่ถูก discover เป็น Python plugin อีกต่อไป มีแค่ VOC เหลืออยู่"""
     from app.contracts import ToolName
-    from app.tools.oms_tool import OmsTool
 
     plugins = load_plugins(load_settings())
 
-    assert len(plugins) == 2
-    plugin = next(item for item in plugins if item.manifest.metadata.id is ToolName.OMS)
-    assert isinstance(plugin.tool, OmsTool)
-    assert plugin.response_policy is not None
-    assert plugin.demo_behavior is not None
-
+    assert len(plugins) == 1
     voc_plugin = next(item for item in plugins if item.manifest.metadata.id is ToolName.VOC)
     assert voc_plugin.response_policy is not None
     assert voc_plugin.demo_behavior is not None
@@ -55,9 +58,14 @@ def test_real_oms_manifest_loads_and_builds_the_existing_tool() -> None:
     )
 
 
-def test_llm_catalogue_hides_internal_submit_actions() -> None:
-    """write safety: submit_* ต้องไม่ถูกโฆษณาให้โมเดลเลือกเอง"""
-    plugin = load_plugins(load_settings())[0]
+def test_llm_catalogue_hides_internal_submit_actions(tmp_path: Path) -> None:
+    """write safety: submit_* ต้องไม่ถูกโฆษณาให้โมเดลเลือกเอง
+
+    ใช้สำเนา manifest ของ oms ที่บังคับเปิดไว้ (ตัวจริงถูกปิดตั้งแต่ D2.7) เพราะเทสนี้
+    ตรวจ *shape* ของ manifest ไม่ใช่ว่าปลั๊กอินตัวจริงเปิดอยู่ไหม
+    """
+    plugins = load_plugins(load_settings(), plugin_root=_write(tmp_path, _manifest_dict()))
+    plugin = plugins[0]
 
     actions = plugin.tool_definition.actions
 
@@ -71,15 +79,21 @@ def test_llm_catalogue_hides_internal_submit_actions() -> None:
 
 
 def test_cross_plugin_demo_behavior_fails_closed(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
+    """demo behavior ของ oms ต้องอ้างเฉพาะ oms — ยืมของอีกปลั๊กอินมาต้องล้มปิด
+
+    ``oms.factory`` ตอนนี้เป็นแค่ stub เพราะ ``OmsTool`` จริงถูกลบไปแล้วตอน D2.7 ย้าย oms
+    ขึ้น declarative tool contract (ดู app/plugins/oms/factory.py) แต่ยังทดสอบพฤติกรรม
+    เดียวกันได้: monkeypatch ให้คืน demo behavior ของปลั๊กอินอื่นแทนของตัวเอง
+    """
     from app.plugins.oms import factory as oms_factory
+    from app.plugins.oms.factory import _InertOmsTool
     from app.plugins.runtime import PluginRuntime
     from app.plugins.voc.demo import VocDemoBehavior
-    from app.tools.oms_tool import OmsTool
 
     monkeypatch.setattr(
         oms_factory,
         "create_plugin",
-        lambda settings: PluginRuntime(tool=OmsTool(), demo_behavior=VocDemoBehavior()),
+        lambda settings: PluginRuntime(tool=_InertOmsTool(), demo_behavior=VocDemoBehavior()),
     )
 
     with pytest.raises(PluginError, match="demo behavior"):
@@ -248,10 +262,17 @@ def test_duplicate_plugin_id_fails_closed(tmp_path: Path) -> None:
         load_plugins(load_settings(), plugin_root=tmp_path)
 
 
-def test_plugin_aliases_are_compiled_into_llm_catalogue_guidance() -> None:
-    plugins = load_plugins(load_settings())
-    oms = next(plugin for plugin in plugins if plugin.manifest.metadata.id.value == "oms_tool")
-    voc = next(plugin for plugin in plugins if plugin.manifest.metadata.id.value == "voc_tool")
+def test_plugin_aliases_are_compiled_into_llm_catalogue_guidance(tmp_path: Path) -> None:
+    # oms ตัวจริงถูกปิดตั้งแต่ D2.7 (ย้ายขึ้น declarative tool contract) จึงใช้สำเนาที่บังคับ
+    # เปิดไว้แทนสำหรับตรวจ shape ของ alias guidance (คัดลอก aliases.md จริงมาด้วย เพราะ
+    # _write() เขียนแค่ plugin.yaml) — voc ยังเป็น Python plugin ตัวจริง ตรวจจาก root จริงได้ตามเดิม
+    root = _write(tmp_path, _manifest_dict())
+    (root / "oms" / "aliases.md").write_text(
+        (_OMS_MANIFEST.parent / "aliases.md").read_text(encoding="utf-8"), encoding="utf-8"
+    )
+    oms_plugins = load_plugins(load_settings(), plugin_root=root)
+    oms = oms_plugins[0]
+    voc = next(plugin for plugin in load_plugins(load_settings()) if plugin.manifest.metadata.id.value == "voc_tool")
 
     assert "เช็คไฟดับ" in oms.tool_definition.description
     assert "prepare_anonymous_outage" in oms.tool_definition.description

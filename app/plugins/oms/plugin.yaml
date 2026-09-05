@@ -1,10 +1,19 @@
+# D2.7: ย้าย oms_tool ขึ้น declarative tool contract (DB) แล้ว — ปิดปลั๊กอิน Python นี้แบบ
+# soft delete (เหมือน tool.enabled=0 ของ D2.1) แทนการลบไฟล์ทิ้ง เพื่อคงประวัติของสัญญาเดิมไว้
+# ให้เทียบได้ ตัว tool จริงตอนนี้อยู่ใน SQLite (ดู scripts/seed_oms_tool.py) — operations[]
+# ด้านล่างนี้คือต้นฉบับที่คัดลอก schema ไปสร้างแถวใน DB ทุกประการ ไม่ได้ถูกโหลดหรือใช้งานจริง
+# อีกต่อไป (app.plugins.oms.factory ที่ runtime.factory ชี้ไปถูกลบไปพร้อมกับ app/tools/oms_tool.py
+# — เหมือนที่ billing scaffold ในเทสของ loader ก็มี runtime.factory ที่ไม่ resolve ได้ตอนปิดอยู่)
+# app/plugins/oms/response.py (OmsResponsePolicy) และ app/plugins/oms/demo.py (OmsDemoBehavior)
+# ยังใช้งานอยู่ — ผูกตรงใน app/main.py แทนที่จะผ่าน loader นี้ เพราะเป็นแค่ presentation/demo
+# layer ที่ไม่ต้องพึ่ง tool ตัวไหนเป็นเจ้าของ
 apiVersion: pea.one/v1
 kind: Plugin
 
 metadata:
   id: oms_tool
   name: OMS Outage
-  enabled: true
+  enabled: false
   category: operational
   description: >
     ตรวจเหตุไฟฟ้าขัดข้องด้วยหมายเลขผู้ใช้ไฟ 12 หลัก

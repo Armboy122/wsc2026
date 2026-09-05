@@ -14,8 +14,8 @@ from app.agent.registry import ToolRegistry
 from app.backends.full_document_knowledge import FullDocumentKnowledgeBackend
 from app.contracts import ChatRequest
 from app.llm import DemoLLMAdapter, LLMClient
+from app.plugins.oms.declarative_shape import oms_declarative_tool
 from app.tools.knowledge_tool import KnowledgeTool
-from app.tools.oms_tool import OmsTool
 
 
 def _write_qa_docx(path: Path, question: str, answer: str) -> None:
@@ -73,8 +73,8 @@ async def test_chat_answers_from_an_approved_qa_document() -> None:
             ToolRegistry(
                 [
                     KnowledgeTool(backend),
-                    OmsTool(
-                        base_url="http://oms.test/api/v1/oms",
+                    oms_declarative_tool(
+                        "http://oms.test/api/v1/oms",
                         transport=httpx.MockTransport(
                             lambda request: httpx.Response(
                                 200,

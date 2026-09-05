@@ -796,11 +796,19 @@ HTML/JS ธรรมดาต่อยอด `web/index.html` เดิม **ไ
 |---|---|---|
 | `knowledge_tool` | **Python plugin** | full-document grounding + citation validation (23KB) เป็นโค้ดจริง |
 | `voc_tool` | **Python plugin** | guided flow derive คำถามจาก catalog + จับ pattern ภาษาไทย |
-| `oms_tool` | **Python plugin** | มี `clientContext` + prepare/submit |
+| `oms_tool` | **declarative (DB)** — เปลี่ยนจากแผนเต็มนี้ | มี `clientContext` + prepare/submit — ดู ⚠️ ด้านล่าง |
 | ~~`sabuy_tool`~~ | **ลบทิ้ง** | ตรวจแล้วเป็น dead code: ไม่มี `app/plugins/sabuy/` · ไม่ถูกลงทะเบียนใน registry/startup · backend อ่าน JSON ในโปรเซสไม่มี HTTP call ⇒ ใช้เป็นตัวพิสูจน์ declarative tool ไม่ได้ |
 | **tool ใหม่จากหน้า admin** | **declarative (ตัวพิสูจน์)** | สร้างจาก UI จริง ยิงไป REST จริง — พิสูจน์ทั้งเส้น form → validation → SSRF → executor → agent |
 
 ⚠️ สิ่งที่เปลี่ยนสำหรับ Python plugin **ไม่ใช่ "ย้ายไป DB"** แต่คือ `plugin.yaml` ใช้ `inputSchema:` JSON Schema แทนชื่อคลาส
+
+⚠️ **แก้ไขใน D2.7 (TASKS-3DAYS.md)**: แผนเต็มนี้ (§12.1) เดิมตั้งใจให้ `oms_tool` อยู่ Python
+plugin ต่อไป แต่แผน 3 วันตัดสินใจย้าย `oms_tool` ขึ้น declarative tool contract (DB) จริง
+แทน เพื่อพิสูจน์ว่า `write_confirm` (สองจังหวะ prepare→submit) และ `clientContext` (lat/lon)
+ใช้ได้กับ declarative tool ด้วย ไม่ใช่แค่ tool ใหม่ที่เป็น `plain_read` อย่างเดียว (ตัวพิสูจน์
+ของ D2.6 มีแค่ `plain_read`) `app/plugins/oms/plugin.yaml` ถูกปิดไว้แบบ soft delete
+(`enabled: false`) เป็นประวัติ ไม่ถูกโหลดจริงอีกต่อไป — ดู `app/tools/declarative_tool.py`,
+`app/plugins/oms/declarative_shape.py`, และ `scripts/seed_oms_tool.py`
 
 ### 12.2 ลำดับ
 

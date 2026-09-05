@@ -15,10 +15,10 @@ from app.backends.full_document_knowledge import GroundedEvidence
 from app.contracts import Citation, ToolName
 from app.llm import DemoLLMAdapter, LLMClient
 from app.plugins import load_operation_specs
+from app.plugins.oms.declarative_shape import oms_declarative_tool
 from app.plugins.oms.demo import OmsDemoBehavior
 from app.plugins.oms.response import OmsResponsePolicy
 from app.tools.knowledge_tool import KnowledgeTool
-from app.tools.oms_tool import OmsTool
 
 
 class _KnowledgeBackend:
@@ -67,7 +67,7 @@ def _registry() -> ToolRegistry:
     return ToolRegistry(
         [
             KnowledgeTool(_KnowledgeBackend()),
-            OmsTool(base_url="http://oms.test/api/v1/oms", transport=httpx.MockTransport(oms_handler)),
+            oms_declarative_tool("http://oms.test/api/v1/oms", transport=httpx.MockTransport(oms_handler)),
         ],
         response_policies=(OmsResponsePolicy(),),
         operation_specs=load_operation_specs(ToolName.OMS),

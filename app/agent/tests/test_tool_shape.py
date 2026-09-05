@@ -11,9 +11,11 @@
 from __future__ import annotations
 
 import json
+import tempfile
 from pathlib import Path
 
 import pytest
+import yaml
 
 from app.agent.tool_shape import (
     ToolOperationShape,
@@ -27,10 +29,30 @@ from app.core.config import load_settings
 from app.db import Database
 from app.plugins import load_plugins
 
+_OMS_PLUGIN_DIR = Path(__file__).resolve().parents[2] / "plugins" / "oms"
+
 
 def _oms_plugin():
-    plugins = load_plugins(load_settings())
-    return next(plugin for plugin in plugins if plugin.manifest.metadata.id is ToolName.OMS)
+    """โหลดปลั๊กอิน oms จากสำเนา manifest ที่บังคับ ``enabled: true`` เสมอ
+
+    D2.7 ย้าย ``oms_tool`` ขึ้น declarative tool contract แล้วปิดปลั๊กอิน Python ตัวจริงไว้
+    (soft delete) เทสในไฟล์นี้ตรวจการแปลง manifest → ``ToolShape`` เท่านั้น ไม่เกี่ยวกับว่า
+    ปลั๊กอินตัวจริงเปิดอยู่ไหม จึงใช้สำเนาที่บังคับเปิดแทน — ``runtime.factory`` ของ manifest
+    ยังชี้ไปที่ ``app.plugins.oms.factory:create_plugin`` ตัวจริง (stub ที่คงไว้ให้เทสแบบนี้ใช้
+    ดู ``app/plugins/oms/factory.py``)
+    """
+    manifest = yaml.safe_load((_OMS_PLUGIN_DIR / "plugin.yaml").read_text(encoding="utf-8"))
+    manifest["metadata"]["enabled"] = True
+    with tempfile.TemporaryDirectory() as tmp:
+        root = Path(tmp)
+        plugin_dir = root / "oms"
+        plugin_dir.mkdir()
+        (plugin_dir / "plugin.yaml").write_text(yaml.safe_dump(manifest, allow_unicode=True), encoding="utf-8")
+        (plugin_dir / "aliases.md").write_text(
+            (_OMS_PLUGIN_DIR / "aliases.md").read_text(encoding="utf-8"), encoding="utf-8"
+        )
+        plugins = load_plugins(load_settings(), plugin_root=root)
+        return next(plugin for plugin in plugins if plugin.manifest.metadata.id is ToolName.OMS)
 
 
 def test_from_plugin_produces_a_code_sourced_shape_matching_the_real_manifest() -> None:

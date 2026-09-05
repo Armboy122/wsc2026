@@ -22,10 +22,10 @@ from app.contracts import (
 )
 from app.llm import DemoLLMAdapter, LLMClient, LLMResponse, ScriptedLLMAdapter
 from app.plugins import load_operation_specs
+from app.plugins.oms.declarative_shape import oms_declarative_tool
 from app.plugins.oms.demo import OmsDemoBehavior
 from app.plugins.oms.response import OmsResponsePolicy
 from app.tools.knowledge_tool import KnowledgeTool
-from app.tools.oms_tool import OmsTool
 
 
 class _KnowledgeBackend:
@@ -89,7 +89,7 @@ def _isolated_registry(post_counter: list[int] | None = None) -> ToolRegistry:
     return ToolRegistry(
         [
             KnowledgeTool(_KnowledgeBackend()),
-            OmsTool(base_url="http://oms.test/api/v1/oms", transport=httpx.MockTransport(oms_handler)),
+            oms_declarative_tool("http://oms.test/api/v1/oms", transport=httpx.MockTransport(oms_handler)),
         ],
         response_policies=(OmsResponsePolicy(),),
         operation_specs=load_operation_specs(ToolName.OMS),
@@ -212,13 +212,26 @@ def test_reset_clears_trace_and_pending_state(client: TestClient) -> None:
 
 
 def test_llm_catalogue_never_advertises_internal_submit_actions() -> None:
-    """แค็ตตาล็อกที่ compile จาก manifest จริงต้องไม่เปิด submit action ให้ LLM"""
+    """แค็ตตาล็อกที่ compile จาก manifest จริงและ declarative tool ต้องไม่เปิด submit action ให้ LLM
+
+    D2.7 ย้าย oms_tool ขึ้น declarative tool contract (DB) แล้ว จึงไม่อยู่ใน `load_plugins()`
+    อีกต่อไป (ดู app/plugins/oms/plugin.yaml — ปิดแบบ soft delete) ตรวจ oms แยกจาก
+    `oms_tool_shape()` (ต้นฉบับเดียวกับที่ scripts/seed_oms_tool.py ใช้เขียนแถวจริงลง DB)
+    """
     from app.agent.registry import BUILT_IN_CATALOGUE
     from app.core.config import load_settings
+    from app.llm.models import ToolDefinition
     from app.plugins import load_plugins
+    from app.plugins.oms.declarative_shape import oms_tool_shape
 
     plugins = load_plugins(load_settings())
-    catalogue = BUILT_IN_CATALOGUE + tuple(plugin.tool_definition for plugin in plugins)
+    oms_shape = oms_tool_shape("http://oms.test/api/v1/oms")
+    oms_llm_operations = tuple(op for op in oms_shape.operations if op.exposure == "llm")
+    catalogue = (
+        BUILT_IN_CATALOGUE
+        + tuple(plugin.tool_definition for plugin in plugins)
+        + (ToolDefinition(name=oms_shape.slug, description=oms_shape.description, actions=tuple(op.action for op in oms_llm_operations)),)
+    )
     advertised = {action for tool in catalogue for action in tool.actions}
     assert advertised == {
         "search",
