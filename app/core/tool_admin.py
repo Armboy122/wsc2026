@@ -98,6 +98,7 @@ class ToolAdminService:
                 {
                     **_shape_to_definition(shape),
                     "enabled": True,
+                    "hasAuth": False,
                     "editable": False,
                     "selfDisabledReason": None,
                 }
@@ -127,13 +128,21 @@ class ToolAdminService:
             raise NotFoundException(detail="ไม่พบ tool ที่ร้องขอ")
         return definition
 
-    async def save_tool(self, definition: dict[str, Any], *, update: bool) -> dict[str, Any]:
+    async def save_tool(
+        self,
+        definition: dict[str, Any],
+        *,
+        update: bool,
+        auth_env_var_provided: bool | None = None,
+    ) -> dict[str, Any]:
         """validate → persist → hot reload (D3.4) — คืน definition ที่บันทึกแล้ว
 
         ``update=True`` ต้องมี tool เดิมอยู่ก่อน (แก้ไข) · ``update=False`` ต้องไม่มี
         (สร้างใหม่) — ทั้งสองกรณี slug ที่ชนกับปลั๊กอิน Python = conflict
         """
         shape, enabled, auth_env_var = _shape_from_definition(definition)
+        if auth_env_var_provided is None:
+            auth_env_var_provided = "authEnvVar" in definition
         if update:
             existing = await tool_repository.get_tool_definition(self._db, shape.slug)
             if existing is None:
@@ -150,7 +159,11 @@ class ToolAdminService:
             allowlist=await self._allowlist(),
         )
         await tool_repository.save_tool(
-            self._db, shape, enabled=enabled, auth_env_var=auth_env_var
+            self._db,
+            shape,
+            enabled=enabled,
+            auth_env_var=auth_env_var,
+            preserve_auth=update and not auth_env_var_provided,
         )
         await self.reload()
         saved = await tool_repository.get_tool_definition(self._db, shape.slug)

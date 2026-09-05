@@ -27,7 +27,12 @@ async def list_tool_definitions(db: Database) -> list[dict[str, Any]]:
             "SELECT * FROM tool_operation WHERE tool_id = ? ORDER BY action",
             (tool_row["id"],),
         )
-        definitions.append(_definition_from_rows(tool_row, operation_rows))
+        auth_row = await db.fetch_one(
+            "SELECT 1 FROM tool_auth WHERE tool_id = ? LIMIT 1", (tool_row["id"],)
+        )
+        definitions.append(
+            _definition_from_rows(tool_row, operation_rows, has_auth=auth_row is not None)
+        )
     return definitions
 
 
@@ -42,7 +47,10 @@ async def get_tool_definition(db: Database, slug: str) -> dict[str, Any] | None:
         "SELECT * FROM tool_operation WHERE tool_id = ? ORDER BY action",
         (tool_row["id"],),
     )
-    return _definition_from_rows(tool_row, operation_rows)
+    auth_row = await db.fetch_one(
+        "SELECT 1 FROM tool_auth WHERE tool_id = ? LIMIT 1", (tool_row["id"],)
+    )
+    return _definition_from_rows(tool_row, operation_rows, has_auth=auth_row is not None)
 
 
 async def save_tool(
@@ -51,11 +59,12 @@ async def save_tool(
     *,
     enabled: bool,
     auth_env_var: str | None,
+    preserve_auth: bool = False,
 ) -> None:
     """เขียน definition หนึ่งชุดลง DB ในธุรกรรมเดียว (upsert ตาม slug)
 
-    - มี slug นี้อยู่แล้ว = แทนที่ operation/auth ทั้งชุด (การแก้ไข D3.4)
-    - ยังไม่มี = สร้างใหม่
+    - มี slug นี้อยู่แล้ว = แทนที่ operation และ auth ตาม ``preserve_auth``
+    - ยังไม่มี = สร้างใหม่ (omit/null = ไม่มี auth)
     - ``auth_env_var`` เป็น *ชื่อ* environment variable เท่านั้น (tool_auth.secret_ref,
       CONTRACTS-V2 §10.2) — ค่าจริงของ secret ไม่เคยผ่านฟังก์ชันนี้
     """
@@ -95,7 +104,8 @@ async def save_tool(
                 (shape.display_name, shape.description, int(enabled), tool_id),
             )
             conn.execute("DELETE FROM tool_operation WHERE tool_id = ?", (tool_id,))
-            conn.execute("DELETE FROM tool_auth WHERE tool_id = ?", (tool_id,))
+            if not preserve_auth:
+                conn.execute("DELETE FROM tool_auth WHERE tool_id = ?", (tool_id,))
         conn.executemany(
             "INSERT INTO tool_operation "
             "(tool_id, action, policy, input_schema, output_schema, exposure, mode, "
@@ -124,9 +134,10 @@ async def set_tool_enabled(db: Database, slug: str, enabled: bool) -> bool:
 
 
 def _definition_from_rows(
-    tool_row: sqlite3.Row, operation_rows: list[sqlite3.Row]
+    tool_row: sqlite3.Row, operation_rows: list[sqlite3.Row], *, has_auth: bool
 ) -> dict[str, Any]:
     return {
+        "hasAuth": has_auth,
         "slug": tool_row["slug"],
         "displayName": tool_row["display_name"],
         "description": tool_row["description"] or "",

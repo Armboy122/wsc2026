@@ -314,6 +314,64 @@ def test_get_tool_does_not_leak_auth_env_var(monkeypatch: pytest.MonkeyPatch) ->
     body = client.get("/api/v1/admin/tools/cat_fact_tool").json()
     assert "authEnvVar" not in body
     assert "CATFACT_API_KEY" not in json.dumps(body)
+    assert body["hasAuth"] is True
+
+
+def _auth_definition(auth_env_var: str | None = "OLD_API_KEY") -> dict[str, Any]:
+    definition = copy.deepcopy(_VALID_DEFINITION)
+    if auth_env_var is not None:
+        definition["authEnvVar"] = auth_env_var
+    return definition
+
+
+def test_update_without_auth_field_preserves_credential_in_db(monkeypatch: pytest.MonkeyPatch) -> None:
+    client, _, db = _make_client(monkeypatch)
+    assert client.post("/api/v1/admin/tools", json=_auth_definition()).status_code == 201
+    edited = _auth_definition()
+    edited.pop("authEnvVar")
+    assert client.put("/api/v1/admin/tools/cat_fact_tool", json=edited).status_code == 200
+    row = db._conn.execute(
+        "SELECT secret_ref FROM tool_auth JOIN tool ON tool.id = tool_auth.tool_id "
+        "WHERE tool.slug = 'cat_fact_tool'"
+    ).fetchone()
+    assert row["secret_ref"] == "OLD_API_KEY"
+
+
+def test_update_auth_field_replaces_credential(monkeypatch: pytest.MonkeyPatch) -> None:
+    client, _, db = _make_client(monkeypatch)
+    assert client.post("/api/v1/admin/tools", json=_auth_definition()).status_code == 201
+    edited = _auth_definition("NEW_API_KEY")
+    assert client.put("/api/v1/admin/tools/cat_fact_tool", json=edited).status_code == 200
+    row = db._conn.execute(
+        "SELECT secret_ref FROM tool_auth JOIN tool ON tool.id = tool_auth.tool_id "
+        "WHERE tool.slug = 'cat_fact_tool'"
+    ).fetchone()
+    assert row["secret_ref"] == "NEW_API_KEY"
+
+
+def test_update_null_auth_field_removes_credential(monkeypatch: pytest.MonkeyPatch) -> None:
+    client, _, db = _make_client(monkeypatch)
+    assert client.post("/api/v1/admin/tools", json=_auth_definition()).status_code == 201
+    edited = _auth_definition()
+    edited["authEnvVar"] = None
+    assert client.put(
+        "/api/v1/admin/tools/cat_fact_tool", json=edited
+    ).status_code == 200
+    count = db._conn.execute(
+        "SELECT COUNT(*) AS count FROM tool_auth JOIN tool ON tool.id = tool_auth.tool_id "
+        "WHERE tool.slug = 'cat_fact_tool'"
+    ).fetchone()["count"]
+    assert count == 0
+    assert client.get("/api/v1/admin/tools/cat_fact_tool").json()["hasAuth"] is False
+
+
+def test_list_tools_exposes_has_auth_without_secret_name(monkeypatch: pytest.MonkeyPatch) -> None:
+    client, _, _ = _make_client(monkeypatch)
+    assert client.post("/api/v1/admin/tools", json=_auth_definition()).status_code == 201
+    body = client.get("/api/v1/admin/tools").json()
+    tool = next(item for item in body["tools"] if item["slug"] == "cat_fact_tool")
+    assert tool["hasAuth"] is True
+    assert "OLD_API_KEY" not in json.dumps(body)
 
 
 # --------------------------------------------------------------------- D3.5 try --

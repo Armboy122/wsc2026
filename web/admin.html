@@ -93,10 +93,15 @@
                 <textarea id="tool-description" rows="2" maxlength="1000"></textarea>
               </label>
               <div class="grid-2">
-                <label class="field">
-                  <span>Environment variable ของ secret (ถ้ามี)</span>
-                  <input type="text" id="tool-auth-env" maxlength="128" placeholder="เช่น MY_API_KEY — ใส่เฉพาะ "ชื่อ" ไม่ใส่ค่า" />
-                </label>
+                <div class="field credential-field">
+                  <span>Credential</span>
+                  <span id="tool-auth-status" class="hint-note" hidden>มี credential ตั้งค่าไว้</span>
+                  <label class="check-field" id="tool-remove-auth-wrap" hidden>
+                    <input type="checkbox" id="tool-remove-auth" />
+                    <span>ลบ credential ที่ตั้งไว้</span>
+                  </label>
+                  <input type="text" id="tool-auth-env" maxlength="128" placeholder="เช่น MY_API_KEY — ใส่เฉพาะชื่อ ไม่ใส่ค่า" />
+                </div>
                 <label class="check-field">
                   <input type="checkbox" id="tool-enabled" checked />
                   <span>เปิดใช้งาน tool นี้ทันที</span>
