@@ -111,7 +111,7 @@ class AdminToolDefinitionInput(AdminModel):
     display_name: str = Field(min_length=1, max_length=200)
     description: str = Field(default="", max_length=1000)
     enabled: bool = True
-    auth_env_var: str | None = Field(default=None, max_length=128)
+    auth_env_var: str | None = Field(default=None, min_length=1, max_length=128)
     operations: list[AdminOperationInput] = Field(min_length=1)
 
 
@@ -246,7 +246,11 @@ async def _save(
     update: bool,
 ) -> dict[str, Any]:
     try:
-        return await service.save_tool(body.model_dump(by_alias=True), update=update)
+        return await service.save_tool(
+            body.model_dump(by_alias=True, exclude_unset=True),
+            update=update,
+            auth_env_var_provided="auth_env_var" in body.model_fields_set,
+        )
     except DeclarativeValidationError as error:
         # ผิดตรงไหนบอกชัดตรงนั้น (D3.4) — ข้อความภาษาไทยจาก validator จุดเดียวกับ loader
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(error)) from error

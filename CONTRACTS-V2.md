@@ -530,6 +530,8 @@ trace_event(trace_id, sequence, at, kind, tool_slug, action,
 
 **`secret_ref` ห้ามปรากฏใน**: schema · description · trace · error · response
 
+Admin tool update auth semantics: omitted `authEnvVar` preserves the existing credential reference; a string replaces it; explicit `null` removes it. Tool list/get responses expose only boolean `hasAuth`, never the env var name.
+
 ### 10.3 การเข้าถึง
 
 - `sqlite3` stdlib + `asyncio.to_thread`

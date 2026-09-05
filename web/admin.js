@@ -83,6 +83,9 @@
     toolDescription: $("#tool-description"),
     toolDescCount: $("#tool-desc-count"),
     toolAuthEnv: $("#tool-auth-env"),
+     toolAuthStatus: $("#tool-auth-status"),
+     toolRemoveAuthWrap: $("#tool-remove-auth-wrap"),
+     toolRemoveAuth: $("#tool-remove-auth"),
     toolEnabled: $("#tool-enabled"),
     operationsContainer: $("#operations-container"),
     addOperationBtn: $("#add-operation-btn"),
@@ -180,6 +183,7 @@
     var badges = el("div", "tool-badges");
     badges.appendChild(sourceBadge(tool.source));
     badges.appendChild(enabledBadge(tool.enabled));
+     if (tool.hasAuth) badges.appendChild(el("span", "badge badge-ok", "มี credential"));
     head.appendChild(badges);
     card.appendChild(head);
 
@@ -437,6 +441,10 @@
     views.toolDescription.value = "";
     updateToolDescCount();
     views.toolAuthEnv.value = "";
+     views.toolAuthEnv.disabled = false;
+     views.toolAuthStatus.hidden = true;
+     views.toolRemoveAuthWrap.hidden = true;
+     views.toolRemoveAuth.checked = false;
     views.toolEnabled.checked = true;
     views.operationsContainer.replaceChildren();
     addOperationCard({
@@ -468,7 +476,11 @@
     views.toolDisplayName.value = tool.displayName || "";
     views.toolDescription.value = tool.description || "";
     updateToolDescCount();
-    views.toolAuthEnv.value = ""; // secret_ref เขียนได้อย่างเดียว — API ไม่คืนค่าเดิม
+    views.toolAuthEnv.value = "";
+     views.toolAuthEnv.disabled = false;
+     views.toolAuthStatus.hidden = !tool.hasAuth;
+     views.toolRemoveAuthWrap.hidden = !tool.hasAuth;
+     views.toolRemoveAuth.checked = false; // secret_ref เขียนได้อย่างเดียว — API ไม่คืนค่าเดิม
     views.toolEnabled.checked = !!tool.enabled;
     views.operationsContainer.replaceChildren();
     (tool.operations || []).forEach(addOperationCard);
@@ -483,6 +495,10 @@
   }
 
   views.toolDescription.addEventListener("input", updateToolDescCount);
+   views.toolRemoveAuth.addEventListener("change", function () {
+     views.toolAuthEnv.disabled = views.toolRemoveAuth.checked;
+     if (views.toolRemoveAuth.checked) views.toolAuthEnv.value = "";
+   });
   views.newToolBtn.addEventListener("click", openNewToolForm);
   views.addOperationBtn.addEventListener("click", function () {
     addOperationCard(null);
@@ -511,7 +527,8 @@
       enabled: views.toolEnabled.checked,
       operations: collectOperations(),
     };
-    if (authEnv) payload.authEnvVar = authEnv;
+    if (views.toolRemoveAuth.checked) payload.authEnvVar = null;
+     else if (authEnv) payload.authEnvVar = authEnv;
 
     var localError = validateFormLocally(payload);
     if (localError) {
