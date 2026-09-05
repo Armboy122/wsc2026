@@ -309,14 +309,24 @@ import {
       if (description) prop.description = description;
       else delete prop.description;
        if (selectedType === "array") {
-         prop.items = { type: $('[data-field="items-type"]', row).value || "string" };
+         var baselineItems = prop.items || {};
+          prop.items = Object.assign({}, baselineItems, {
+            type: $('[data-field="items-type"]', row).value || baselineItems.type || "string",
+          });
        } else if (!isOpaqueObject) {
          delete prop.items;
        }
       var nullable = !isOpaqueObject && $('[data-field="nullable"]', row).checked;
       if (nullable) {
-        var nullableType = { type: prop.type };
-         if (prop.type === "array") nullableType.items = prop.items;
+        var nullableType = Object.assign({}, (Array.isArray(baselineProperty.anyOf)
+           ? baselineProperty.anyOf.find(function (item) { return item.type !== "null"; })
+           : null) || {}, { type: prop.type });
+         if (prop.type === "array") {
+           var nullableBranch = Array.isArray(baselineProperty.anyOf)
+             ? baselineProperty.anyOf.find(function (item) { return item.type !== "null"; })
+             : null;
+           nullableType.items = Object.assign({}, (nullableBranch && nullableBranch.items) || {}, prop.items || {});
+         }
          prop.anyOf = [nullableType, { type: "null" }];
         delete prop.type;
       } else if (prop.anyOf) {
@@ -605,6 +615,7 @@ import {
   views.addOperationBtn.addEventListener("click", function () {
     addOperationCard(null);
     renumberOperations();
+    views.operationsContainer.querySelectorAll(".operation-card").forEach(syncSubmitField);
   });
 
   function backToList() {
