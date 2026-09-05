@@ -41,10 +41,12 @@ _MAX_KNOWLEDGE_SEARCHES_PER_TURN = 2
 
 # Knowledge ไม่ผ่าน plugin manifest จึงประกาศ policy ของตัวเองไว้ที่เดียวตรงนี้
 # (ปลั๊กอินอื่นประกาศผ่าน operations ใน plugin.yaml — ดู app/plugins/manifest.py)
-BUILT_IN_OPERATION_SPECS: dict[ToolAction, OperationSpec] = {
-    ToolAction.KNOWLEDGE_SEARCH: OperationSpec(
+BUILT_IN_OPERATION_SPECS: dict[tuple[str, str], OperationSpec] = {
+    (ToolName.KNOWLEDGE.value, ToolAction.KNOWLEDGE_SEARCH.value): OperationSpec(
         policy=OperationPolicy.GROUNDED_ANSWER,
         limits=OperationLimits(max_calls_per_turn=_MAX_KNOWLEDGE_SEARCHES_PER_TURN),
+        mode="read",
+        exposure="llm",
     ),
 }
 
@@ -83,7 +85,7 @@ class ToolRegistry:
         *,
         catalogue: tuple[ToolDefinition, ...] | None = None,
         response_policies: tuple[ResponsePolicy, ...] = (),
-        operation_specs: Mapping[str, OperationSpec] | None = None,
+        operation_specs: Mapping[Any, OperationSpec] | None = None,
     ) -> None:
         by_name: dict[str, Tool] = {}
         for tool in tools:
@@ -104,10 +106,31 @@ class ToolRegistry:
             raise ValueError(
                 f"แค็ตตาล็อกอ้างถึงเครื่องมือที่ไม่ได้ลงทะเบียน: {sorted(_display_name(name) for name in unknown)}"
             )
-        self._operation_specs: dict[str, OperationSpec] = {
-            **BUILT_IN_OPERATION_SPECS,
-            **(operation_specs or {}),
-        }
+        specs: dict[tuple[str, str], OperationSpec] = dict(BUILT_IN_OPERATION_SPECS)
+        if operation_specs:
+            for key, spec in operation_specs.items():
+                if isinstance(key, tuple):
+                    specs[(str(key[0]), str(key[1]))] = spec
+                else:
+                    action_str = key.value if hasattr(key, "value") else str(key)
+                    matched_tool = None
+                    for t_name, t_actions in TOOL_ACTIONS.items():
+                        t_action_strs = {a.value if hasattr(a, "value") else str(a) for a in t_actions}
+                        if action_str in t_action_strs:
+                            matched_tool = t_name.value if hasattr(t_name, "value") else str(t_name)
+                            break
+                    if matched_tool:
+                        specs[(matched_tool, action_str)] = spec
+                    else:
+                        for t_name, tool_obj in by_name.items():
+                            t_acts = getattr(tool_obj, "actions", None)
+                            if t_acts and action_str in t_acts:
+                                matched_tool = t_name.value if hasattr(t_name, "value") else str(t_name)
+                                specs[(matched_tool, action_str)] = spec
+                                break
+                        if not matched_tool:
+                            specs[("", action_str)] = spec
+        self._operation_specs: dict[tuple[str, str], OperationSpec] = specs
 
     @property
     def llm_catalogue(self) -> tuple[ToolDefinition, ...]:
@@ -115,19 +138,31 @@ class ToolRegistry:
         return self._catalogue
 
     @property
-    def operation_specs(self) -> Mapping[str, OperationSpec]:
+    def operation_specs(self) -> Mapping[tuple[str, str], OperationSpec]:
         """policy ต่อ operation ทั้งหมดที่ประกาศไว้ (built-in + ปลั๊กอิน + declarative tool)"""
         return self._operation_specs
 
-    def operation_spec(self, action: str) -> OperationSpec:
+    def operation_spec(self, tool_slug: str | tuple[str, str], action: str | None = None) -> OperationSpec:
         """policy ของ operation นี้ — ไม่ประกาศ = ค่าเริ่มต้น plain_read (fail safe, ARCHITECTURE-V2.md §4.5)"""
-        return self._operation_specs.get(action, OperationSpec())
+        if isinstance(tool_slug, tuple):
+            return self._operation_specs.get((str(tool_slug[0]), str(tool_slug[1])), OperationSpec())
+        if action is not None:
+            return self._operation_specs.get((str(tool_slug), str(action)), OperationSpec())
+        action_str = tool_slug.value if hasattr(tool_slug, "value") else str(tool_slug)
+        for (t, a), spec in self._operation_specs.items():
+            if a == action_str:
+                return spec
+        return OperationSpec()
 
     def operation_spec_for_call(self, call: ToolCall) -> OperationSpec:
-        return self.operation_spec(call.action)
+        tool_name = call.name.value if hasattr(call.name, "value") else str(call.name)
+        action_name = call.action.value if hasattr(call.action, "value") else str(call.action)
+        return self.operation_spec(tool_name, action_name)
 
     def operation_spec_for_result(self, result: ToolResult) -> OperationSpec:
-        return self.operation_spec(result.action)
+        tool_name = result.name.value if hasattr(result.name, "value") else str(result.name)
+        action_name = result.action.value if hasattr(result.action, "value") else str(result.action)
+        return self.operation_spec(tool_name, action_name)
 
     @property
     def response_policies(self) -> ResponsePolicies:

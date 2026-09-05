@@ -147,9 +147,9 @@ tool_registry = ToolRegistry(
     ),
     operation_specs={
         **{
-            action: spec
+            key: spec
             for plugin in plugins
-            for action, spec in plugin.operation_specs.items()
+            for key, spec in plugin.operation_specs.items()
         },
         **declarative_bundle.operation_specs,
     },

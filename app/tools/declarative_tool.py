@@ -73,9 +73,9 @@ class DeclarativeTool:
 
     @property
     def actions(self) -> frozenset[str]:
-        """action ทั้งหมดที่ LLM เรียกได้ — ``ToolRegistry`` ใช้แทน ``TOOL_ACTIONS`` เดิม
-        สำหรับ tool ที่ไม่ได้อยู่ใน dict กลางนั้น (CONTRACTS-V2.md §3.5)"""
-        return frozenset(op.action for op in self._shape.operations if op.exposure == "llm")
+        """action ทั้งหมดที่ tool นี้รองรับ — ``ToolRegistry`` ใช้ตรวจสอบว่า call.action ถูกต้อง
+        สำหรับ tool นอก TOOL_ACTIONS เดิม (รวม internal submit actions ด้วย)"""
+        return frozenset(op.action for op in self._shape.operations)
 
     def reset(self) -> None:
         """ล้างฉบับร่างที่ยังไม่ submit เพื่อคืนสถานะเริ่มต้นสำหรับการรันเดโมใหม่"""

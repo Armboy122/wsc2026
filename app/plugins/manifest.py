@@ -150,6 +150,9 @@ class PluginOperation(BaseModel):
         """ค่าที่ Main Agent ถามได้จริง — ไม่รู้จักชื่อ tool หรือ action นี้เลย"""
         return OperationSpec(
             policy=self.effective_policy,
+            mode=self.mode.value,
+            exposure=self.effective_exposure.value,
+            submit_action=self.submit_action.value if self.submit_action is not None else None,
             limits=self.limits,
             client_context=self.client_context,
         )

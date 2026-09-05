@@ -57,7 +57,13 @@ class Database:
                 continue
             sql = migration_path.read_text(encoding="utf-8")
             with self._conn:
-                self._conn.executescript(sql)
+                try:
+                    self._conn.executescript(sql)
+                except sqlite3.OperationalError as exc:
+                    if "duplicate column name" in str(exc).lower():
+                        pass
+                    else:
+                        raise
                 self._conn.execute(
                     "INSERT INTO schema_version (version) VALUES (?)", (version,)
                 )

@@ -74,7 +74,7 @@ async def test_load_declarative_tools_produces_a_callable_tool_and_catalogue_ent
         assert definition.name == "cat_fact_tool"
         assert definition.actions == ("get_random_fact",)
         assert definition.input_schemas == {"get_random_fact": _INPUT_SCHEMA}
-        assert bundle.operation_specs["get_random_fact"].policy is OperationPolicy.PLAIN_READ
+        assert bundle.operation_specs[("cat_fact_tool", "get_random_fact")].policy is OperationPolicy.PLAIN_READ
     finally:
         db.close()
 

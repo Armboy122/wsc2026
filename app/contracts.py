@@ -8,7 +8,15 @@ from enum import Enum
 from typing import Any, ClassVar, Literal
 from uuid import UUID
 
-from pydantic import BaseModel, ConfigDict, Field, TypeAdapter, field_serializer, model_validator
+from pydantic import (
+    AliasChoices,
+    BaseModel,
+    ConfigDict,
+    Field,
+    TypeAdapter,
+    field_serializer,
+    model_validator,
+)
 
 
 def to_camel(value: str) -> str:
@@ -161,9 +169,14 @@ class PendingActionStatus(str, Enum):
 class PendingAction(FrozenModel):
     pending_action_id: UUID = Field(serialization_alias="pendingActionId")
     conversation_id: UUID = Field(serialization_alias="conversationId")
-    tool_name: Literal[ToolName.VOC, ToolName.OMS] = Field(serialization_alias="toolName")
-    prepare_action: ToolAction = Field(serialization_alias="prepareAction")
-    submit_action: ToolAction = Field(serialization_alias="submitAction")
+    tool_name: str = Field(
+        min_length=1,
+        max_length=64,
+        serialization_alias="toolName",
+        validation_alias=AliasChoices("tool_name", "toolName", "tool_slug", "toolSlug"),
+    )
+    prepare_action: str = Field(min_length=1, max_length=64, serialization_alias="prepareAction")
+    submit_action: str = Field(min_length=1, max_length=64, serialization_alias="submitAction")
     prepared_input: dict[str, Any] = Field(serialization_alias="preparedInput")
     summary: str = Field(min_length=1, max_length=500)
     status: PendingActionStatus
@@ -171,6 +184,10 @@ class PendingAction(FrozenModel):
     created_at: datetime = Field(serialization_alias="createdAt")
     updated_at: datetime = Field(serialization_alias="updatedAt")
     submission_result: ToolResult | None = Field(default=None, serialization_alias="submissionResult")
+
+    @property
+    def tool_slug(self) -> str:
+        return self.tool_name
 
     @field_serializer("idempotency_key")
     def redact_idempotency_key(self, value: str) -> str:
@@ -185,8 +202,12 @@ class PendingAction(FrozenModel):
 
     @model_validator(mode="after")
     def validate_action_pair(self) -> "PendingAction":
-        if PREPARE_TO_SUBMIT.get(self.prepare_action) is not self.submit_action:
-            raise ValueError("การกระทำสำหรับส่งรายการไม่ตรงกับการกระทำสำหรับจัดเตรียม")
+        expected_submit = PREPARE_TO_SUBMIT.get(self.prepare_action)
+        if expected_submit is not None:
+            if self.submit_action != expected_submit:
+                raise ValueError("การกระทำสำหรับส่งรายการไม่ตรงกับการกระทำสำหรับจัดเตรียม")
+        elif self.submit_action == self.prepare_action or not self.submit_action.strip():
+            raise ValueError("การกระทำสำหรับส่งรายการไม่ถูกต้อง")
         if self.status is PendingActionStatus.SUBMITTED and self.submission_result is None:
             raise ValueError("การกระทำที่ส่งแล้วต้องมีผลลัพธ์การส่งรายการ")
         if self.status in {PendingActionStatus.PENDING_CONFIRMATION, PendingActionStatus.REJECTED} and self.submission_result is not None:

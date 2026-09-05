@@ -46,7 +46,7 @@ def test_migrate_is_idempotent_and_records_schema_version_once(tmp_path: Path) -
         db.migrate()
         db.migrate()
         versions = db._conn.execute("SELECT version FROM schema_version").fetchall()
-        assert [row[0] for row in versions] == [1]
+        assert [row[0] for row in versions] == [1, 2]
     finally:
         db.close()
 
@@ -184,3 +184,127 @@ async def test_prompt_upsert_by_key(tmp_path: Path) -> None:
         assert row["content"] == "v2 content"
     finally:
         db.close()
+
+
+async def test_legacy_d21_migration_to_002_enables_declarative_http_tool(tmp_path: Path) -> None:
+    """จำลอง DB schema D2.1 เดิม (schema_version=1 ไม่มี http_method/url_template)
+    แล้ว migrate จนใช้ declarative HTTP tool ได้
+    """
+    import json
+    import uuid
+    import httpx
+    from app.agent.declarative_tools import load_declarative_tools
+    from app.agent.operation_policy import OperationPolicy
+    from app.contracts import ToolCall, ToolResultStatus
+    from app.agent.registry import ToolContext
+
+    db_path = tmp_path / "legacy_d21.db"
+    conn = sqlite3.connect(str(db_path))
+    # สร้าง schema D2.1 ดิบ ๆ
+    conn.executescript(
+        """
+        CREATE TABLE schema_version (version INTEGER PRIMARY KEY, applied_at TEXT DEFAULT (datetime('now')));
+        INSERT INTO schema_version (version) VALUES (1);
+
+        CREATE TABLE tool (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            slug TEXT NOT NULL UNIQUE,
+            display_name TEXT NOT NULL,
+            description TEXT NOT NULL DEFAULT '',
+            enabled INTEGER NOT NULL DEFAULT 1 CHECK (enabled IN (0, 1)),
+            source TEXT NOT NULL CHECK (source IN ('db', 'code')),
+            created_at TEXT NOT NULL DEFAULT (datetime('now'))
+        );
+        CREATE TABLE tool_operation (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            tool_id INTEGER NOT NULL REFERENCES tool (id) ON DELETE CASCADE,
+            action TEXT NOT NULL,
+            policy TEXT NOT NULL CHECK (
+                policy IN ('grounded_answer', 'write_confirm', 'guided_flow', 'plain_read')
+            ),
+            input_schema TEXT NOT NULL,
+            output_schema TEXT NOT NULL,
+            exposure TEXT NOT NULL CHECK (exposure IN ('llm', 'internal')),
+            mode TEXT NOT NULL CHECK (mode IN ('read', 'prepare', 'submit')),
+            submit_action TEXT,
+            limits TEXT,
+            client_context TEXT,
+            UNIQUE (tool_id, action)
+        );
+        CREATE TABLE tool_auth (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            tool_id INTEGER NOT NULL REFERENCES tool (id) ON DELETE CASCADE,
+            type TEXT NOT NULL CHECK (type IN ('api_key', 'oauth2')),
+            secret_ref TEXT NOT NULL
+        );
+        CREATE TABLE prompt (
+            key TEXT PRIMARY KEY,
+            content TEXT NOT NULL,
+            updated_at TEXT NOT NULL DEFAULT (datetime('now'))
+        );
+        CREATE TABLE domain_allowlist (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            domain TEXT NOT NULL UNIQUE,
+            enabled INTEGER NOT NULL DEFAULT 1 CHECK (enabled IN (0, 1))
+        );
+        """
+    )
+    # ตรวจว่า tool_operation เดิมไม่มี http_method และ url_template
+    cols = {row[1] for row in conn.execute("PRAGMA table_info(tool_operation)").fetchall()}
+    assert "http_method" not in cols
+    assert "url_template" not in cols
+    conn.close()
+
+    # เปิดผ่าน Database class แล้วสั่ง migrate
+    db = Database(db_path)
+    try:
+        db.migrate()
+        # schema_version ต้องอัปเดตเป็น 2
+        versions = [row[0] for row in db._conn.execute("SELECT version FROM schema_version").fetchall()]
+        assert versions == [1, 2]
+
+        cols_after = {row[1] for row in db._conn.execute("PRAGMA table_info(tool_operation)").fetchall()}
+        assert "http_method" in cols_after
+        assert "url_template" in cols_after
+
+        # ใส่ tool และ operation ที่ใช้ HTTP
+        tool_id = await db.execute(
+            "INSERT INTO tool (slug, display_name, description, source) VALUES (?, ?, ?, ?)",
+            ("sample_http_tool", "Sample Tool", "คำอธิบาย", "db"),
+        )
+        schema = {
+            "type": "object",
+            "properties": {"q": {"type": "string"}},
+            "required": [],
+            "additionalProperties": False,
+        }
+        await db.execute(
+            "INSERT INTO tool_operation "
+            "(tool_id, action, policy, input_schema, output_schema, exposure, mode, http_method, url_template) "
+            "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
+            (
+                tool_id,
+                "fetch",
+                "plain_read",
+                json.dumps(schema),
+                "{}",
+                "llm",
+                "read",
+                "GET",
+                "https://api.example.com/data",
+            ),
+        )
+
+        handler = lambda request: httpx.Response(200, json={"ok": True})
+        bundle = await load_declarative_tools(
+            db, app_env="development", allowlist=(), transport=httpx.MockTransport(handler)
+        )
+        assert len(bundle.tools) == 1
+        tool = bundle.tools[0]
+        call = ToolCall(call_id=uuid.uuid4(), name="sample_http_tool", action="fetch", input={})
+        result = await tool.execute(call, ToolContext(uuid.uuid4(), uuid.uuid4()))
+        assert result.status is ToolResultStatus.SUCCESS
+        assert result.data == {"ok": True}
+    finally:
+        db.close()
+

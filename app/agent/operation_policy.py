@@ -52,13 +52,26 @@ class OperationLimits:
         return dedupe_default(policy)
 
 
+_ALLOWED_MODES = frozenset({"read", "prepare", "submit"})
+_ALLOWED_EXPOSURES = frozenset({"llm", "internal"})
+
+
 @dataclass(frozen=True, slots=True)
 class OperationSpec:
     policy: OperationPolicy = DEFAULT_POLICY
+    mode: str = "read"
+    exposure: str = "llm"
+    submit_action: str | None = None
     limits: OperationLimits | None = None
     client_context: Mapping[str, str] | None = None
 
     def __post_init__(self) -> None:
+        if self.mode not in _ALLOWED_MODES:
+            raise ValueError(f"mode must be one of {sorted(_ALLOWED_MODES)}, got '{self.mode}'")
+        if self.exposure not in _ALLOWED_EXPOSURES:
+            raise ValueError(f"exposure must be one of {sorted(_ALLOWED_EXPOSURES)}, got '{self.exposure}'")
+        if self.mode == "submit" and self.exposure != "internal":
+            raise ValueError("mode 'submit' must have exposure 'internal'")
         if self.client_context is not None:
             for key in self.client_context:
                 if key not in KNOWN_CLIENT_CONTEXT:

@@ -8,6 +8,7 @@
 
 from __future__ import annotations
 
+import logging
 from dataclasses import dataclass
 from typing import Iterable
 
@@ -19,6 +20,13 @@ from app.db import Database
 from app.llm.models import ToolDefinition
 from app.tools.declarative_executor import DeclarativeToolAuth, DeclarativeToolExecutor
 from app.tools.declarative_tool import DeclarativeTool
+from app.tools.declarative_validator import (
+    DeclarativeValidationError,
+    sanitize_validation_error_message,
+    validate_declarative_tool_shape,
+)
+
+logger = logging.getLogger(__name__)
 
 
 @dataclass(frozen=True, slots=True)
@@ -27,7 +35,7 @@ class DeclarativeToolBundle:
 
     tools: tuple[DeclarativeTool, ...]
     catalogue: tuple[ToolDefinition, ...]
-    operation_specs: dict[str, OperationSpec]
+    operation_specs: dict[tuple[str, str], OperationSpec]
 
 
 async def load_declarative_tools(
@@ -39,24 +47,33 @@ async def load_declarative_tools(
 ) -> DeclarativeToolBundle:
     """อ่านทุกแถวใน ``tool`` ที่ ``source='db'`` และ ``enabled=1`` แล้วประกอบเป็น Tool
 
-    tool ที่ปิดอยู่ (soft delete, ARCHITECTURE-V2.md §8.1) ถูกข้ามเหมือน Python plugin
-    ที่ ``enabled: false`` — ไม่มีเหตุผลให้ต่างกัน
-
-    ``transport`` ส่งต่อให้ ``DeclarativeToolExecutor`` ทุกตัวเท่านั้น (inject transport
-    ปลอมได้ในเทส) — ``None`` ที่ production ใช้จริงคือ httpx ยิงเครือข่ายจริงตามปกติ
+    tool ที่ปิดอยู่ (soft delete, ARCHITECTURE-V2.md §8.1) หรือ tool ที่ definition เสีย (fail closed)
+    ถูกข้าม เพื่อไม่ให้แถวที่เสียทำให้ app ทั้งระบบล้ม และไม่ให้ LLM เห็นหรือ dispatch ได้
     """
     tool_rows = await db.fetch_all(
         "SELECT * FROM tool WHERE source = 'db' AND enabled = 1 ORDER BY slug"
     )
     tools: list[DeclarativeTool] = []
     catalogue: list[ToolDefinition] = []
-    operation_specs: dict[str, OperationSpec] = {}
+    operation_specs: dict[tuple[str, str], OperationSpec] = {}
     for tool_row in tool_rows:
         operation_rows = await db.fetch_all(
             "SELECT * FROM tool_operation WHERE tool_id = ? ORDER BY action",
             (tool_row["id"],),
         )
-        shape = from_db_row(tool_row, list(operation_rows))
+        try:
+            shape = from_db_row(tool_row, list(operation_rows))
+            validate_declarative_tool_shape(shape, app_env=app_env, allowlist=allowlist)
+        except Exception as exc:
+            safe_message = sanitize_validation_error_message(str(exc))
+            logger.warning(
+                "Declarative tool '%s' (id=%s) failed validation and was disabled: %s",
+                tool_row["slug"],
+                tool_row["id"],
+                safe_message,
+            )
+            continue
+
         auth_row = await db.fetch_one(
             "SELECT * FROM tool_auth WHERE tool_id = ?", (tool_row["id"],)
         )
@@ -74,7 +91,7 @@ async def load_declarative_tools(
             )
         )
         for operation in shape.operations:
-            operation_specs[operation.action] = _operation_spec_from_shape(operation)
+            operation_specs[(shape.slug, operation.action)] = _operation_spec_from_shape(operation)
 
     return DeclarativeToolBundle(
         tools=tuple(tools),
@@ -92,6 +109,9 @@ def _operation_spec_from_shape(operation: ToolOperationShape) -> OperationSpec:
         )
     return OperationSpec(
         policy=OperationPolicy(operation.policy),
+        mode=operation.mode,
+        exposure=operation.exposure,
+        submit_action=operation.submit_action,
         limits=limits,
         client_context=operation.client_context,
     )

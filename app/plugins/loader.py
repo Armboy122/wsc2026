@@ -68,7 +68,7 @@ class LoadedPlugin:
         )
 
     @property
-    def operation_specs(self) -> dict[ToolAction, OperationSpec]:
+    def operation_specs(self) -> dict[tuple[str, str], OperationSpec]:
         """policy ต่อ operation ที่ manifest ประกาศไว้ — สิ่งเดียวที่ Main Agent ถามได้ (ARCHITECTURE-V2.md §4)"""
         return _operation_specs_from_manifest(self.manifest)
 
@@ -121,7 +121,7 @@ def load_plugins(settings: Any, *, plugin_root: Path | None = None) -> tuple[Loa
 
 def load_operation_specs(
     tool_name: ToolName, *, plugin_root: Path | None = None
-) -> dict[ToolAction, OperationSpec]:
+) -> dict[tuple[str, str], OperationSpec]:
     """โหลด policy ต่อ operation ของปลั๊กอินตัวเดียวตรงจาก manifest จริง โดยไม่ต้องมี settings
 
     ใช้เป็นแหล่งเดียวกับที่ ``load_plugins`` ใช้จริง กันเทสกับ production ประกาศ policy
@@ -137,8 +137,12 @@ def load_operation_specs(
     raise PluginError(f"ไม่พบ manifest ของ {tool_name.value}")
 
 
-def _operation_specs_from_manifest(manifest: PluginManifest) -> dict[ToolAction, OperationSpec]:
-    return {operation.action: operation.operation_spec for operation in manifest.operations}
+def _operation_specs_from_manifest(manifest: PluginManifest) -> dict[tuple[str, str], OperationSpec]:
+    tool_slug = manifest.metadata.id.value
+    return {
+        (tool_slug, operation.action.value): operation.operation_spec
+        for operation in manifest.operations
+    }
 
 
 def _read_yaml(path: Path) -> dict[str, Any]:

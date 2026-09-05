@@ -17,6 +17,7 @@ from app.agent.registry import ToolContext, ToolRegistry, _error_result
 from app.agent.stores import ConversationStore, PendingActionStore, TraceStore
 from app.agent.response_policy import ErrorPresentation, ResponsePolicies
 from app.contracts import (
+    INPUT_MODELS,
     PREPARE_TO_SUBMIT,
     ActionDecisionResponse,
     ChatRequest,
@@ -113,6 +114,22 @@ class MainAgent:
         self._grounded_conversations: set[UUID] = set()
         self._reset_generation = 0
 
+    def _is_prepare_call(self, call: ToolCall) -> bool:
+        spec = self._tools.operation_spec_for_call(call)
+        return spec.mode == "prepare" or call.action in PREPARE_TO_SUBMIT
+
+    def _is_prepare_result(self, result: ToolResult) -> bool:
+        spec = self._tools.operation_spec_for_result(result)
+        return spec.mode == "prepare" or result.action in PREPARE_TO_SUBMIT
+
+    def _is_prepare_or_submit_result(self, result: ToolResult) -> bool:
+        spec = self._tools.operation_spec_for_result(result)
+        return (
+            spec.mode in ("prepare", "submit")
+            or result.action in PREPARE_TO_SUBMIT
+            or result.action in _SUBMIT_ACTIONS
+        )
+
     async def handle_chat(self, request: ChatRequest) -> ChatResponse:
         conversation_id = request.conversation_id or uuid4()
         trace_id = uuid4()
@@ -175,14 +192,14 @@ class MainAgent:
                 self._traces.append(trace_id, TraceEventKind.ERROR, {"stage": "tool_limit", "maximum": _MAX_TOOL_STEPS})
                 final_text = "ไม่สามารถดำเนินการตามคำขอได้ เนื่องจากต้องใช้ขั้นตอนเครื่องมือมากเกินไปครับ"
                 break
-            if sum(call.action in PREPARE_TO_SUBMIT for call in calls) > 1:
+            if sum(self._is_prepare_call(call) for call in calls) > 1:
                 self._traces.append(trace_id, TraceEventKind.ERROR, {"stage": "multi_prepare_policy"})
                 final_text = _MULTI_PREPARE_MESSAGE
                 break
 
             prepared = False
-            ordered_calls = tuple(call for call in calls if call.action not in PREPARE_TO_SUBMIT) + tuple(
-                call for call in calls if call.action in PREPARE_TO_SUBMIT
+            ordered_calls = tuple(call for call in calls if not self._is_prepare_call(call)) + tuple(
+                call for call in calls if self._is_prepare_call(call)
             )
             for call in ordered_calls:
                 spec = self._tools.operation_spec_for_call(call)
@@ -209,7 +226,7 @@ class MainAgent:
                 result = await self._execute_chat_call(call, conversation_id, trace_id)
                 all_results.append(result)
                 history += (LLMMessage("tool", _result_message(result, self._response_policies)),)
-                if result.status is ToolResultStatus.SUCCESS and result.action in PREPARE_TO_SUBMIT:
+                if result.status is ToolResultStatus.SUCCESS and self._is_prepare_result(result):
                     prepared = True
                     break
             if prepared or duplicate_read_call or operation_call_limit_reached:
@@ -228,6 +245,7 @@ class MainAgent:
             user_message=request.message,
             response_policies=self._response_policies,
             is_grounded_answer=self._is_grounded_answer,
+            is_prepare_or_submit=self._is_prepare_or_submit_result,
         )
         if direct_completion_text is not None and (not all_results or repeats_delivered_facts):
             final_text = _safe_direct_message(
@@ -427,7 +445,8 @@ class MainAgent:
         )
 
     async def _execute_chat_call(self, call: ToolCall, conversation_id: UUID, trace_id: UUID) -> ToolResult:
-        if call.action in _SUBMIT_ACTIONS:
+        spec = self._tools.operation_spec_for_call(call)
+        if spec.mode == "submit" or spec.exposure == "internal" or call.action in _SUBMIT_ACTIONS:
             self._traces.append(trace_id, TraceEventKind.ERROR, {"stage": "chat_policy", "action": call.action})
             result = _error_result(
                 call,
@@ -451,7 +470,7 @@ class MainAgent:
         return self._tools.operation_spec_for_result(result).policy is OperationPolicy.GROUNDED_ANSWER
 
     def _create_pending_from_results(self, conversation_id: UUID, trace_id: UUID, results: list[ToolResult]) -> PendingAction | None:
-        prepared = [result for result in results if result.status is ToolResultStatus.SUCCESS and result.action in PREPARE_TO_SUBMIT]
+        prepared = [result for result in results if result.status is ToolResultStatus.SUCCESS and self._is_prepare_result(result)]
         if len(prepared) > 1:
             self._traces.append(trace_id, TraceEventKind.ERROR, {"stage": "multi_prepare_policy"})
             return None
@@ -459,23 +478,38 @@ class MainAgent:
             return None
         result = prepared[0]
         raw_input = self._call_inputs.get(result.call_id, {})
-        try:
-            prepared_input = validate_tool_input(ToolCall(
-                call_id=result.call_id,
-                name=result.name,
-                action=result.action,
-                input=raw_input,
-            )).model_dump(by_alias=True)
-        except ValidationError:  # pragma: no cover - ผลลัพธ์สำเร็จจาก registry ผ่านการตรวจสอบแล้ว
+        spec = self._tools.operation_spec_for_result(result)
+        submit_action = spec.submit_action or PREPARE_TO_SUBMIT.get(result.action)
+        if not submit_action:
             return None
-        idempotency_key = prepared_input["idempotencyKey"]
+        if result.action in INPUT_MODELS:
+            try:
+                prepared_input = validate_tool_input(ToolCall(
+                    call_id=result.call_id,
+                    name=result.name,
+                    action=result.action,
+                    input=raw_input,
+                )).model_dump(by_alias=True)
+            except ValidationError:  # pragma: no cover - ผลลัพธ์สำเร็จจาก registry ผ่านการตรวจสอบแล้ว
+                return None
+        else:
+            prepared_input = dict(raw_input)
+        idempotency_key = prepared_input.get("idempotencyKey")
+        if not idempotency_key or not isinstance(idempotency_key, str):
+            return None
         now = _now()
         pending = PendingAction(
-            pending_action_id=uuid4(), conversation_id=conversation_id, tool_name=result.name,
-            prepare_action=result.action, submit_action=PREPARE_TO_SUBMIT[result.action],
-            prepared_input=_redact_prepared_input(prepared_input), summary=str((result.data or {}).get("summary", "รายการที่จัดเตรียมไว้")),
-            status=PendingActionStatus.PENDING_CONFIRMATION, idempotency_key=idempotency_key,
-            created_at=now, updated_at=now,
+            pending_action_id=uuid4(),
+            conversation_id=conversation_id,
+            tool_name=result.name,
+            prepare_action=result.action,
+            submit_action=submit_action,
+            prepared_input=_redact_prepared_input(prepared_input),
+            summary=str((result.data or {}).get("summary", "รายการที่จัดเตรียมไว้")),
+            status=PendingActionStatus.PENDING_CONFIRMATION,
+            idempotency_key=idempotency_key,
+            created_at=now,
+            updated_at=now,
         )
         self._pending_actions.put(pending, trace_id)
         self._traces.append(trace_id, TraceEventKind.ACTION_PREPARED, {"pendingActionId": str(pending.pending_action_id), "action": result.action})
@@ -535,7 +569,7 @@ def _enforce_operation_policy(
     if (
         result.status is ToolResultStatus.SUCCESS
         and spec.policy is OperationPolicy.PLAIN_READ
-        and call.action in PREPARE_TO_SUBMIT
+        and (spec.mode == "prepare" or call.action in PREPARE_TO_SUBMIT)
     ):
         traces.append(
             trace_id,
@@ -586,6 +620,7 @@ def _repeats_delivered_facts(
     user_message: str,
     response_policies: ResponsePolicies,
     is_grounded_answer: Callable[[ToolResult], bool],
+    is_prepare_or_submit: Callable[[ToolResult], bool] | None = None,
 ) -> bool:
     """ตรวจว่ารอบนี้อ่านข้อมูลเดิมซ้ำ โดยไม่มีข้อเท็จจริงใหม่ที่ผู้ใช้ยังไม่เคยเห็น
 
@@ -600,8 +635,11 @@ def _repeats_delivered_facts(
         # grounded_answer มีคำตอบและ citation ที่ต้องคงไว้เสมอ จึงไม่เข้าเงื่อนไขนี้
         or is_grounded_answer(result)
         # การเตรียมหรือส่งรายการเปลี่ยนสถานะจริง ห้ามถูกมองว่าเป็นการอ่านซ้ำ
-        or result.action in PREPARE_TO_SUBMIT
-        or result.action in _SUBMIT_ACTIONS
+        or (
+            is_prepare_or_submit(result)
+            if is_prepare_or_submit is not None
+            else (result.action in PREPARE_TO_SUBMIT or result.action in _SUBMIT_ACTIONS)
+        )
         for result in results
     ):
         return False
