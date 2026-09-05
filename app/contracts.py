@@ -72,6 +72,10 @@ class AdminToolDefinitionInput(AdminModel):
     description: str = Field(default="", max_length=1000)
     enabled: bool = True
     auth_env_var: str | None = Field(default=None, min_length=1, max_length=128)
+    # P1: รูปแบบ header ของ auth — header_name ต้องเป็น HTTP token; scheme ว่าง =
+    # ส่งค่า secret ตรง ๆ (กรณี X-API-Key) ทั้งคู่ไม่ใช่ความลับ คืนกลับทาง GET ได้
+    auth_header_name: str | None = Field(default=None, min_length=1, max_length=128)
+    auth_scheme: str | None = Field(default=None, max_length=128)
     operations: list[AdminOperationInput] = Field(min_length=1)
 
 
@@ -85,6 +89,8 @@ class AdminTryOperationInput(AdminModel):
     input: dict[str, Any] = Field(default_factory=dict)
     input_schema: dict[str, Any] | None = None
     auth_env_var: str | None = Field(default=None, max_length=128)
+    auth_header_name: str | None = Field(default=None, min_length=1, max_length=128)
+    auth_scheme: str | None = Field(default=None, max_length=128)
 
 
 class AdminPromptInput(AdminModel):

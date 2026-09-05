@@ -79,6 +79,25 @@ def test_saved_definition_round_trips_through_api_and_payload_builder(
     assert client.get("/api/v1/admin/tools/edit_contract_e2e").json() == before
 
 
+def test_authenticated_tool_payload_allows_preserve_header_edit_and_remove() -> None:
+    result = run_node(
+        "const base = {slug:'tool', displayName:'Tool', enabled:true, hasAuth:true, "
+        "source:'db', authHeaderName:'X-API-Key', authScheme:'', operations:["
+        + json.dumps(operation("read"))
+        + "]};"
+        "const values = {slug:'tool', displayName:'Tool', enabled:true, operations:base.operations};"
+        "const edited = form.buildToolPayload(values, base);"
+        "edited.authHeaderName = 'Authorization'; edited.authScheme = 'Bearer';"
+        "const removed = form.buildToolPayload(values, base); removed.authEnvVar = null;"
+        "console.log(JSON.stringify({editedLoss: form.detectMetadataLoss(base, edited), "
+        "removedLoss: form.detectMetadataLoss(base, removed), edited, removed}));"
+    )
+    assert result["editedLoss"] == []
+    assert result["removedLoss"] == []
+    assert result["edited"]["authHeaderName"] == "Authorization"
+    assert result["removed"]["authEnvVar"] is None
+
+
 def test_removing_first_operation_matches_remaining_metadata_by_action() -> None:
     first = operation("first", description="removed")
     second = operation("second", description="keep me", limits={"maxCallsPerTurn": 7})

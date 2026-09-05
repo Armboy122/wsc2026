@@ -136,16 +136,19 @@ async def test_bootstrap_seeds_oms_tool_into_empty_db_end_to_end(tmp_path: Path)
             return httpx.Response(200, json=valid_output)
 
         mock_client = httpx.AsyncClient(transport=httpx.MockTransport(mock_handler))
-        with patch("app.tools.declarative_executor.httpx.AsyncClient", return_value=mock_client):
-            result = await registry.execute(
-                ToolCall(
-                    call_id=uuid.uuid4(),
-                    name=OMS_TOOL_SLUG,
-                    action="get_outage_by_ca",
-                    input={"caNumber": "112233445566"},
-                ),
-                ToolContext(conversation_id=uuid.uuid4(), trace_id=uuid.uuid4()),
-            )
+        # P1: oms_tool ถูก seed พร้อม tool_auth (secret_ref=OMS_API_KEY) — dispatch ต้องมี
+        # ค่า secret ใน env จึงจะยิงได้ (ฉีดเป็น X-API-Key ไม่มี prefix)
+        with patch.dict("os.environ", {"OMS_API_KEY": "oms-test-key"}):
+            with patch("app.tools.declarative_executor.httpx.AsyncClient", return_value=mock_client):
+                result = await registry.execute(
+                    ToolCall(
+                        call_id=uuid.uuid4(),
+                        name=OMS_TOOL_SLUG,
+                        action="get_outage_by_ca",
+                        input={"caNumber": "112233445566"},
+                    ),
+                    ToolContext(conversation_id=uuid.uuid4(), trace_id=uuid.uuid4()),
+                )
         assert result.status is ToolResultStatus.SUCCESS
         assert result.data["caNumber"] == "112233445566"
         await mock_client.aclose()

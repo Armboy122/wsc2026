@@ -65,8 +65,11 @@ export function detectMetadataLoss(baseline, candidate, path = "") {
     return [path || "metadata"];
   }
   const losses = [];
+  const readOnlyToolKeys = new Set(["hasAuth", "source", "editable", "selfDisabledReason"]);
   Object.keys(baseline).forEach((key) => {
-    if (!(key in candidate)) losses.push(path ? `${path}.${key}` : key);
+    if (!(key in candidate) && !(path === "" && readOnlyToolKeys.has(key))) {
+      losses.push(path ? `${path}.${key}` : key);
+    }
   });
   if (baseline.properties && candidate.properties) {
     Object.keys(baseline.properties).forEach((name) => {
@@ -163,7 +166,8 @@ const REQUEST_OPERATION_KEYS = new Set([
   "urlTemplate", "inputSchema", "outputSchema", "limits", "clientContext",
 ]);
 const REQUEST_TOOL_KEYS = new Set([
-  "slug", "displayName", "description", "enabled", "authEnvVar", "operations",
+  "slug", "displayName", "description", "enabled", "authEnvVar",
+  "authHeaderName", "authScheme", "operations",
 ]);
 
 function filterRequestKeys(value, keys) {
@@ -197,4 +201,3 @@ export function buildToolPayload(values, baseline) {
   );
   return payload;
 }
-

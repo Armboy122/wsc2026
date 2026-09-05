@@ -181,6 +181,8 @@ async def try_tool_operation(
         input=body.input,
         input_schema=body.input_schema,
         auth_env_var=body.auth_env_var,
+        auth_header_name=body.auth_header_name,
+        auth_scheme=body.auth_scheme,
     )
     logger.info(
         "admin_external_tool_try",

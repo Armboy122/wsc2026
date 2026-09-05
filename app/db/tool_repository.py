@@ -28,10 +28,11 @@ async def list_tool_definitions(db: Database) -> list[dict[str, Any]]:
             (tool_row["id"],),
         )
         auth_row = await db.fetch_one(
-            "SELECT 1 FROM tool_auth WHERE tool_id = ? LIMIT 1", (tool_row["id"],)
+            "SELECT header_name, scheme FROM tool_auth WHERE tool_id = ? LIMIT 1",
+            (tool_row["id"],),
         )
         definitions.append(
-            _definition_from_rows(tool_row, operation_rows, has_auth=auth_row is not None)
+            _definition_from_rows(tool_row, operation_rows, auth_row=auth_row)
         )
     return definitions
 
@@ -48,9 +49,10 @@ async def get_tool_definition(db: Database, slug: str) -> dict[str, Any] | None:
         (tool_row["id"],),
     )
     auth_row = await db.fetch_one(
-        "SELECT 1 FROM tool_auth WHERE tool_id = ? LIMIT 1", (tool_row["id"],)
+        "SELECT header_name, scheme FROM tool_auth WHERE tool_id = ? LIMIT 1",
+        (tool_row["id"],),
     )
-    return _definition_from_rows(tool_row, operation_rows, has_auth=auth_row is not None)
+    return _definition_from_rows(tool_row, operation_rows, auth_row=auth_row)
 
 
 async def save_tool(
@@ -60,6 +62,9 @@ async def save_tool(
     enabled: bool,
     auth_env_var: str | None,
     preserve_auth: bool = False,
+    auth_header_name: str | None = None,
+    auth_scheme: str | None = None,
+    auth_header_provided: bool = False,
 ) -> None:
     """เขียน definition หนึ่งชุดลง DB ในธุรกรรมเดียว (upsert ตาม slug)
 
@@ -67,6 +72,10 @@ async def save_tool(
     - ยังไม่มี = สร้างใหม่ (omit/null = ไม่มี auth)
     - ``auth_env_var`` เป็น *ชื่อ* environment variable เท่านั้น (tool_auth.secret_ref,
       CONTRACTS-V2 §10.2) — ค่าจริงของ secret ไม่เคยผ่านฟังก์ชันนี้
+    - P1: ``auth_header_name``/``auth_scheme`` คือรูปแบบ header ที่ executor ใช้
+      (migration 003) — ``auth_header_provided`` เป็น True เมื่อผู้เรียกส่งฟิลด์ใดฟิลด์หนึ่ง
+      มาจริง กรณีนี้แม้ authEnvVar จะถูก preserve ก็ต้องอัปเดต header/scheme ของแถวเดิม
+      โดยยังคง secret_ref เดิมไว้ (แก้รูปแบบ header ได้โดยไม่ต้องพิมพ์ชื่อ env var ซ้ำ)
     """
     operations_payload = [
         (
@@ -115,9 +124,27 @@ async def save_tool(
         )
         if auth_env_var:
             conn.execute(
-                "INSERT INTO tool_auth (tool_id, type, secret_ref) VALUES (?, 'api_key', ?)",
-                (tool_id, auth_env_var),
+                "INSERT INTO tool_auth (tool_id, type, secret_ref, header_name, scheme) "
+                "VALUES (?, 'api_key', ?, ?, ?)",
+                (
+                    tool_id,
+                    auth_env_var,
+                    auth_header_name if auth_header_name else "Authorization",
+                    auth_scheme if auth_scheme is not None else "Bearer",
+                ),
             )
+        elif preserve_auth and auth_header_provided:
+            # แก้เฉพาะรูปแบบ header โดยคง secret_ref เดิม — UPDATE แบบ no-op เมื่อไม่มีแถว
+            if auth_header_name:
+                conn.execute(
+                    "UPDATE tool_auth SET header_name = ? WHERE tool_id = ?",
+                    (auth_header_name, tool_id),
+                )
+            if auth_scheme is not None:
+                conn.execute(
+                    "UPDATE tool_auth SET scheme = ? WHERE tool_id = ?",
+                    (auth_scheme, tool_id),
+                )
 
     await db.run_in_transaction(_write)
 
@@ -134,10 +161,17 @@ async def set_tool_enabled(db: Database, slug: str, enabled: bool) -> bool:
 
 
 def _definition_from_rows(
-    tool_row: sqlite3.Row, operation_rows: list[sqlite3.Row], *, has_auth: bool
+    tool_row: sqlite3.Row,
+    operation_rows: list[sqlite3.Row],
+    *,
+    auth_row: sqlite3.Row | None,
 ) -> dict[str, Any]:
     return {
-        "hasAuth": has_auth,
+        "hasAuth": auth_row is not None,
+        # P1: header_name/scheme ไม่ใช่ความลับ — คืนได้เพื่อให้ฟอร์มแสดงค่าปัจจุบัน
+        # (CONTRACTS-V2 §10.2 ยังห้ามคืน secret_ref เสมอ)
+        "authHeaderName": auth_row["header_name"] if auth_row is not None else None,
+        "authScheme": auth_row["scheme"] if auth_row is not None else None,
         "slug": tool_row["slug"],
         "displayName": tool_row["display_name"],
         "description": tool_row["description"] or "",

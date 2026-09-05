@@ -53,23 +53,53 @@ class Database:
             "applied_at TEXT NOT NULL DEFAULT (datetime('now'))"
             ")"
         )
+        self._conn.commit()
         applied = {row[0] for row in self._conn.execute("SELECT version FROM schema_version")}
         for migration_path in sorted(_MIGRATIONS_DIR.glob("*.sql")):
             version = _version_of(migration_path)
             if version in applied:
                 continue
             sql = migration_path.read_text(encoding="utf-8")
-            with self._conn:
-                try:
-                    self._conn.executescript(sql)
-                except sqlite3.OperationalError as exc:
-                    if "duplicate column name" in str(exc).lower():
-                        pass
-                    else:
-                        raise
+            try:
+                self._conn.execute("BEGIN IMMEDIATE")
+                self._execute_migration(sql)
                 self._conn.execute(
                     "INSERT INTO schema_version (version) VALUES (?)", (version,)
                 )
+            except Exception:
+                self._conn.rollback()
+                raise
+            else:
+                self._conn.commit()
+
+    def _execute_migration(self, sql: str) -> None:
+        """Execute migration statements while tolerating repeated ADD COLUMN statements.
+
+        SQLite has no portable ``ALTER TABLE ... ADD COLUMN IF NOT EXISTS``.  Running
+        each complete statement separately lets a partially applied migration continue
+        with its remaining columns, while every other SQL error still aborts the
+        migration and prevents recording a false schema version.
+        """
+        pending = ""
+        for line in sql.splitlines(keepends=True):
+            pending += line
+            if not sqlite3.complete_statement(pending):
+                continue
+            statement = pending.strip()
+            pending = ""
+            if not _has_sql_statement(statement):
+                continue
+            try:
+                self._conn.execute(statement)
+            except sqlite3.OperationalError as exc:
+                normalized = statement.upper()
+                if "DUPLICATE COLUMN NAME" in str(exc).upper() and (
+                    "ALTER TABLE" in normalized and "ADD COLUMN" in normalized
+                ):
+                    continue
+                raise
+        if _has_sql_statement(pending.strip()):
+            self._conn.execute(pending)
 
     async def execute(self, sql: str, params: tuple = ()) -> int:
         """รัน statement ที่เขียนข้อมูลหนึ่งคำสั่ง คืน ``lastrowid``"""
@@ -111,3 +141,11 @@ class Database:
 def _version_of(migration_path: Path) -> int:
     prefix = migration_path.stem.split("_", 1)[0]
     return int(prefix)
+
+
+def _has_sql_statement(statement: str) -> bool:
+    """Return false for whitespace/comment-only chunks produced by the splitter."""
+    return any(
+        line.strip() and not line.lstrip().startswith("--")
+        for line in statement.splitlines()
+    )

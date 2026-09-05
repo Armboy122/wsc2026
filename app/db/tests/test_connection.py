@@ -46,7 +46,29 @@ def test_migrate_is_idempotent_and_records_schema_version_once(tmp_path: Path) -
         db.migrate()
         db.migrate()
         versions = db._conn.execute("SELECT version FROM schema_version").fetchall()
-        assert [row[0] for row in versions] == [1, 2]
+        assert [row[0] for row in versions] == [1, 2, 3]
+    finally:
+        db.close()
+
+
+def test_migration_rolls_back_prior_statements_when_a_later_statement_fails(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    migrations_dir = tmp_path / "migrations"
+    migrations_dir.mkdir()
+    (migrations_dir / "001_broken.sql").write_text(
+        "CREATE TABLE first (id INTEGER);\nCREATE TABLE first (id INTEGER);\n",
+        encoding="utf-8",
+    )
+    monkeypatch.setattr("app.db.connection._MIGRATIONS_DIR", migrations_dir)
+    db = Database(tmp_path / "rollback.db")
+    try:
+        with pytest.raises(sqlite3.OperationalError):
+            db.migrate()
+        assert db._conn.execute(
+            "SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = 'first'"
+        ).fetchone() is None
+        assert db._conn.execute("SELECT version FROM schema_version").fetchall() == []
     finally:
         db.close()
 
@@ -186,7 +208,7 @@ async def test_prompt_upsert_by_key(tmp_path: Path) -> None:
         db.close()
 
 
-async def test_legacy_d21_migration_to_002_enables_declarative_http_tool(tmp_path: Path) -> None:
+async def test_legacy_d21_migrations_to_003_enable_declarative_http_tool(tmp_path: Path) -> None:
     """จำลอง DB schema D2.1 เดิม (schema_version=1 ไม่มี http_method/url_template)
     แล้ว migrate จนใช้ declarative HTTP tool ได้
     """
@@ -259,9 +281,9 @@ async def test_legacy_d21_migration_to_002_enables_declarative_http_tool(tmp_pat
     db = Database(db_path)
     try:
         db.migrate()
-        # schema_version ต้องอัปเดตเป็น 2
+        # schema_version ต้องอัปเดตถึง migration 003
         versions = [row[0] for row in db._conn.execute("SELECT version FROM schema_version").fetchall()]
-        assert versions == [1, 2]
+        assert versions == [1, 2, 3]
 
         cols_after = {row[1] for row in db._conn.execute("PRAGMA table_info(tool_operation)").fetchall()}
         assert "http_method" in cols_after
@@ -307,4 +329,3 @@ async def test_legacy_d21_migration_to_002_enables_declarative_http_tool(tmp_pat
         assert result.data == {"ok": True}
     finally:
         db.close()
-

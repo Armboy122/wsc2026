@@ -260,16 +260,16 @@ Admin ปิดใช้งานโดยสมบูรณ์เมื่อ�
 | `POST /login` | `{password: string(1..256)}` | `200 {authenticated:true}` + cookie; รหัสผิด `401`; ไม่ตั้งค่า `503`; body ผิด `422` |
 | `GET /session` | cookie | `200 {authenticated:true}`; ไม่มี/ผิด `401` หรือ admin ปิด `503` |
 | `POST /logout` | ไม่ต้อง auth | `200 {authenticated:false}` + ลบ cookie |
-| `GET /tools` | admin session | `{appEnv, tools[]}` รวม code tool (`editable:false`) และ DB tool (`editable:true`) โดย `hasAuth` เป็น boolean เท่านั้น |
+| `GET /tools` | admin session | `{appEnv, tools[]}` รวม code tool (`editable:false`) และ DB tool (`editable:true`) โดย `hasAuth` เป็น boolean เท่านั้น (ไม่คืน `authEnvVar`) · DB tool ที่มี auth คืน `authHeaderName`/`authScheme` ได้เพราะไม่ใช่ความลับ |
 | `GET /tools/{slug}` | admin session | definition ของ DB tool; ไม่คืน `authEnvVar`; code tool/ไม่พบ `404` |
 | `POST /tools` | `AdminToolDefinitionInput` | บันทึก+hot reload, `201` พร้อม definition; ชน `409`, validation `400` |
 | `PUT /tools/{slug}` | `AdminToolDefinitionInput` | slug ต้องตรง URL; บันทึก+hot reload, `200`; ไม่พบ `404`, ชน/validation ตามข้างต้น |
 | `PATCH /tools/{slug}/enabled` | `{enabled:boolean}` | `200 {slug,enabled}` และ hot reload; ไม่พบหรือ code tool `404` |
-| `POST /tools/try` | `{httpMethod,urlTemplate,input,inputSchema?,authEnvVar?}` | ผลสำเร็จ `{ok:true,request:{method,url,query,body},response:{statusCode,elapsedMs,body,isJson,text,textTruncated?}}`; ปฏิเสธ `{ok:false,reason,error}` ไม่ใช้ HTTP error; secret ถูก redact และไม่คืน request headers |
+| `POST /tools/try` | `{httpMethod,urlTemplate,input,inputSchema?,authEnvVar?,authHeaderName?,authScheme?}` | ผลสำเร็จ `{ok:true,request:{method,url,query,body},response:{statusCode,elapsedMs,body,isJson,text,textTruncated?}}`; ปฏิเสธ `{ok:false,reason,error}` ไม่ใช้ HTTP error; secret ถูก redact และไม่คืน request headers |
 | `GET /prompt` | admin session | `{key,content,updatedAt,isModified}` |
 | `PUT /prompt` | `{content:string(1..20000)}` | `200` พร้อมผลเดียวกับ GET; ว่าง/เกินเพดาน `400` |
 
-ทุก request body ของ admin ใช้ `extra="forbid"` และชื่อ JSON แบบ camelCase. `authEnvVar` มี semantics ตอน update: ไม่ส่ง = preserve, string = replace, `null` = remove. `mode: prepare` ต้องมี `httpMethod:null`, `urlTemplate:null`, `submitAction` และ `mode: submit` ต้อง `exposure: internal`; schema field type ไม่รับ `object` และ array ต้องมี `items` ตาม validator. การ log save tool/enable/disable/save prompt/try จะเก็บเฉพาะ metadata ไม่เก็บ secret, ชื่อ env var credential, prompt content หรือข้อมูลลูกค้า
+ทุก request body ของ admin ใช้ `extra="forbid"` และชื่อ JSON แบบ camelCase. `authEnvVar` มี semantics ตอน update: ไม่ส่ง = preserve, string = replace, `null` = remove. `authHeaderName`/`authScheme` (P1): ต้องเป็น HTTP token, `scheme` ว่าง = ส่งค่า secret ตรง ๆ, ส่งตอน `authEnvVar` ถูก preserve = อัปเดตเฉพาะรูปแบบ header โดยคง `secret_ref` เดิม · `mode: prepare` ต้องมี `httpMethod:null`, `urlTemplate:null`, `submitAction` และ `mode: submit` ต้อง `exposure: internal`; schema field type ไม่รับ `object` และ array ต้องมี `items` ตาม validator. การ log save tool/enable/disable/save prompt/try จะเก็บเฉพาะ metadata ไม่เก็บ secret, ชื่อ env var credential, prompt content หรือข้อมูลลูกค้า
 
 ## โมเดลโดเมนที่ตรึงไว้
 

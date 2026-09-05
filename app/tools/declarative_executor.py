@@ -140,7 +140,7 @@ class DeclarativeToolExecutor:
             if not secret:
                 raise DeclarativeToolError(
                     "missing_secret",
-                    f"ไม่พบค่าลับใน environment variable: {request.auth.env_var}",
+                    "ไม่พบ credential ที่ตั้งค่าไว้สำหรับเครื่องมือนี้",
                 )
             headers[request.auth.header_name] = f"{request.auth.scheme} {secret}".strip()
 

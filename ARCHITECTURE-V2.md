@@ -558,7 +558,7 @@ tool               slug, display_name, description, enabled, source, created_at
 tool_version       tool_id, version, definition_json, created_at, created_by
 tool_operation     tool_id, action, policy, input_schema, output_schema,
                    exposure, mode, submit_action, limits, client_context, voice_confirm
-tool_auth          tool_id, type, secret_ref
+tool_auth          tool_id, type, secret_ref, header_name, scheme
 prompt             key, content, version, updated_at
 channel_profile    channel, allowed_tool_slugs
 domain_allowlist   domain, enabled, added_by

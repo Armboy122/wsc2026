@@ -510,7 +510,7 @@ tool(slug, display_name, description, enabled, source, created_at)
 tool_version(tool_id, version, definition_json, created_at, created_by)
 tool_operation(tool_id, action, policy, input_schema, output_schema,
                exposure, mode, submit_action, limits, client_context, voice_confirm)
-tool_auth(tool_id, type, secret_ref)
+tool_auth(tool_id, type, secret_ref, header_name = 'Authorization', scheme = 'Bearer')
 prompt(key, content, version, updated_at)
 channel_profile(channel, allowed_tool_slugs)
 domain_allowlist(domain, enabled, added_by)
@@ -530,7 +530,14 @@ trace_event(trace_id, sequence, at, kind, tool_slug, action,
 
 **`secret_ref` ห้ามปรากฏใน**: schema · description · trace · error · response
 
-Admin tool update auth semantics: omitted `authEnvVar` preserves the existing credential reference; a string replaces it; explicit `null` removes it. Tool list/get responses expose only boolean `hasAuth`, never the env var name.
+**รูปแบบ header (P1)** — `header_name` และ `scheme` ต่อแถว (migration 003, DEFAULT
+`'Authorization'`/`'Bearer'` เพื่อไม่เปลี่ยนพฤติกรรม tool เดิม) executor ฉีด header
+`<header_name>: <scheme> <secret>` · **`scheme` ว่าง = ส่งค่า secret ตรง ๆ ไม่มีคำนำหน้า**
+(เช่น OMS ต้องการ `X-API-Key: <key>`) ทั้งคู่ต้องเป็น HTTP token เท่านั้น (กัน header
+injection) และไม่ใช่ความลับ — tool list/get responses คืน `authHeaderName`/`authScheme`
+ได้ แต่ยังห้ามคืน `secret_ref` เสมอ
+
+Admin tool update auth semantics: omitted `authEnvVar` preserves the existing credential reference; a string replaces it (พร้อม `authHeaderName`/`authScheme` ที่ส่งมาด้วย); explicit `null` removes it. เมื่อ `authEnvVar` ถูก preserve แต่ request ส่ง `authHeaderName`/`authScheme` มา = อัปเดตเฉพาะรูปแบบ header โดยคง `secret_ref` เดิม
 
 ### 10.3 การเข้าถึง
 

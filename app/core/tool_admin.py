@@ -23,6 +23,7 @@
 from __future__ import annotations
 
 import os
+import re
 from typing import Any, Iterable, Mapping
 from urllib.parse import quote
 
@@ -59,6 +60,22 @@ _TRY_TOOL_SLUG = "admin_try"
 # token แทนที่ตำแหน่งของ secret ใน response ของปุ่ม "ลองยิงดู" (D3.5 hardening)
 _REDACTED = "[REDACTED]"
 logger = get_logger(__name__)
+
+# P1: header name และ scheme ต้องเป็น HTTP token เท่านั้น (RFC 9110) — กัน header
+# injection ผ่านช่องตั้งค่า (เช่น CRLF หรือช่องว่าง) ก่อนค่าไปถึง executor
+_HTTP_TOKEN_RE = re.compile(r"[!#$%&'*+\-.^_`|~0-9A-Za-z]+")
+
+
+def _validate_auth_header(header_name: str | None, scheme: str | None) -> None:
+    """ตรวจรูปแบบ header name/scheme — ผิด = DeclarativeValidationError (400 ที่ route)"""
+    if header_name is not None and not _HTTP_TOKEN_RE.fullmatch(header_name):
+        raise DeclarativeValidationError(
+            "ชื่อ header ไม่ถูกต้อง — ต้องเป็นชื่อ HTTP header เช่น Authorization หรือ X-API-Key"
+        )
+    if scheme is not None and scheme != "" and not _HTTP_TOKEN_RE.fullmatch(scheme):
+        raise DeclarativeValidationError(
+            'scheme ไม่ถูกต้อง — ใช้คำเดียวเช่น Bearer หรือเว้นว่างเพื่อส่งค่าตรง ๆ'
+        )
 
 
 class ToolAdminService:
@@ -159,6 +176,10 @@ class ToolAdminService:
         (สร้างใหม่) — ทั้งสองกรณี slug ที่ชนกับปลั๊กอิน Python = conflict
         """
         shape, enabled, auth_env_var = _shape_from_definition(definition)
+        auth_header_name = definition.get("authHeaderName")
+        auth_scheme = definition.get("authScheme")
+        auth_header_provided = "authHeaderName" in definition or "authScheme" in definition
+        _validate_auth_header(auth_header_name, auth_scheme)
         if auth_env_var_provided is None:
             auth_env_var_provided = "authEnvVar" in definition
         if update:
@@ -182,6 +203,9 @@ class ToolAdminService:
             enabled=enabled,
             auth_env_var=auth_env_var,
             preserve_auth=update and not auth_env_var_provided,
+            auth_header_name=auth_header_name,
+            auth_scheme=auth_scheme,
+            auth_header_provided=auth_header_provided,
         )
         await self.reload()
         saved = await tool_repository.get_tool_definition(self._db, shape.slug)
@@ -193,7 +217,7 @@ class ToolAdminService:
                 operation_count=len(shape.operations),
                 update=update,
                 enabled=enabled,
-                has_auth=auth_env_var is not None,
+                has_auth=bool(saved.get("hasAuth")),
             ),
         )
         return saved
@@ -233,6 +257,8 @@ class ToolAdminService:
         input: dict[str, Any],
         input_schema: dict[str, Any] | None,
         auth_env_var: str | None,
+        auth_header_name: str | None = None,
+        auth_scheme: str | None = None,
     ) -> dict[str, Any]:
         """ปุ่ม "ลองยิงดู" (D3.5) — ยิงจริงผ่าน executor กลาง (D2.4) ไม่มีทางลัด
 
@@ -249,13 +275,27 @@ class ToolAdminService:
         พร้อม flag ``textTruncated``) — **truncate หลัง redact เสมอ** เพราะถ้าตัดก่อน
         secret ที่อยู่คร่อมจุดตัดจะเหลือเฉพาะบางส่วนจน redaction จับไม่เจอ
         """
-        secret_variants = _secret_variants(auth_env_var)
+        secret_variants = _secret_variants(
+            auth_env_var,
+            scheme=auth_scheme if auth_scheme is not None else "Bearer",
+        )
+        # P1: ตรวจรูปแบบ header/scheme ที่นี่ (ขั้นนอก) เพื่อคืน ok:false แทน HTTP 500
+        if auth_env_var:
+            try:
+                _validate_auth_header(
+                    auth_header_name if auth_header_name else "Authorization",
+                    auth_scheme if auth_scheme is not None else "Bearer",
+                )
+            except DeclarativeValidationError as error:
+                return _try_error("invalid_input", str(error))
         result = await self._try_operation_raw(
             http_method=http_method,
             url_template=url_template,
             input=input,
             input_schema=input_schema,
             auth_env_var=auth_env_var,
+            auth_header_name=auth_header_name,
+            auth_scheme=auth_scheme,
         )
         if secret_variants:
             result = _redact_secrets(result, secret_variants)
@@ -275,6 +315,8 @@ class ToolAdminService:
         input: dict[str, Any],
         input_schema: dict[str, Any] | None,
         auth_env_var: str | None,
+        auth_header_name: str | None = None,
+        auth_scheme: str | None = None,
     ) -> dict[str, Any]:
         """ยิงจริงโดยไม่แตะ response — เรียกจาก ``try_operation`` เท่านั้น (redaction อยู่ที่นั่น)"""
         allowlist = await self._allowlist()
@@ -328,7 +370,14 @@ class ToolAdminService:
         except DeclarativeValidationError as error:
             return _try_error("policy_rejected", str(error))
 
-        auth = DeclarativeToolAuth(env_var=auth_env_var) if auth_env_var else None
+        if auth_env_var:
+            auth = DeclarativeToolAuth(
+                env_var=auth_env_var,
+                header_name=auth_header_name if auth_header_name else "Authorization",
+                scheme=auth_scheme if auth_scheme is not None else "Bearer",
+            )
+        else:
+            auth = None
         try:
             request = build_declarative_http_request(
                 http_method=http_method,
@@ -385,19 +434,24 @@ def _try_error(reason: str, message: str) -> dict[str, Any]:
     return {"ok": False, "reason": reason, "error": message}
 
 
-def _secret_variants(auth_env_var: str | None) -> tuple[str, ...]:
+def _secret_variants(auth_env_var: str | None, *, scheme: str = "Bearer") -> tuple[str, ...]:
     """ค่าจริงของ secret ทุกรูปแบบที่อาจปรากฏใน response — เพื่อนำไปแทนที่ด้วย [REDACTED]
 
     อ่านค่าจาก environment variable ตัวเดียวกับที่ executor ใช้ตอนยิงจริง (D2.4 ฉีด header
-    ``<scheme> <secret>``) ครอบคลุมทั้งค่าดิบ รูปแบบ ``Bearer <secret>`` และรูปแบบ
-    URL-encoded — เก็บไว้ใช้แทนที่ในหน่วยความจำเท่านั้น ห้าม log หรือส่งกลับใน response/error
+    ``<scheme> <secret>``) ครอบคลุมค่าดิบ (scheme ว่าง = ส่งค่าตรง ๆ กรณี X-API-Key),
+    รูปแบบ ``<scheme> <secret>`` และรูปแบบ URL-encoded — เก็บไว้ใช้แทนที่ในหน่วยความจำ
+    เท่านั้น ห้าม log หรือส่งกลับใน response/error
     """
     if not auth_env_var:
         return ()
     secret = os.environ.get(auth_env_var, "")
     if not secret:
         return ()
-    variants = (secret, f"Bearer {secret}", quote(secret, safe=""))
+    variants = (
+        secret,
+        f"{scheme} {secret}".strip(),
+        quote(secret, safe=""),
+    )
     return tuple(dict.fromkeys(variant for variant in variants if variant))
 
 

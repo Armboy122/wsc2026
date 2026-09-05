@@ -101,6 +101,18 @@
                     <span>ลบ credential ที่ตั้งไว้</span>
                   </label>
                   <input type="text" id="tool-auth-env" maxlength="128" placeholder="เช่น MY_API_KEY — ใส่เฉพาะชื่อ ไม่ใส่ค่า" />
+                  <label class="field">
+                    <span>ชื่อ Header <em class="muted">เช่น Authorization หรือ X-API-Key</em></span>
+                    <input type="text" id="tool-auth-header" list="auth-header-options" maxlength="128" placeholder="Authorization" />
+                    <datalist id="auth-header-options">
+                      <option value="Authorization"></option>
+                      <option value="X-API-Key"></option>
+                    </datalist>
+                  </label>
+                  <label class="field">
+                    <span>Scheme <em class="muted">เว้นว่าง = ส่งค่าตรง ๆ ไม่มีคำนำหน้า</em></span>
+                    <input type="text" id="tool-auth-scheme" maxlength="128" placeholder="Bearer" />
+                  </label>
                 </div>
                 <label class="check-field">
                   <input type="checkbox" id="tool-enabled" checked />

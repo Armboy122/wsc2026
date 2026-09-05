@@ -92,7 +92,18 @@ async def load_declarative_tools(
         auth_row = await db.fetch_one(
             "SELECT * FROM tool_auth WHERE tool_id = ?", (tool_row["id"],)
         )
-        auth = DeclarativeToolAuth(env_var=auth_row["secret_ref"]) if auth_row is not None else None
+        # P1: header_name/scheme มาจาก DB ได้แล้ว (migration 003) — NULL ของแถวเดิม
+        # ต้อง fallback เป็น Authorization/Bearer เพื่อให้ tool เดิมพฤติกรรมไม่เปลี่ยน
+        # scheme ว่าง = ส่งค่า secret ตรง ๆ ไม่มี prefix (กรณี X-API-Key)
+        auth = (
+            DeclarativeToolAuth(
+                env_var=auth_row["secret_ref"],
+                header_name=auth_row["header_name"] or "Authorization",
+                scheme=auth_row["scheme"] if auth_row["scheme"] is not None else "Bearer",
+            )
+            if auth_row is not None
+            else None
+        )
         executor = DeclarativeToolExecutor(app_env=app_env, allowlist=allowlist, transport=transport)
         tools.append(DeclarativeTool(shape, executor, auth=auth))
 

@@ -91,6 +91,8 @@ import {
     toolDescription: $("#tool-description"),
     toolDescCount: $("#tool-desc-count"),
     toolAuthEnv: $("#tool-auth-env"),
+     toolAuthHeader: $("#tool-auth-header"),
+     toolAuthScheme: $("#tool-auth-scheme"),
      toolAuthStatus: $("#tool-auth-status"),
      toolRemoveAuthWrap: $("#tool-remove-auth-wrap"),
      toolRemoveAuth: $("#tool-remove-auth"),
@@ -553,6 +555,9 @@ import {
     updateToolDescCount();
     views.toolAuthEnv.value = "";
      views.toolAuthEnv.disabled = false;
+     // P1: ค่าเริ่มต้นรูปแบบ header เดิม — Authorization: Bearer
+     views.toolAuthHeader.value = "Authorization";
+     views.toolAuthScheme.value = "Bearer";
      views.toolAuthStatus.hidden = true;
      views.toolRemoveAuthWrap.hidden = true;
      views.toolRemoveAuth.checked = false;
@@ -590,6 +595,9 @@ import {
     updateToolDescCount();
     views.toolAuthEnv.value = "";
      views.toolAuthEnv.disabled = false;
+     // P1: header/scheme ไม่ใช่ความลับ — API คืนค่าปัจจุบันมาแสดงได้ (secret_ref ยังเขียนได้อย่างเดียว)
+     views.toolAuthHeader.value = tool.hasAuth ? (tool.authHeaderName || "Authorization") : "Authorization";
+     views.toolAuthScheme.value = tool.hasAuth && tool.authScheme !== null && tool.authScheme !== undefined ? tool.authScheme : "Bearer";
      views.toolAuthStatus.hidden = !tool.hasAuth;
      views.toolRemoveAuthWrap.hidden = !tool.hasAuth;
      views.toolRemoveAuth.checked = false; // secret_ref เขียนได้อย่างเดียว — API ไม่คืนค่าเดิม
@@ -634,6 +642,8 @@ import {
     showHidden(views.toolFormError, true);
 
     var authEnv = views.toolAuthEnv.value.trim();
+    var authHeader = views.toolAuthHeader.value.trim() || "Authorization";
+    var authScheme = views.toolAuthScheme.value.trim();
     var payload = buildToolPayload({
       slug: views.toolSlug.value,
       displayName: views.toolDisplayName.value,
@@ -641,8 +651,18 @@ import {
       enabled: views.toolEnabled.checked,
       operations: collectOperations(),
     }, editingBaseline);
-    if (views.toolRemoveAuth.checked) payload.authEnvVar = null;
-    else if (authEnv) payload.authEnvVar = authEnv;
+    if (views.toolRemoveAuth.checked) {
+      payload.authEnvVar = null; // ลบ credential ทั้งแถว รวม header/scheme
+    } else if (authEnv) {
+      // ใส่ชื่อ env var ใหม่ = replace ทั้งหมดพร้อมรูปแบบ header
+      payload.authEnvVar = authEnv;
+      payload.authHeaderName = authHeader;
+      payload.authScheme = authScheme;
+    } else if (editingBaseline && editingBaseline.hasAuth) {
+      // ไม่พิมพ์ชื่อ env var ซ้ำ — แก้เฉพาะรูปแบบ header โดยคง secret_ref เดิม (P1)
+      payload.authHeaderName = authHeader;
+      payload.authScheme = authScheme;
+    }
 
     var metadataLoss = editingBaseline
       ? detectMetadataLoss(editingBaseline, payload)
@@ -763,6 +783,8 @@ import {
 
     // ส่วนกรอกค่า + ปุ่มยิง — สร้างครั้งเดียวต่อการกด
     var authEnv = views.toolAuthEnv.value.trim();
+    var authHeader = views.toolAuthHeader.value.trim() || "Authorization";
+    var authScheme = views.toolAuthScheme.value.trim();
     var fire = async function () {
       clearTryStatus(tryPanel);
       var collected = collectTryInput(tryPanel);
@@ -779,6 +801,8 @@ import {
           input: collected.input,
           inputSchema: schema,
           authEnvVar: authEnv || null,
+          authHeaderName: authEnv ? authHeader : null,
+          authScheme: authEnv ? authScheme : null,
         }),
       });
       if (result.status === 401) return;

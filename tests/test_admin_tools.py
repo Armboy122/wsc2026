@@ -506,3 +506,4 @@ def test_try_error_does_not_leak_secret_value(monkeypatch: pytest.MonkeyPatch) -
     assert body["ok"] is False
     assert body["reason"] == "missing_secret"
     assert _SECRET not in response.text
+    assert "ADMIN_TRY_SECRET_NOT_SET" not in response.text
