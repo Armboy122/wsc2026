@@ -296,7 +296,11 @@ class MainAgent:
             self._knowledge_contexts.pop(conversation_id, None)
         else:
             self._knowledge_contexts[conversation_id] = knowledge_context
-        if any(self._response_policies.grounds_followup(result) for result in all_results):
+        if any(
+            result.status is ToolResultStatus.SUCCESS
+            and (self._is_grounded_answer(result) or self._response_policies.grounds_followup(result))
+            for result in all_results
+        ):
             self._grounded_conversations.add(conversation_id)
         self._conversations.append(conversation_id, LLMMessage("assistant", message))
         return ChatResponse(conversation_id=conversation_id, trace_id=trace_id, message=message, citations=citations, pending_action=pending, tool_results=tuple(all_results))
