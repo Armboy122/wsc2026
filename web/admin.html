@@ -196,8 +196,10 @@
           </select>
         </label>
         <label class="field" data-op-submit-field hidden>
-          <span>submitAction (ชื่อ action ปลายทาง)</span>
-          <input type="text" data-op="submitAction" maxlength="64" />
+          <span>submitAction (operation สำหรับส่งจริง)</span>
+          <select data-op="submitAction" aria-label="เลือก submit operation">
+            <option value="">— เลือก operation mode=submit —</option>
+          </select>
         </label>
         <label class="field">
           <span>HTTP method</span>
@@ -258,6 +260,6 @@
     </div>
   </template>
 
-  <script src="admin.js"></script>
+  <script type="module" src="admin.js"></script>
 </body>
 </html>
