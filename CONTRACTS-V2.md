@@ -166,6 +166,7 @@ clientContext:
 | เงื่อนไข | ผล |
 |---|---|
 | `grounded_answer` แต่ผลไม่มี `citations` | แทนด้วยข้อความ escalation ไม่ส่งเป็นคำตอบ |
+| ผลมี `citations` แต่ไม่ใช่ `status: success` ภายใต้ `grounded_answer` | ปฏิเสธผล บันทึกเป็น `POLICY_REJECTED` และไม่ส่งข้อมูลผลลัพธ์ |
 | `plain_read` แต่ executor สร้าง pending action | ปฏิเสธผล บันทึกเป็น error |
 | `submit` ถูกเรียกโดยไม่มี pending action ที่ยืนยันแล้ว | ปฏิเสธ |
 | `action` ไม่ได้อยู่ใน tool ที่ระบุ | ปฏิเสธ (ตรวจกับ registry ตอน dispatch แทน enum เดิม) |
@@ -200,7 +201,7 @@ clientContext:
 | `status` | `success` / `error` | สถานะสิ้นสุด |
 | `data` | object/null | ผ่าน `outputSchema` เมื่อสำเร็จ |
 | `error` | `ToolError`/null | มีเมื่อ error |
-| `citations` | `Citation[]` | **ต้องไม่ว่างเมื่อ `policy: grounded_answer` และ status success** |
+| `citations` | `Citation[]` | **ต้องว่าง เว้นแต่ `status: success` และ `policy: grounded_answer`; กรณีนี้ต้องมี citation ที่ไม่ว่าง**; server ตรวจและปฏิเสธผลที่ฝ่าฝืน |
 | `simulation` | boolean | `true` เมื่อผลมาจากระบบจำลอง |
 
 `ToolError.code` เป็นชุดปิด: `invalid_input` · `not_found` · `unavailable` · `conflict` · `confirmation_required` · `internal`

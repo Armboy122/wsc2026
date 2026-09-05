@@ -588,6 +588,35 @@ def _enforce_operation_policy(
     """
     if (
         result.status is ToolResultStatus.SUCCESS
+        and spec.policy is OperationPolicy.GROUNDED_ANSWER
+        and not result.citations
+    ):
+        traces.append(
+            trace_id,
+            TraceEventKind.POLICY_REJECTED,
+            {"action": call.action, "reason": "grounded_answer_missing_citations"},
+        )
+        return _error_result(
+            call,
+            ToolErrorCode.INTERNAL,
+            "คำตอบแบบมีแหล่งอ้างอิงไม่มี citation ที่ตรวจสอบได้",
+        )
+    if result.citations and not (
+        result.status is ToolResultStatus.SUCCESS
+        and spec.policy is OperationPolicy.GROUNDED_ANSWER
+    ):
+        traces.append(
+            trace_id,
+            TraceEventKind.POLICY_REJECTED,
+            {"action": call.action, "reason": "citations_not_allowed_for_operation"},
+        )
+        return _error_result(
+            call,
+            ToolErrorCode.INTERNAL,
+            "ผลลัพธ์ของ operation นี้ไม่อนุญาตให้มี citation ในสถานะนี้",
+        )
+    if (
+        result.status is ToolResultStatus.SUCCESS
         and spec.policy is OperationPolicy.PLAIN_READ
         and (spec.mode == "prepare" or call.action in PREPARE_TO_SUBMIT)
     ):

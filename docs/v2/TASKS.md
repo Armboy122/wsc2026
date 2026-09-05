@@ -172,6 +172,12 @@
 - พิสูจน์ `guided_flow` · `ChoicePrompt` ต้องข้าม channel ได้
 
 ### T5.4 `knowledge_tool`
+- **สถานะ P6 Option A (2026-09-06)**: เพิ่ม regression proof ว่า `grounded_answer`,
+  citation validation และ follow-up ถูกเลือกจาก `OperationPolicy` แม้ใช้ synthetic
+  non-knowledge slug; คง `KnowledgeTool` เป็น Python plugin ตาม ARCHITECTURE-V2 §12.1
+- การย้าย Knowledge ไป DB declarative ถูกปฏิเสธในรอบนี้ เพราะ executor declarative เป็น
+  HTTP-only แต่ Knowledge ต้องใช้ full-document grounding/citation validation ใน process
+  เดียวกัน; ไม่มี production migration หรือการเปลี่ยน RAG
 - พิสูจน์ `grounded_answer` · citation validation ต้องทำงานผ่าน policy ไม่ใช่ชื่อ tool
 - **ยากสุด กระทบเดโมมากสุด — ทำเป็นตัวสุดท้ายเสมอ**
 

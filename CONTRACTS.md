@@ -9,7 +9,8 @@
 - ผลลัพธ์ operational ของ OMS ต้องมี `simulation` และมีค่าเป็น `true`; สัญญา Sabuy/VOC ที่คงไว้แบบ dormant รักษากฎเดิมเพื่อ compatibility
 - การเรียกเครื่องมือมี `callId` ที่ระบบสร้างขึ้น โดยเครื่องมือไม่รับ call id ที่ไคลเอนต์เป็นผู้กำหนด
 - `ToolResult.status` เป็น `success` หรือ `error` โดยข้อผิดพลาดต้องมีชนิดชัดเจน ปลอดภัยสำหรับผู้ใช้ และต้องไม่มีข้อมูลรับรอง
-- `Citation` ปรากฏเฉพาะในการสืบค้นองค์ความรู้ ข้อเท็จจริงจำลองจะไม่แสดงในรูปแบบการอ้างอิง
+- `Citation` ถูกกำหนดโดย operation policy: ต้องว่างเสมอ เว้นแต่ผลจะเป็น `success` ภายใต้
+  `grounded_answer` ซึ่งต้องมี citation ที่ตรวจสอบได้; server เป็นผู้ปฏิเสธผลที่ฝ่าฝืนกฎนี้
 - ข้อมูลอินพุต/เอาต์พุตของเครื่องมือจะได้รับการตรวจสอบด้วยโมเดลเฉพาะแอ็กชันด้านล่างเพิ่มเติมจาก envelope ที่ตรึงไว้
 
 ## อินเทอร์เฟซ HTTP สาธารณะ
@@ -304,7 +305,7 @@ Tool จะปฏิเสธการเรียกที่ `name` ไม่�
 | `status` | `success` / `error` | ผลลัพธ์สถานะสิ้นสุดของ tool |
 | `data` | object/null | output เฉพาะ action ซึ่งมีอยู่เมื่อสำเร็จ |
 | `error` | `ToolError`/null | มีอยู่เมื่อเกิด error |
-| `citations` | `Citation[]` | เฉพาะผลลัพธ์ knowledge ที่สำเร็จเท่านั้นที่มีรายการได้ |
+| `citations` | `Citation[]` | ต้องว่าง เว้นแต่ `status: success` และ operation policy เป็น `grounded_answer`; กรณีนี้ต้องมีรายการ |
 | `simulation` | boolean | เป็น `false` เฉพาะผลลัพธ์ knowledge |
 
 `ToolError` มี `code` (`invalid_input`, `not_found`, `unavailable`, `conflict`, `confirmation_required`, `internal`) และ `message` ที่ปลอดภัยสำหรับผู้ใช้ (สูงสุด 500 อักขระ)

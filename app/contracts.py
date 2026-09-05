@@ -214,8 +214,10 @@ class ToolResult(FrozenModel):
             raise ValueError("ผลลัพธ์ความรู้ต้องไม่เป็นข้อมูลจำลอง")
         if self.name != ToolName.KNOWLEDGE and not self.simulation:
             raise ValueError("ผลลัพธ์เครื่องมือปฏิบัติการต้องเป็นข้อมูลจำลอง")
-        if self.name != ToolName.KNOWLEDGE and self.citations:
-            raise ValueError("เฉพาะผลลัพธ์ความรู้เท่านั้นที่มีแหล่งอ้างอิงได้")
+        # Citation ownership is an operation policy, not a tool-name property.  The
+        # registry enforces that grounded_answer results include citations at runtime;
+        # keeping this shape model name-agnostic lets declarative/plugin operations
+        # participate without weakening that policy check.
         return self
 
 
