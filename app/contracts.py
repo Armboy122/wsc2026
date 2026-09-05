@@ -202,6 +202,7 @@ class TraceEventKind(str, Enum):
     ACTION_REJECTED = "action_rejected"
     ACTION_SUBMITTED = "action_submitted"
     ERROR = "error"
+    POLICY_REJECTED = "policy_rejected"
 
 
 class TraceEvent(FrozenModel):

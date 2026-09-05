@@ -149,6 +149,28 @@ def test_manifest_that_exposes_submit_to_the_llm_fails_closed() -> None:
         PluginManifest.model_validate(payload)
 
 
+def test_manifest_submit_action_without_write_confirm_policy_fails_closed() -> None:
+    """D1.6: policy ที่ tool ประกาศเองเป็น untrusted — submitAction ต้องคู่กับ write_confirm เท่านั้น"""
+    payload = _manifest_dict()
+    for operation in payload["operations"]:
+        if operation["action"] == "prepare_outage_with_ca":
+            operation["policy"] = "plain_read"
+
+    with pytest.raises(ValueError, match="มี submitAction แต่ policy ต้องเป็น write_confirm"):
+        PluginManifest.model_validate(payload)
+
+
+def test_manifest_write_confirm_without_prepare_submit_pairing_fails_closed() -> None:
+    """D1.6: write_confirm บน read operation (ไม่มีคู่ prepare→submit) ต้อง reject"""
+    payload = _manifest_dict()
+    for operation in payload["operations"]:
+        if operation["action"] == "get_outage_by_ca":
+            operation["policy"] = "write_confirm"
+
+    with pytest.raises(ValueError, match="ประกาศ write_confirm แต่ไม่มีคู่ prepare→submit"):
+        PluginManifest.model_validate(payload)
+
+
 def test_manifest_operation_without_policy_defaults_closed_even_if_exposure_says_llm() -> None:
     """D1.6/§4.5: ไม่ประกาศ policy => plain_read + บังคับ internal เสมอ ไม่ว่า exposure จะเขียนว่าอะไร"""
     payload = _manifest_dict()

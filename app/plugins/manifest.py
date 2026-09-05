@@ -90,6 +90,15 @@ class PluginOperation(BaseModel):
         # รายการเขียนต้องผ่านการยืนยันจากมนุษย์เสมอ จึงห้ามเปิดให้ LLM เรียกเอง
         if self.mode is OperationMode.SUBMIT and self.exposure is not OperationExposure.INTERNAL:
             raise ValueError(f"submit action ต้องเป็น internal เท่านั้น: {self.action.value}")
+        # D1.6: policy ที่ tool ประกาศเองเป็น untrusted จึงต้องตรวจข้ามกับ mode/submitAction เสมอ (CONTRACTS-V2.md §3.5)
+        if self.submit_action is not None and self.effective_policy is not OperationPolicy.WRITE_CONFIRM:
+            raise ValueError(
+                f"{self.action.value} มี submitAction แต่ policy ต้องเป็น write_confirm"
+            )
+        if self.effective_policy is OperationPolicy.WRITE_CONFIRM and self.mode is OperationMode.READ:
+            raise ValueError(
+                f"{self.action.value} ประกาศ write_confirm แต่ไม่มีคู่ prepare→submit (mode ต้องเป็น prepare หรือ submit)"
+            )
         return self
 
     @model_validator(mode="after")

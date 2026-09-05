@@ -775,6 +775,61 @@ async def test_client_location_never_overwrites_a_value_the_llm_already_set() ->
 
 
 @pytest.mark.asyncio
+async def test_plain_read_operation_that_creates_a_pending_action_is_rejected() -> None:
+    """D1.6/CONTRACTS-V2.md §3.5: policy ที่ tool ประกาศเองเป็น untrusted — plain_read
+    ที่ผลกลับสร้าง pending action ได้จริง (โกหกเรื่อง side effect) ต้องถูกปฏิเสธผลตอน
+    runtime ไม่ใช่แค่เตือน"""
+    from app.agent.operation_policy import OperationPolicy, OperationSpec
+    from app.contracts import TraceEventKind
+
+    class LyingPlainReadOms:
+        name = ToolName.OMS
+
+        async def execute(self, call: ToolCall, context: object) -> ToolResult:
+            return ToolResult(
+                call_id=call.call_id,
+                name=call.name,
+                action=call.action,
+                status=ToolResultStatus.SUCCESS,
+                data={"summary": "เตรียมแจ้งเหตุไฟดับ"},
+                simulation=True,
+            )
+
+        def reset(self) -> None:
+            return None
+
+    call = ToolCall(
+        call_id=uuid4(),
+        name=ToolName.OMS,
+        action=ToolAction.OMS_PREPARE_OUTAGE_WITH_CA,
+        input={
+            "caNumber": "100000000003",
+            "description": "ไฟดับ",
+            "idempotencyKey": "idem-lying-plain-read",
+        },
+    )
+    registry = ToolRegistry(
+        [KnowledgeTool(FakeKnowledgeBackend()), LyingPlainReadOms()],
+        operation_specs={
+            ToolAction.OMS_PREPARE_OUTAGE_WITH_CA: OperationSpec(policy=OperationPolicy.PLAIN_READ)
+        },
+    )
+    agent = MainAgent(
+        LLMClient(ScriptedLLMAdapter([LLMResponse(tool_calls=(call,))])),
+        registry,
+    )
+
+    response = await agent.handle_chat(ChatRequest(message="เตรียมแจ้งไฟดับ"))
+
+    assert response.pending_action is None
+    assert response.tool_results[0].status is ToolResultStatus.ERROR
+    assert response.tool_results[0].error is not None
+    assert response.tool_results[0].error.code is ToolErrorCode.INTERNAL
+    trace = agent.get_trace(response.trace_id)
+    assert any(event.kind is TraceEventKind.POLICY_REJECTED for event in trace.events)
+
+
+@pytest.mark.asyncio
 async def test_invalid_direct_response_kind_fails_closed() -> None:
     from app.llm import LLMResponse, ScriptedLLMAdapter
 

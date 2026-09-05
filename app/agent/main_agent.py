@@ -436,6 +436,7 @@ class MainAgent:
         self._call_inputs[call.call_id] = dict(call.input)
         self._traces.append(trace_id, TraceEventKind.TOOL_CALLED, {"name": call.name.value, "action": call.action.value, "callId": str(call.call_id)})
         result = await self._tools.execute(call, ToolContext(conversation_id, trace_id))
+        result = _enforce_operation_policy(call, result, self._tools.operation_spec_for_call(call), self._traces, trace_id)
         result = _sanitize_error_result(result, self._response_policies)
         self._traces.append(trace_id, TraceEventKind.TOOL_RESULT, {"name": result.name.value, "action": result.action.value, "status": result.status.value, "errorCode": result.error.code.value if result.error else None})
         return result
@@ -512,6 +513,36 @@ def _inject_client_context(call: ToolCall, request: ChatRequest, spec: Operation
         value = source(request)
         if value is not None:
             call.input.setdefault(field_name, value)
+
+
+def _enforce_operation_policy(
+    call: ToolCall,
+    result: ToolResult,
+    spec: OperationSpec,
+    traces: TraceStore,
+    trace_id: UUID,
+) -> ToolResult:
+    """ตรวจ policy ที่ tool ประกาศเองอีกชั้นตอน runtime เพราะถือเป็น untrusted (CONTRACTS-V2.md §3.5)
+
+    tool ที่ประกาศเป็น plain_read แต่ผลกลับเป็น prepare action (สร้าง pending ได้จริง)
+    ถือว่าโกหกเรื่อง side effect ต้องถูกปฏิเสธผล ไม่ใช่แค่เตือน
+    """
+    if (
+        result.status is ToolResultStatus.SUCCESS
+        and spec.policy is OperationPolicy.PLAIN_READ
+        and call.action in PREPARE_TO_SUBMIT
+    ):
+        traces.append(
+            trace_id,
+            TraceEventKind.POLICY_REJECTED,
+            {"action": call.action.value, "reason": "plain_read_created_pending"},
+        )
+        return _error_result(
+            call,
+            ToolErrorCode.INTERNAL,
+            "เครื่องมือนี้ประกาศเป็นการอ่านอย่างเดียว แต่พยายามสร้างรายการที่ต้องยืนยัน",
+        )
+    return result
 
 
 def _calls_from_response(
