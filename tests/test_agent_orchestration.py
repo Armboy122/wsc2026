@@ -387,7 +387,7 @@ async def test_oms_three_turn_anonymous_intake_keeps_the_original_intent() -> No
     )
 
     assert second.tool_results == ()
-    assert [result.action.value for result in third.tool_results] == [
+    assert [result.action for result in third.tool_results] == [
         "prepare_anonymous_outage"
     ]
     assert third.pending_action is not None
@@ -589,7 +589,7 @@ async def test_llm_cannot_submit_voc_case_before_explicit_confirmation() -> None
 
     assert voc_tool.executed is False
     assert len(response.tool_results) == 1
-    assert response.tool_results[0].action is ToolAction.VOC_SUBMIT_CASE
+    assert response.tool_results[0].action == ToolAction.VOC_SUBMIT_CASE
     assert response.tool_results[0].status is ToolResultStatus.ERROR
     assert response.tool_results[0].error is not None
     assert response.tool_results[0].error.code is ToolErrorCode.CONFIRMATION_REQUIRED
@@ -603,7 +603,7 @@ async def test_failed_confirmed_submit_redacts_secret_from_response_and_terminal
         name = ToolName.OMS
 
         async def execute(self, call: ToolCall, context: object) -> ToolResult:
-            if call.action is ToolAction.OMS_PREPARE_OUTAGE_WITH_CA:
+            if call.action == ToolAction.OMS_PREPARE_OUTAGE_WITH_CA:
                 return ToolResult(
                     call_id=call.call_id,
                     name=call.name,

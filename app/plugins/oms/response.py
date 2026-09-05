@@ -40,11 +40,11 @@ class OmsResponsePolicy:
         return self._direct_messages[kind]
 
     def result_fact(self, result: ToolResult) -> str | None:
-        if result.name is not ToolName.OMS or result.status is not ToolResultStatus.SUCCESS:
+        if result.name != ToolName.OMS or result.status is not ToolResultStatus.SUCCESS:
             return None
         data = result.data or {}
         safety = data.get("safetyMessage")
-        if result.action is ToolAction.OMS_GET_OUTAGE_BY_CA:
+        if result.action == ToolAction.OMS_GET_OUTAGE_BY_CA:
             active_event = data.get("activeEvent")
             if isinstance(active_event, dict) and isinstance(active_event.get("message"), str):
                 status = _outage_status_label(active_event.get("status"))
@@ -64,10 +64,10 @@ class OmsResponsePolicy:
         return None
 
     def error_presentation(self, result: ToolResult) -> ErrorPresentation | None:
-        if result.name is not ToolName.OMS:
+        if result.name != ToolName.OMS:
             return None
         code = result.error.code if result.error else None
-        if result.action is ToolAction.OMS_GET_OUTAGE_BY_CA and code is ToolErrorCode.NOT_FOUND:
+        if result.action == ToolAction.OMS_GET_OUTAGE_BY_CA and code is ToolErrorCode.NOT_FOUND:
             return ErrorPresentation(
                 code=code,
                 explanation="ไม่พบหมายเลขผู้ใช้ไฟนี้ในระบบครับ",
@@ -92,7 +92,7 @@ class OmsResponsePolicy:
 
     def grounds_followup(self, result: ToolResult) -> bool:
         return (
-            result.name is ToolName.OMS
-            and result.action is ToolAction.OMS_GET_OUTAGE_BY_CA
+            result.name == ToolName.OMS
+            and result.action == ToolAction.OMS_GET_OUTAGE_BY_CA
             and result.status is ToolResultStatus.SUCCESS
         )

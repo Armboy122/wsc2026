@@ -51,6 +51,10 @@ class ToolAction(str, Enum):
     OMS_SUBMIT_ANONYMOUS_OUTAGE = "submit_anonymous_outage"
 
 
+# D2.5: ยังเป็น dict กลางที่นี่โดยตั้งใจ — คงไว้เป็น alias สำหรับ 4 tool เดิม (voc/knowledge/
+# oms/sabuy) เท่านั้นในช่วง 3 วันนี้ ตามแผนเต็ม (docs/v2/TASKS.md T2.4) การย้ายเป็น "data ต่อ
+# tool" จริงจะเกิดพร้อมกับตอนที่ ToolRegistry เริ่ม dispatch จาก ToolShape (D2.6/D2.7 เป็นต้นไป)
+# ที่ tool ใหม่แต่ละตัวประกาศ action ของตัวเองอยู่แล้วโดยไม่ต้องพึ่ง dict นี้เลย
 TOOL_ACTIONS: dict[ToolName, frozenset[ToolAction]] = {
     ToolName.KNOWLEDGE: frozenset({ToolAction.KNOWLEDGE_SEARCH}),
     ToolName.SABUY: frozenset({
@@ -105,16 +109,23 @@ class ToolError(FrozenModel):
 
 
 class ToolCall(FrozenModel):
-    call_id: UUID = Field(serialization_alias="callId")
-    name: ToolName
-    action: ToolAction
-    input: dict[str, Any]
+    """D2.5: ``name``/``action`` เป็น string ล้วน (ไม่ผูกกับ ``ToolName``/``ToolAction`` enum อีกต่อไป)
+    เพื่อให้ declarative tool ที่มี slug ใหม่ (ไม่ได้อยู่ใน enum เดิม) สร้าง ``ToolCall`` ได้โดยไม่ต้อง
+    แก้ enum — enum เดิมยังส่งเข้ามาได้ตามปกติเพราะเป็น ``str`` subclass (ARCHITECTURE-V2.md §3.5)
 
-    @model_validator(mode="after")
-    def action_belongs_to_tool(self) -> "ToolCall":
-        if self.action not in TOOL_ACTIONS[self.name]:
-            raise ValueError(f"การกระทำ {self.action.value} ไม่ได้อยู่ภายใต้ {self.name.value}")
-        return self
+    การตรวจว่า ``action`` เป็นของ ``name`` จริงย้ายไปตรวจตอน dispatch ที่ ``ToolRegistry`` แทน
+    (CONTRACTS-V2 §3.5) เพราะที่นี่ไม่มีทางรู้ล่วงหน้าว่า tool ใหม่จาก DB มี action อะไรบ้าง
+
+    ⚠️ ขอบเขตของ D2.5 คือชั้น *สัญญาข้อมูล* เท่านั้น — การสร้าง ``ToolCall`` ของ tool ใหม่ไม่ error
+    แล้วก็จริง แต่ ``ToolRegistry`` ยังรู้จักเฉพาะ tool ที่เป็น Python plugin (``source: code``)
+    เท่านั้น การ dispatch ไปหา declarative tool ที่มาจาก DB จริง ๆ ต้องรอ D2.6/D2.7 ที่เอา
+    ``app.agent.tool_shape.ToolShape`` มาต่อเข้า ``ToolRegistry``
+    """
+
+    call_id: UUID = Field(serialization_alias="callId")
+    name: str = Field(min_length=1, max_length=64)
+    action: str = Field(min_length=1, max_length=64)
+    input: dict[str, Any]
 
 
 class ToolResultStatus(str, Enum):
@@ -123,9 +134,11 @@ class ToolResultStatus(str, Enum):
 
 
 class ToolResult(FrozenModel):
+    """D2.5: ``name``/``action`` เป็น string ล้วนเหมือน ``ToolCall`` — ดู docstring ที่นั่น"""
+
     call_id: UUID = Field(serialization_alias="callId")
-    name: ToolName
-    action: ToolAction
+    name: str = Field(min_length=1, max_length=64)
+    action: str = Field(min_length=1, max_length=64)
     status: ToolResultStatus
     data: dict[str, Any] | None = None
     error: ToolError | None = None
@@ -138,11 +151,12 @@ class ToolResult(FrozenModel):
             raise ValueError("ผลลัพธ์ที่สำเร็จต้องมีข้อมูลและไม่มีข้อผิดพลาด")
         if self.status is ToolResultStatus.ERROR and (self.error is None or self.data is not None):
             raise ValueError("ผลลัพธ์ที่ผิดพลาดต้องมีข้อผิดพลาดและไม่มีข้อมูล")
-        if self.name is ToolName.KNOWLEDGE and self.simulation:
+        # เทียบด้วย == ไม่ใช่ is เพราะ self.name เป็น str ธรรมดาแล้ว (ไม่ใช่ enum instance เดิม)
+        if self.name == ToolName.KNOWLEDGE and self.simulation:
             raise ValueError("ผลลัพธ์ความรู้ต้องไม่เป็นข้อมูลจำลอง")
-        if self.name is not ToolName.KNOWLEDGE and not self.simulation:
+        if self.name != ToolName.KNOWLEDGE and not self.simulation:
             raise ValueError("ผลลัพธ์เครื่องมือปฏิบัติการต้องเป็นข้อมูลจำลอง")
-        if self.name is not ToolName.KNOWLEDGE and self.citations:
+        if self.name != ToolName.KNOWLEDGE and self.citations:
             raise ValueError("เฉพาะผลลัพธ์ความรู้เท่านั้นที่มีแหล่งอ้างอิงได้")
         return self
 

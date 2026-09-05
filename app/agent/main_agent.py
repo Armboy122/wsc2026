@@ -190,18 +190,18 @@ class MainAgent:
                 # ที่เกินโควตาต่อเทิร์นตามที่ operation ประกาศไว้ (limits.maxCallsPerTurn) แล้วใช้ผล
                 # ที่เรียกได้แล้วไปตอบแทน
                 if spec.max_calls_per_turn is not None:
-                    count_key = (call.name.value, call.action.value)
+                    count_key = (call.name, call.action)
                     if operation_call_counts.get(count_key, 0) >= spec.max_calls_per_turn:
-                        self._traces.append(trace_id, TraceEventKind.ERROR, {"stage": "operation_call_limit", "action": call.action.value, "maximum": spec.max_calls_per_turn})
+                        self._traces.append(trace_id, TraceEventKind.ERROR, {"stage": "operation_call_limit", "action": call.action, "maximum": spec.max_calls_per_turn})
                         operation_call_limit_reached = True
                         break
                     operation_call_counts[count_key] = operation_call_counts.get(count_key, 0) + 1
                 # การเรียกอ่านข้อมูลด้วย input ชุดเดิมซ้ำย่อมให้ผลเหมือนเดิม (dedupeIdenticalInput)
                 # จึงหยุดทันที เพื่อไม่ให้ผู้ใช้เห็นข้อความล้มเหลวซ้ำหลายรอบ
                 if spec.effective_dedupe():
-                    key = (call.name.value, call.action.value, json.dumps(call.input, sort_keys=True, default=str))
+                    key = (call.name, call.action, json.dumps(call.input, sort_keys=True, default=str))
                     if key in seen_calls:
-                        self._traces.append(trace_id, TraceEventKind.ERROR, {"stage": "duplicate_read_call", "action": call.action.value})
+                        self._traces.append(trace_id, TraceEventKind.ERROR, {"stage": "duplicate_read_call", "action": call.action})
                         duplicate_read_call = True
                         break
                     seen_calls.add(key)
@@ -312,7 +312,7 @@ class MainAgent:
                 idempotency_key=confirmed.idempotency_key,
             ).model_dump(by_alias=True),
         )
-        self._traces.append(trace_id, TraceEventKind.ACTION_SUBMITTED, {"pendingActionId": str(pending_action_id), "action": call.action.value})
+        self._traces.append(trace_id, TraceEventKind.ACTION_SUBMITTED, {"pendingActionId": str(pending_action_id), "action": call.action})
         result = await self._execute_internal(call, confirmed.conversation_id, trace_id)
         if generation != self._reset_generation:
             raise asyncio.CancelledError
@@ -423,7 +423,7 @@ class MainAgent:
 
     async def _execute_chat_call(self, call: ToolCall, conversation_id: UUID, trace_id: UUID) -> ToolResult:
         if call.action in _SUBMIT_ACTIONS:
-            self._traces.append(trace_id, TraceEventKind.ERROR, {"stage": "chat_policy", "action": call.action.value})
+            self._traces.append(trace_id, TraceEventKind.ERROR, {"stage": "chat_policy", "action": call.action})
             result = _error_result(
                 call,
                 ToolErrorCode.CONFIRMATION_REQUIRED,
@@ -434,11 +434,11 @@ class MainAgent:
 
     async def _execute_internal(self, call: ToolCall, conversation_id: UUID, trace_id: UUID) -> ToolResult:
         self._call_inputs[call.call_id] = dict(call.input)
-        self._traces.append(trace_id, TraceEventKind.TOOL_CALLED, {"name": call.name.value, "action": call.action.value, "callId": str(call.call_id)})
+        self._traces.append(trace_id, TraceEventKind.TOOL_CALLED, {"name": call.name, "action": call.action, "callId": str(call.call_id)})
         result = await self._tools.execute(call, ToolContext(conversation_id, trace_id))
         result = _enforce_operation_policy(call, result, self._tools.operation_spec_for_call(call), self._traces, trace_id)
         result = _sanitize_error_result(result, self._response_policies)
-        self._traces.append(trace_id, TraceEventKind.TOOL_RESULT, {"name": result.name.value, "action": result.action.value, "status": result.status.value, "errorCode": result.error.code.value if result.error else None})
+        self._traces.append(trace_id, TraceEventKind.TOOL_RESULT, {"name": result.name, "action": result.action, "status": result.status.value, "errorCode": result.error.code.value if result.error else None})
         return result
 
     def _is_grounded_answer(self, result: ToolResult) -> bool:
@@ -473,7 +473,7 @@ class MainAgent:
             created_at=now, updated_at=now,
         )
         self._pending_actions.put(pending, trace_id)
-        self._traces.append(trace_id, TraceEventKind.ACTION_PREPARED, {"pendingActionId": str(pending.pending_action_id), "action": result.action.value})
+        self._traces.append(trace_id, TraceEventKind.ACTION_PREPARED, {"pendingActionId": str(pending.pending_action_id), "action": result.action})
         return pending
 
     def _require_pending(self, pending_action_id: UUID) -> PendingAction:
@@ -535,7 +535,7 @@ def _enforce_operation_policy(
         traces.append(
             trace_id,
             TraceEventKind.POLICY_REJECTED,
-            {"action": call.action.value, "reason": "plain_read_created_pending"},
+            {"action": call.action, "reason": "plain_read_created_pending"},
         )
         return _error_result(
             call,
@@ -655,7 +655,7 @@ def _redact_prepared_input(data: dict[str, Any]) -> dict[str, Any]:
 
 
 def _result_message(result: ToolResult, response_policies: ResponsePolicies) -> str:
-    identity = {"name": result.name.value, "action": result.action.value}
+    identity = {"name": result.name, "action": result.action}
     if result.status is ToolResultStatus.ERROR:
         presentation = _error_presentation(result, response_policies)
         return json.dumps(

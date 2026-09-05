@@ -66,8 +66,8 @@ def test_success_shape_matches_frozen_contract() -> None:
     assert result.simulation is False
     assert result.error is None
     assert result.call_id == call.call_id
-    assert result.name is contracts.ToolName.KNOWLEDGE
-    assert result.action is contracts.ToolAction.KNOWLEDGE_SEARCH
+    assert result.name == contracts.ToolName.KNOWLEDGE
+    assert result.action == contracts.ToolAction.KNOWLEDGE_SEARCH
     assert set(result.data) == {"answerContext", "resultCount"}
     assert result.data["answerContext"] == EVIDENCE.answer_context
     assert result.data["resultCount"] == 1
@@ -172,7 +172,7 @@ def test_unexpected_backend_failure_maps_to_internal() -> None:
 def test_result_passes_frozen_tool_result_validation() -> None:
     """Both success and error shapes satisfy the frozen ToolResult invariants."""
     ok = run(KnowledgeTool(backend=FakeBackend(EVIDENCE)), make_call())
-    assert ok.name is contracts.ToolName.KNOWLEDGE and ok.simulation is False
+    assert ok.name == contracts.ToolName.KNOWLEDGE and ok.simulation is False
     err = run(
         KnowledgeTool(
             backend=FakeBackend(

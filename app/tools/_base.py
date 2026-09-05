@@ -36,7 +36,7 @@ class SimulatedTool:
             return self._error(
                 call,
                 ToolErrorCode.INVALID_INPUT,
-                f"เครื่องมือ {call.name.value} ไม่รองรับการเรียกนี้",
+                f"เครื่องมือ {call.name} ไม่รองรับการเรียกนี้",
             )
         try:
             input_model = validate_tool_input(call)
@@ -44,7 +44,7 @@ class SimulatedTool:
             return self._error(
                 call,
                 ToolErrorCode.INVALID_INPUT,
-                f"ข้อมูลนำเข้าสำหรับ {call.action.value} ไม่ถูกต้อง",
+                f"ข้อมูลนำเข้าสำหรับ {call.action} ไม่ถูกต้อง",
             )
         try:
             data = self._run(call.action, input_model)

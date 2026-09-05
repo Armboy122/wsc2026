@@ -57,15 +57,17 @@ class OmsTool(SimulatedTool):
             raise BackendError(ToolErrorCode.INTERNAL, "OMS ตอบกลับข้อมูลไม่ถูกต้อง")
         return value
 
-    def _run(self, action: ToolAction, input_model: Any) -> dict[str, Any]:
-        if action is ToolAction.OMS_GET_OUTAGE_BY_CA:
+    def _run(self, action: str, input_model: Any) -> dict[str, Any]:
+        # D2.5: action เป็น str ธรรมดาแล้ว (ค่าเดียวกับ ToolAction.* เดิมเพราะเป็น str subclass)
+        # เทียบด้วย == ไม่ใช่ is เสมอ
+        if action == ToolAction.OMS_GET_OUTAGE_BY_CA:
             return self._request("GET", f"outages/by-ca/{input_model.ca_number}")
-        if action is ToolAction.OMS_PREPARE_OUTAGE_WITH_CA:
+        if action == ToolAction.OMS_PREPARE_OUTAGE_WITH_CA:
             payload = input_model.model_dump(by_alias=True, mode="json")
             key = payload.pop("idempotencyKey")
             self._drafts[key] = (action, payload)
             return {"summary": "เตรียมแจ้งเหตุไฟฟ้าขัดข้องสำหรับหมายเลขผู้ใช้ไฟแล้ว"}
-        if action is ToolAction.OMS_PREPARE_ANONYMOUS_OUTAGE:
+        if action == ToolAction.OMS_PREPARE_ANONYMOUS_OUTAGE:
             payload = input_model.model_dump(by_alias=True, mode="json")
             key = payload.pop("idempotencyKey")
             self._drafts[key] = (action, payload)
@@ -77,16 +79,16 @@ class OmsTool(SimulatedTool):
             prepare_action, payload = draft
             expected = (
                 ToolAction.OMS_PREPARE_OUTAGE_WITH_CA
-                if action is ToolAction.OMS_SUBMIT_OUTAGE_WITH_CA
+                if action == ToolAction.OMS_SUBMIT_OUTAGE_WITH_CA
                 else ToolAction.OMS_PREPARE_ANONYMOUS_OUTAGE
             )
-            if prepare_action is not expected:
+            if prepare_action != expected:
                 raise BackendError(ToolErrorCode.INVALID_INPUT, "ประเภทรายการไม่ตรงกัน")
-            path = "outages" if expected is ToolAction.OMS_PREPARE_OUTAGE_WITH_CA else "outages/anonymous"
+            path = "outages" if expected == ToolAction.OMS_PREPARE_OUTAGE_WITH_CA else "outages/anonymous"
             result = self._request("POST", path, payload)
             del self._drafts[input_model.idempotency_key]
             return result
-        raise ValueError(f"ไม่มีการจัดการการกระทำ {action.value}")
+        raise ValueError(f"ไม่มีการจัดการการกระทำ {action}")
 
     def reset(self) -> None:
         self._drafts.clear()

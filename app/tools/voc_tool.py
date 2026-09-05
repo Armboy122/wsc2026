@@ -91,10 +91,10 @@ class VocTool(SimulatedTool):
             raise BackendError(ToolErrorCode.INTERNAL, "ระบบ VOC ตอบกลับข้อมูลไม่ถูกต้อง")
         return value
 
-    def _run(self, action: ToolAction, input_model: Any) -> dict[str, Any]:
+    def _run(self, action: str, input_model: Any) -> dict[str, Any]:
         if not self._api_mode:
             return self._run_simulated(action, input_model)
-        if action is ToolAction.VOC_LIST_CATEGORIES:
+        if action == ToolAction.VOC_LIST_CATEGORIES:
             catalog = self._request("GET", "catalog")
             journeys = catalog.get("journeys")
             if not isinstance(journeys, list):
@@ -106,12 +106,12 @@ class VocTool(SimulatedTool):
             if len(categories) != 6 or any(not item["code"] or not item["label"] for item in categories):
                 raise BackendError(ToolErrorCode.INTERNAL, "ระบบ VOC ส่ง catalog ไม่ครบถ้วน")
             return {"categories": categories}
-        if action is ToolAction.VOC_PREPARE_CASE:
+        if action == ToolAction.VOC_PREPARE_CASE:
             if not input_model.external_payload:
                 raise BackendError(ToolErrorCode.INVALID_INPUT, "ต้องระบุข้อมูล VOC ตาม catalog ให้ครบก่อนเตรียมเรื่อง")
             self._drafts[input_model.idempotency_key] = input_model.external_payload.model_dump(by_alias=True, exclude_none=True, mode="json")
             return {"category": input_model.category, "subject": input_model.subject, "summary": "เตรียมเรื่อง VOC แล้ว กรุณาตรวจสอบและยืนยันก่อนส่ง"}
-        if action is ToolAction.VOC_SUBMIT_CASE:
+        if action == ToolAction.VOC_SUBMIT_CASE:
             payload = self._drafts.get(input_model.idempotency_key)
             if payload is None:
                 raise BackendError(ToolErrorCode.NOT_FOUND, "ไม่พบรายการ VOC ที่เตรียมไว้")
@@ -124,7 +124,7 @@ class VocTool(SimulatedTool):
                 "status": "submitted",
                 "category": _JOURNEY_TO_CATEGORY.get(result.get("journeyCode", ""), "service"),
             }
-        if action is ToolAction.VOC_GET_CASE:
+        if action == ToolAction.VOC_GET_CASE:
             result = self._request("POST", "cases/lookup", {"vocNumber": input_model.voc_id, "keyCode": input_model.tracking_key})
             case = result.get("case")
             if not isinstance(case, dict):
@@ -136,18 +136,18 @@ class VocTool(SimulatedTool):
                 "createdAt": case.get("createdAt"),
                 "updatedAt": case.get("updatedAt"),
             }
-        raise ValueError(f"ไม่มีการจัดการการกระทำ {action.value}")
+        raise ValueError(f"ไม่มีการจัดการการกระทำ {action}")
 
-    def _run_simulated(self, action: ToolAction, input_model: Any) -> dict[str, Any]:
-        if action is ToolAction.VOC_LIST_CATEGORIES:
+    def _run_simulated(self, action: str, input_model: Any) -> dict[str, Any]:
+        if action == ToolAction.VOC_LIST_CATEGORIES:
             return self.backend.list_categories()
-        if action is ToolAction.VOC_PREPARE_CASE:
+        if action == ToolAction.VOC_PREPARE_CASE:
             return self.backend.prepare_case(input_model.category, input_model.subject, input_model.detail, input_model.contact_name, input_model.contact_phone, input_model.location, input_model.contact_channel, input_model.idempotency_key)
-        if action is ToolAction.VOC_SUBMIT_CASE:
+        if action == ToolAction.VOC_SUBMIT_CASE:
             return self.backend.submit_case(input_model.pending_action_id, input_model.idempotency_key)
-        if action is ToolAction.VOC_GET_CASE:
+        if action == ToolAction.VOC_GET_CASE:
             return self.backend.get_case(input_model.voc_id, input_model.tracking_key)
-        raise ValueError(f"ไม่มีการจัดการการกระทำ {action.value}")
+        raise ValueError(f"ไม่มีการจัดการการกระทำ {action}")
 
     def reset(self) -> None:
         self._drafts.clear()

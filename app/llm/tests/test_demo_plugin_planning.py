@@ -27,7 +27,7 @@ def _request(message: str) -> LLMRequest:
 async def test_demo_adapter_has_no_implicit_oms_behavior() -> None:
     response = await DemoLLMAdapter().complete(_request("check outage status 100000000003"))
 
-    assert all(call.name is not ToolName.OMS for call in response.tool_calls)
+    assert all(call.name != ToolName.OMS for call in response.tool_calls)
     assert response.direct_response not in {
         "oms_ca_number", "oms_outage_start", "oms_with_ca_inputs", "oms_anonymous_inputs",
     }
@@ -40,8 +40,8 @@ async def test_enabled_oms_behavior_contributes_the_same_typed_call() -> None:
     )
 
     assert len(response.tool_calls) == 1
-    assert response.tool_calls[0].name is ToolName.OMS
-    assert response.tool_calls[0].action is ToolAction.OMS_GET_OUTAGE_BY_CA
+    assert response.tool_calls[0].name == ToolName.OMS
+    assert response.tool_calls[0].action == ToolAction.OMS_GET_OUTAGE_BY_CA
     assert response.tool_calls[0].input == {"caNumber": "100000000003"}
 
 
@@ -52,8 +52,8 @@ async def test_enabled_voc_behavior_owns_category_selection() -> None:
     )
 
     assert len(response.tool_calls) == 1
-    assert response.tool_calls[0].name is ToolName.VOC
-    assert response.tool_calls[0].action is ToolAction.VOC_LIST_CATEGORIES
+    assert response.tool_calls[0].name == ToolName.VOC
+    assert response.tool_calls[0].action == ToolAction.VOC_LIST_CATEGORIES
 
 
 @pytest.mark.asyncio
@@ -62,8 +62,8 @@ async def test_voc_behavior_leaves_ambiguous_complaint_policy_to_knowledge() -> 
         _request("What is the complaint policy?")
     )
 
-    assert all(call.name is not ToolName.VOC for call in response.tool_calls)
-    assert any(call.name is ToolName.KNOWLEDGE for call in response.tool_calls)
+    assert all(call.name != ToolName.VOC for call in response.tool_calls)
+    assert any(call.name == ToolName.KNOWLEDGE for call in response.tool_calls)
 
 
 @pytest.mark.asyncio

@@ -249,7 +249,7 @@ async def test_tool_facts_replace_contradictory_model_text() -> None:
     agent = MainAgent(LLMClient(adapter), _isolated_registry())
     response = await agent.handle_chat(ChatRequest(message="check outage 100000000003"))
     assert "FABRICATED" not in response.message
-    assert response.tool_results[0].action is ToolAction.OMS_GET_OUTAGE_BY_CA
+    assert response.tool_results[0].action == ToolAction.OMS_GET_OUTAGE_BY_CA
 
 
 @pytest.mark.asyncio
@@ -324,7 +324,7 @@ async def test_concurrent_confirms_share_one_oms_submission(monkeypatch: pytest.
     release = asyncio.Event()
 
     async def delayed_execute(call, conversation_id, trace_id):
-        if call.action is ToolAction.OMS_SUBMIT_ANONYMOUS_OUTAGE:
+        if call.action == ToolAction.OMS_SUBMIT_ANONYMOUS_OUTAGE:
             entered.set()
             await release.wait()
         return await original_execute(call, conversation_id, trace_id)

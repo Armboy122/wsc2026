@@ -136,7 +136,12 @@ class ToolRegistry:
         return frozenset(self._tools)
 
     async def execute(self, call: ToolCall, context: ToolContext) -> ToolResult:
-        if call.name not in self._tools or call.action not in TOOL_ACTIONS[call.name]:
+        # D2.5: action_belongs_to_tool ย้ายมาตรวจตรงนี้แทนที่จะเป็น validator ของ ToolCall
+        # เพราะ ToolCall.name/action เป็น string ล้วนแล้ว ไม่รู้ล่วงหน้าว่า tool ไหนมี action อะไร
+        # (CONTRACTS-V2 §3.5: "action ไม่ได้อยู่ใน tool ที่ระบุ → ปฏิเสธ ตรวจกับ registry ตอน dispatch")
+        # ใช้ .get() แทนการ index ตรง ๆ: tool ที่ยังไม่มีใน TOOL_ACTIONS (เช่น declarative tool
+        # ในอนาคตที่ไม่ได้อยู่ใน dict กลางนี้) ต้องถูกปฏิเสธแบบ fail-safe ไม่ใช่ KeyError
+        if call.name not in self._tools or call.action not in TOOL_ACTIONS.get(call.name, frozenset()):
             return _error_result(call, ToolErrorCode.INVALID_INPUT, "ไม่รู้จักเครื่องมือหรือการกระทำ")
         try:
             validate_tool_input(call)
@@ -165,5 +170,6 @@ def _error_result(call: ToolCall, code: ToolErrorCode, message: str) -> ToolResu
         action=call.action,
         status=ToolResultStatus.ERROR,
         error=ToolError(code=code, message=message),
-        simulation=call.name is not ToolName.KNOWLEDGE,
+        # เทียบด้วย == ไม่ใช่ is: call.name เป็น str ธรรมดาแล้วตั้งแต่ D2.5
+        simulation=call.name != ToolName.KNOWLEDGE,
     )

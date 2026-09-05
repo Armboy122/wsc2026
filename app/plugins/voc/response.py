@@ -28,24 +28,24 @@ class VocResponsePolicy:
         return self._direct_messages.get(kind)
 
     def result_fact(self, result: ToolResult) -> str | None:
-        if result.name is not ToolName.VOC or result.status is not ToolResultStatus.SUCCESS:
+        if result.name != ToolName.VOC or result.status is not ToolResultStatus.SUCCESS:
             return None
         data = result.data or {}
-        if result.action is ToolAction.VOC_LIST_CATEGORIES:
+        if result.action == ToolAction.VOC_LIST_CATEGORIES:
             categories = data.get("categories")
             if isinstance(categories, list):
                 labels = [item.get("label") for item in categories if isinstance(item, dict) and isinstance(item.get("label"), str)]
                 if labels:
                     choices = "\n".join(f"{index}. {label}" for index, label in enumerate(labels, start=1))
                     return f"ประเภทเรื่องที่เลือกได้มีดังนี้:\n{choices}"
-        if result.action is ToolAction.VOC_GET_CASE:
+        if result.action == ToolAction.VOC_GET_CASE:
             voc_id, status = data.get("vocId"), data.get("status")
             if isinstance(voc_id, str) and isinstance(status, str):
                 return f"เรื่องร้องเรียนเลขที่ {voc_id} มีสถานะ {status} ครับ"
         summary = data.get("summary")
         if isinstance(summary, str):
             return summary
-        if result.action is ToolAction.VOC_SUBMIT_CASE:
+        if result.action == ToolAction.VOC_SUBMIT_CASE:
             voc_id, tracking_key = data.get("vocId"), data.get("trackingKey")
             prefix = "ผลจำลอง: " if result.simulation else ""
             if isinstance(voc_id, str) and isinstance(tracking_key, str):
@@ -54,10 +54,10 @@ class VocResponsePolicy:
         return None
 
     def error_presentation(self, result: ToolResult) -> ErrorPresentation | None:
-        if result.name is not ToolName.VOC:
+        if result.name != ToolName.VOC:
             return None
         code = result.error.code if result.error else None
-        if result.action is ToolAction.VOC_GET_CASE and code is ToolErrorCode.NOT_FOUND:
+        if result.action == ToolAction.VOC_GET_CASE and code is ToolErrorCode.NOT_FOUND:
             return ErrorPresentation(
                 code=code,
                 explanation="ไม่พบเรื่องร้องเรียนที่ตรงกับเลขเรื่องและคีย์ติดตามครับ",
@@ -82,7 +82,7 @@ class VocResponsePolicy:
 
     def grounds_followup(self, result: ToolResult) -> bool:
         return (
-            result.name is ToolName.VOC
-            and result.action is ToolAction.VOC_GET_CASE
+            result.name == ToolName.VOC
+            and result.action == ToolAction.VOC_GET_CASE
             and result.status is ToolResultStatus.SUCCESS
         )

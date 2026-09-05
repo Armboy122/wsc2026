@@ -79,8 +79,8 @@ class KnowledgeTool:
     ) -> contracts.ToolResult:
         """ตรวจสอบข้อมูลนำเข้าตามสัญญา เรียกการค้นคืนจากบริการโฮสต์ และห่อเป็นผลลัพธ์ตามสัญญา"""
         if (
-            call.name is not contracts.ToolName.KNOWLEDGE
-            or call.action is not contracts.ToolAction.KNOWLEDGE_SEARCH
+            call.name != contracts.ToolName.KNOWLEDGE
+            or call.action != contracts.ToolAction.KNOWLEDGE_SEARCH
         ):
             return self._error(
                 call, contracts.ToolErrorCode.INVALID_INPUT, USER_SAFE_INVALID_INPUT

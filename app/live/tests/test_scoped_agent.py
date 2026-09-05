@@ -48,7 +48,7 @@ class _StubTool:
             action=call.action,
             status=ToolResultStatus.SUCCESS,
             # registry ตรวจผลลัพธ์กับ schema ของ action จริง จึงต้องคืนรูปที่ถูกสัญญา
-            data=_OMS_OUTAGE_DATA if call.name is ToolName.OMS else {},
+            data=_OMS_OUTAGE_DATA if call.name == ToolName.OMS else {},
             simulation=True,
         )
 
