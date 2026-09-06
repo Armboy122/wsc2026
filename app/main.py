@@ -8,6 +8,7 @@
 from __future__ import annotations
 
 import asyncio
+from contextlib import asynccontextmanager
 from pathlib import Path
 
 from fastapi import Request
@@ -124,61 +125,30 @@ llm_adapter = create_llm_adapter(
 judge_llm_adapter = create_llm_adapter(_provider_config(settings.judge_llm))
 judge_llm_client = JudgeLLMClient(judge_llm_adapter)
 
-# D2.6: declarative tool ที่มาจาก DB (source='db') — ต้อง migrate ก่อนอ่าน แล้วรวม catalogue/
-# operation_specs เข้ากับของปลั๊กอิน Python เหมือนเป็นชั้นเดียวกัน (ARCHITECTURE-V2.md §3.4:
-# agent ไม่รู้ว่า executor เป็น HTTP หรือโค้ด) asyncio.run ปลอดภัยตรงนี้เพราะยังไม่มี event loop
-# ทำงานอยู่ตอน import โมดูลนี้
+# D2.6 / P9: ย้ายการโหลด async ทั้งหมดออกจากระดับ module เพื่อให้ uvicorn --reload ทำงานได้
+# registry ถูกสร้างด้วย code tools ก่อน แล้ว declarative tools + สถานะเปิด/ปิดของ code tool
+# จะถูกโหลดผ่าน bootstrap ใน FastAPI lifespan (หรือเมื่อมี request/connection แรกเข้า)
 db = Database(settings.db_path, state_key=settings.state_key)
 db.migrate()
 pending_action_store = PendingActionStore(db)
 trace_store = TraceStore(db)
-# D3.2: SYSTEM_PROMPT อยู่ใน DB แล้ว — seed ครั้งเดียว (idempotent) และอ่านจาก DB ต่อเทิร์น
-# เพื่อให้แก้ prompt แล้วมีผลในเทิร์นถัดไปโดยไม่ต้อง restart
-asyncio.run(seed_system_prompt(db))
-set_system_prompt_provider(DbSystemPromptProvider(db))
-# P4: สถานะเปิด/ปิดของ code tool persist ในตาราง tool (แถว source='code') — boot ต้อง
-# restore กลับเข้า registry เพื่อให้การปิดคงผลข้าม restart
-_disabled_code_tools = asyncio.run(tool_repository.disabled_code_tool_slugs(db))
-
-
-async def _load_declarative_catalogue():
-    # P1 ของ D2: DB ใหม่ (data/pea.db ถูก ignore) ต้องได้ oms_tool โดยอัตโนมัติ — bootstrap
-    # นี้ idempotent (มี tool อยู่แล้ว = ไม่แตะ config ของผู้ใช้) และ seed จากต้นฉบับเดียวกับ
-    # scripts/seed_oms_tool.py (app/db/bootstrap_oms.py) ปลั๊กอิน Python ของ OMS ยังคง
-    # disabled ตามเดิม (app/plugins/oms/plugin.yaml enabled: false)
-    await seed_oms_tool(db, oms_base_url=settings.oms_base_url)
-    allowlist_rows = await db.fetch_all("SELECT domain FROM domain_allowlist WHERE enabled = 1")
-    return await load_declarative_tools(
-        db,
-        app_env=settings.app_env,
-        allowlist=tuple(row["domain"] for row in allowlist_rows),
-    )
-
-
-declarative_bundle = asyncio.run(_load_declarative_catalogue())
 
 tool_registry = ToolRegistry(
     [
         KnowledgeTool(knowledge_backend),
         *(plugin.tool for plugin in plugins),
-        *declarative_bundle.tools,
     ],
-    catalogue=tuple(plugin.tool_definition for plugin in plugins) + declarative_bundle.catalogue,
+    catalogue=tuple(plugin.tool_definition for plugin in plugins),
     response_policies=(
         OmsResponsePolicy(),
         *(policy for plugin in plugins if (policy := plugin.response_policy) is not None),
     ),
     operation_specs={
-        **{
-            key: spec
-            for plugin in plugins
-            for key, spec in plugin.operation_specs.items()
-        },
-        **declarative_bundle.operation_specs,
+        key: spec
+        for plugin in plugins
+        for key, spec in plugin.operation_specs.items()
     },
-    disabled_code_tools=_disabled_code_tools,
 )
-
 
 main_llm_client = LLMClient(llm_adapter)
 guided_flows = GuidedFlows(
@@ -198,28 +168,97 @@ agent_service.set_agent(main_agent)
 adapter_service.set_llm(llm_adapter)
 adapter_service.set_knowledge(_KnowledgeReadiness(knowledge_backend))
 
-app = create_platform_app(settings)
+_bootstrap_lock = asyncio.Lock()
+_bootstrapped = False
+
+
+async def bootstrap(target_app: FastAPI | None = None) -> None:
+    """โหลด prompt, สถานะ code tool, seed OMS และ declarative tools ใน event loop"""
+    global _bootstrapped
+    if _bootstrapped:
+        return
+    async with _bootstrap_lock:
+        if _bootstrapped:
+            return
+
+        # D3.2: SYSTEM_PROMPT อยู่ใน DB แล้ว — seed ครั้งเดียว (idempotent) และอ่านจาก DB ต่อเทิร์น
+        await seed_system_prompt(db)
+        set_system_prompt_provider(DbSystemPromptProvider(db))
+
+        # P4: สถานะเปิด/ปิดของ code tool persist ในตาราง tool (แถว source='code')
+        disabled_slugs = await tool_repository.disabled_code_tool_slugs(db)
+        for slug in disabled_slugs:
+            try:
+                tool_registry.set_code_tool_enabled(slug, False)
+            except ValueError:
+                pass
+
+        # P1 ของ D2: DB ใหม่ ต้องได้ oms_tool โดยอัตโนมัติ
+        await seed_oms_tool(db, oms_base_url=settings.oms_base_url)
+
+        resolved_app = target_app or globals().get("app")
+        tool_admin: ToolAdminService | None = (
+            getattr(resolved_app.state, "tool_admin", None) if resolved_app else None
+        )
+        if tool_admin is not None:
+            await tool_admin.reload()
+        else:
+            allowlist_rows = await db.fetch_all(
+                "SELECT domain FROM domain_allowlist WHERE enabled = 1"
+            )
+            bundle = await load_declarative_tools(
+                db,
+                app_env=settings.app_env,
+                allowlist=tuple(row["domain"] for row in allowlist_rows),
+            )
+            tool_registry.replace_declarative_tools(
+                bundle.tools, bundle.catalogue, bundle.operation_specs
+            )
+
+        startup_event(resolved_app or app, tool_registry)
+        _bootstrapped = True
+
+
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    await bootstrap(app)
+    yield
+
+
+app = create_platform_app(settings, lifespan=lifespan)
 app.state.api_key_store = ApiKeyStore(db)
 app.state.conversation_ownership = ConversationOwnership(db)
 app.state.public_api_rate_limiter = InMemoryRateLimiter(settings.public_api_rate_limit_per_minute)
 app.include_router(router)
 app.include_router(live_router)
 app.include_router(admin_router)
-# D3.3/D3.4/D3.5: บริการหลังบ้านของหน้า admin — รับ bundle แรกที่โหลดไว้แล้ว (ไม่โหลดซ้ำ)
-# และแชร์ settings/registry เดียวกันเพื่อให้ save แล้ว hot reload ได้ทันที
+# D3.3/D3.4/D3.5: บริการหลังบ้านของหน้า admin — initial_bundle จะถูกเติมผ่าน reload() ใน lifespan
 app.state.tool_admin = ToolAdminService(
     db,
     settings=settings,
     registry=tool_registry,
     plugins=plugins,
-    initial_bundle=declarative_bundle,
 )
 # D3.6: หน้าแก้ prompt — แชร์ connection เดียวกับ tool admin แก้แล้วมีผลเทิร์นถัดไป
 # เพราะ runtime อ่านผ่าน DbSystemPromptProvider (ด้านบน) ต่อเทิร์นอยู่แล้ว
 app.state.prompt_admin = PromptAdminService(db)
 app.add_exception_handler(NotFoundError, _not_found_handler)
 app.add_exception_handler(InvalidActionStateError, _conflict_handler)
-startup_event(app, tool_registry)
+
+
+class EnsureBootstrappedMiddleware:
+    """ประกันว่า bootstrap ทำงานเสมอแม้ไคลเอนต์ไม่ได้เข้าผ่าน lifespan (เช่น TestClient โดยตรง)"""
+
+    def __init__(self, asgi_app: Any) -> None:
+        self._asgi_app = asgi_app
+
+    async def __call__(self, scope: Any, receive: Any, send: Any) -> None:
+        if scope["type"] in ("http", "websocket") and not _bootstrapped:
+            await bootstrap(app)
+        await self._asgi_app(scope, receive, send)
+
+
+app.add_middleware(EnsureBootstrappedMiddleware)
 
 # ช่องทาง LINE เปิดเฉพาะเมื่อกรอก credential ครบ (เว้นว่าง = ปิดทั้ง route และบริการ)
 if settings.line_channel_secret and settings.line_channel_access_token:

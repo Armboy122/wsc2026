@@ -41,7 +41,10 @@ def validate_tool_registry(tool_registry: Any) -> None:
         )
 
 
-def create_platform_app(settings: Settings | None = None) -> FastAPI:
+def create_platform_app(
+    settings: Settings | None = None,
+    lifespan: Any = None,
+) -> FastAPI:
     """สร้างแอป FastAPI พื้นฐานพร้อม middleware และตัวจัดการข้อยกเว้นของแพลตฟอร์ม"""
     settings = settings or load_settings()
     configure_logging(settings.log_level)
@@ -51,6 +54,7 @@ def create_platform_app(settings: Settings | None = None) -> FastAPI:
         version="0.1.0",
         docs_url="/docs" if settings.app_env == "development" else None,
         redoc_url="/redoc" if settings.app_env == "development" else None,
+        lifespan=lifespan,
     )
 
     app.add_middleware(RequestIdMiddleware)
