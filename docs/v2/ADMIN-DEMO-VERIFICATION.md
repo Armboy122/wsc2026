@@ -51,7 +51,7 @@ endpoint ใช้ `GET /fact?max_length=<integer>` และตอบ JSON แ�
 | 10. เปิดกลับโดยไม่ restart | **ผ่าน** | เปิดจากปุ่มเดิม; คำถามใหม่เรียก tool ได้อีกครั้งและมี `tool_called/tool_result` ใน trace |
 | 11. เปิดฟอร์มแก้และบันทึกซ้ำ | **ผ่านหลังแก้ blocker** | เปิด `oms_tool` ซึ่งมี prepare/submit และ auth เดิม; ค่า submit action, `clientContext` และแถว auth ไม่หายหลัง save |
 
-ผล upstream ที่เห็นในรอบ AI เป็น JSON เช่น `{"fact":"Cats walk on their toes.","length":24`
+ผล upstream ที่เห็นในรอบ AI เป็น JSON เช่น `{"fact":"Cats walk on their toes.","length":24}`
 และอีกรอบ `{"fact":"Cats, especially older cats, do get cancer. Many times this disease can be treated successfully.","length":96}`
 ซึ่งสอดคล้องกับข้อจำกัด `max_length` ของคำถามและ access log
 
