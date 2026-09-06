@@ -186,6 +186,15 @@ shape ตาม `ARCHITECTURE-V2.md` §3.4 · `source` ห้ามใช้ต�
 > สถานะ P5: automated checks ตรวจแล้ว (grep=0, `app/prompts/` ไม่มี, full pytest และ
 > production SSRF ผ่าน); manual evaluate/knowledge/OMS/LINE/voice/admin-tool demo
 > ยังรอมนุษย์ยืนยันตาม `docs/v2/DEMO-VERIFICATION.md`
+>
+> **สถานะ A5 (2026-09-06, commit ฐาน `40fb967`)**: ตรวจซ้ำจาก commit ปัจจุบัน — grep=0,
+> `app/prompts/` ไม่มี, full pytest **758 passed** (working tree), `evaluate` **ยังไม่ผ่าน**
+> (pre-existing: 401 จาก API key auth + health field เก่า ตามที่ A3 บันทึก) ส่วนเดโมสดที่ผ่าน
+> จริงด้วย Gemini จริงบน test instance แยก: knowledge(+follow-up), OMS prepare→confirm→submit
+> ทั้งเคสทราบ/ไม่ทราบ CA (บน OMS จำลองในเครื่อง ไม่แตะ DB จริง), สร้าง tool ใหม่จน AI เรียกได้,
+> prompt แก้แล้วมีผลเทิร์นถัดไปและคืนค่าได้, SSRF ปฏิเสธ private/link-local บน production test
+> config — หลักฐานรายขั้นใน `docs/v2/ADMIN-DEMO-VERIFICATION.md` (ส่วน A5) ขั้นตอนทำซ้ำใน
+> `docs/v2/DEMO-RUNBOOK.md` — LINE/voice ยัง **ไม่ได้ทดสอบ** end-to-end (ต้องให้มนุษย์ทดสอบ)
 
 ```bash
 grep -c "ToolName\.\|ToolAction\." app/agent/main_agent.py   # = 0
