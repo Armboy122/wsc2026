@@ -18,11 +18,13 @@ from uuid import UUID, uuid4
 
 import pytest
 
+from app.agent.declarative_tools import _operation_spec_from_shape
 from app.agent.guided_flow import GuidedFlows
 from app.agent.main_agent import MainAgent
 from app.agent.operation_policy import OperationPolicy, OperationSpec
 from app.agent.registry import ToolRegistry
-from app.agent.stores import trace_channel
+from app.agent.stores import redact, trace_channel
+from app.agent.tool_shape import ToolOperationShape
 from app.backends.full_document_knowledge import GroundedEvidence
 from app.contracts import (
     ActionDecisionResponse,
@@ -45,6 +47,7 @@ from app.live.bridge import (
     NoPendingActionError,
     VoiceBridge,
     VoiceBridgeError,
+    build_confirmation_evidence,
     build_read_back_text,
     match_voice_intent,
     sanitize_confirmation_evidence,
@@ -61,7 +64,18 @@ from app.tools.knowledge_tool import KnowledgeTool
 def test_refusal_checked_before_confirmation_thai_edge_cases() -> None:
     """🔒 กติกาบังคับ: "ไม่ใช่ครับ" ต้องไม่ถูกนับเป็นยืนยัน
     ต้องตรวจชุดปฏิเสธก่อนชุดยืนยันเสมอ เพราะ "ไม่ใช่" มีคำว่า "ใช่" อยู่ข้างใน
+    และคำถามหรือข้อความกำกวม เช่น "ต้องยืนยันไหมครับ" หรือ "ยังไม่พร้อมยืนยันครับ"
+    ต้องไม่ถูกนับเป็นยืนยันเด็ดขาด
     """
+    # Evidenced review edge cases
+    assert match_voice_intent("ต้องยืนยันไหมครับ") == "unrecognized"
+    assert match_voice_intent("ต้องยืนยันมั้ยครับ") == "unrecognized"
+    assert match_voice_intent("ยืนยันทำไมครับ") == "unrecognized"
+    assert match_voice_intent("จะให้ยืนยันอะไรเหรอ") == "unrecognized"
+    assert match_voice_intent("ยังไม่พร้อมยืนยันครับ") == "refusal"
+    assert match_voice_intent("ยังไม่พร้อมครับ") == "refusal"
+    assert match_voice_intent("ยังไม่ยืนยันครับ") == "refusal"
+
     # Refusal utterances MUST be classified as "refusal", NEVER "confirm"
     refusal_phrases = [
         "ไม่ใช่ครับ",
@@ -226,8 +240,9 @@ class StubVoiceGateway:
 
 @pytest.mark.asyncio
 async def test_llm_cannot_decide_voice_confirmation_structural_safety() -> None:
-    """🔒 พิสูจน์ด้วยโครงสร้างโค้ด: การเรียก confirm_current จากโมเดลหรือ tool call
-    โดยไม่มีคำยินยอมจากเสียงจริงของผู้ใช้ ต้อง fail closed เสมอ
+    """🔒 พิสูจน์ด้วยโครงสร้างโค้ด:
+    - handle_text (ซึ่ง LLM เรียกผ่าน pea_agent_chat) ห้ามให้คำยินยอมและห้ามตัดสินใจปฏิเสธ
+    - การเรียก confirm_current จากโมเดลโดยไม่มีคำยินยอมจากเสียงจริงของผู้ใช้ผ่าน process_user_transcription ต้อง fail closed
     """
     pending = PendingAction(
         pending_action_id=uuid4(),
@@ -245,12 +260,26 @@ async def test_llm_cannot_decide_voice_confirmation_structural_safety() -> None:
     gateway = StubVoiceGateway(pending)
     bridge = VoiceBridge(gateway)
 
-    # 1. แชตจนเกิด pending action -> bridge อ่านทวนข้อมูล
+    # 1. แชตจนเกิด pending action -> bridge อ่านทวนข้อมูล (แต่ยังไม่ได้ส่งมอบเสียง)
     resp = await bridge.handle_text("แจ้งเหตุไฟดับครับ")
     assert bridge.has_pending_action is True
+    assert bridge.read_back_completed is False
+    assert bridge.read_back_text is not None
+
+    # LLM พยายามส่ง handle_text("ยืนยันครับ") -> ห้ามให้ consent
+    await bridge.handle_text("ยืนยันครับ")
+    assert bridge._consent_granted is False
+
+    # LLM พยายามส่ง handle_text("ไม่ใช่ครับ") -> ห้ามปฏิเสธรายการ
+    await bridge.handle_text("ไม่ใช่ครับ")
+    assert bridge.has_pending_action is True
+    assert len(gateway.reject_calls) == 0
+
+    # ส่งมอบการอ่านทวนเสียงสำเร็จ
+    bridge.mark_read_back_delivered()
     assert bridge.read_back_completed is True
 
-    # 2. จำลองกรณี LLM หลอน/พยายามเรียก confirm โดยที่ผู้ใช้ไม่ได้พูดคำยินยอม
+    # 2. จำลองกรณี LLM หลอน/พยายามเรียก confirm โดยที่ผู้ใช้ไม่ได้พูดคำยินยอมจริง
     # ต้อง fail closed ทันทีด้วย code="consent_required"
     with pytest.raises(VoiceBridgeError) as exc_info:
         await bridge.confirm_current(confirmation_note="LLM สั่งยืนยันเอง")
@@ -259,6 +288,7 @@ async def test_llm_cannot_decide_voice_confirmation_structural_safety() -> None:
 
     # 3. จำลองผู้ใช้พูดเสียงจริงผ่าน speech transcription: "ยืนยันครับ"
     await bridge.process_user_transcription("ยืนยันครับ")
+    assert bridge._consent_granted is True
 
     # 4. ตอนนี้โมเดลจึงเรียก confirm_current ได้สำเร็จ
     result = await bridge.confirm_current()
@@ -268,7 +298,8 @@ async def test_llm_cannot_decide_voice_confirmation_structural_safety() -> None:
     call_evidence = gateway.confirm_calls[0][2]
     assert call_evidence is not None
     assert call_evidence["transcription"] == "ยืนยันครับ"
-    assert "ขออ่านทวนข้อมูล" in call_evidence["readBackText"]
+    assert "readBackSummary" in call_evidence
+    assert "readBackFields" in call_evidence
 
     # 5. เมื่อสถานะเป็น terminal แล้ว การเรียกซ้ำต้อง fail closed
     with pytest.raises(NoPendingActionError):
@@ -276,8 +307,8 @@ async def test_llm_cannot_decide_voice_confirmation_structural_safety() -> None:
 
 
 @pytest.mark.asyncio
-async def test_confirm_before_read_back_fails_closed() -> None:
-    """การยืนยันก่อนอ่านทวนเสร็จ ต้อง fail closed (ordering safety)"""
+async def test_confirm_before_read_back_and_interruption_fail_closed() -> None:
+    """การยืนยันก่อนอ่านทวนเสร็จ หรือหลังถูกขัดจังหวะ ต้อง fail closed (ordering safety)"""
     pending = PendingAction(
         pending_action_id=uuid4(),
         conversation_id=uuid4(),
@@ -293,16 +324,30 @@ async def test_confirm_before_read_back_fails_closed() -> None:
     )
     gateway = StubVoiceGateway(pending)
     bridge = VoiceBridge(gateway)
-    bridge._pending_action_id = pending.pending_action_id
-    bridge._read_back_completed = False  # ยังไม่ได้อ่านทวน!
+    await bridge.handle_text("แจ้งไฟดับ")
+    assert bridge.read_back_completed is False
 
-    # ผู้ใช้พูด "ยืนยันครับ" ก่อนที่ระบบจะอ่านทวน
-    await bridge.process_user_transcription("ยืนยันครับ")
+    # 1. ผู้ใช้พูด "ยืนยันครับ" ก่อนที่ระบบจะอ่านทวนเสร็จ
+    pre_res = await bridge.process_user_transcription("ยืนยันครับ")
+    assert pre_res is not None
+    assert pre_res["response"]["error"]["code"] == "read_back_incomplete"
     assert bridge._consent_granted is False
 
     with pytest.raises(ActionConflictError) as exc_info:
         await bridge.confirm_current()
     assert "ยังไม่ได้อ่านทวน" in str(exc_info.value)
+
+    # 2. ส่งมอบการอ่านทวน
+    bridge.mark_read_back_delivered()
+    assert bridge.read_back_completed is True
+
+    # 3. ผู้ใช้พูดแทรก (interrupted)
+    bridge.mark_interrupted()
+    assert bridge.read_back_completed is False
+    assert bridge._consent_granted is False
+
+    with pytest.raises(ActionConflictError):
+        await bridge.confirm_current()
 
 
 # ===========================================================================
@@ -333,10 +378,15 @@ async def test_refusal_terminates_old_action_and_enters_schema_driven_correction
     bridge = VoiceBridge(gateway)
     await bridge.handle_text("แจ้งเหตุไฟดับครับ")
     assert bridge.has_pending_action is True
+    bridge.mark_read_back_delivered()
 
-    # ผู้ใช้พูดปฏิเสธ: "ไม่ใช่ครับ ข้อมูลเบอร์โทรผิด"
-    result = await bridge.handle_text("ไม่ใช่ครับ")
-    # 1. Action เดิมต้องถูก reject
+    # ผู้ใช้พูดปฏิเสธเสียงจริง: "ไม่ใช่ครับ ข้อมูลเบอร์โทรผิด"
+    result = await bridge.process_user_transcription("ไม่ใช่ครับ")
+    assert result is not None
+    assert result["operation"] == "reject"
+    resp_data = result["response"]
+
+    # 1. Action เดิมต้องถูก reject เป็น terminal
     assert len(gateway.reject_calls) == 1
     assert gateway.reject_calls[0][0] == old_action_id
     assert gateway.all_actions[old_action_id].status is PendingActionStatus.REJECTED
@@ -344,10 +394,10 @@ async def test_refusal_terminates_old_action_and_enters_schema_driven_correction
 
     # 2. ระบบเข้าสู่โหมดแก้ไข และถามช่องที่แก้ได้
     assert bridge.in_correction_mode is True
-    assert result.get("inCorrectionMode") is True
-    assert "ต้องการแก้ไขส่วนไหน" in result["message"]
-    assert "เบอร์โทรศัพท์" in result["message"] or "phone" in result["message"]
-    assert "ทั้งหมด" in result["message"]
+    assert resp_data.get("inCorrectionMode") is True
+    assert "ต้องการแก้ไขส่วนไหน" in resp_data["message"]
+    assert "เบอร์โทรศัพท์" in resp_data["message"] or "phone" in resp_data["message"]
+    assert "ทั้งหมด" in resp_data["message"]
 
     # 3. ตรวจสอบว่า action เดิมยังคง terminal และไม่สามารถยืนยันได้อีก
     with pytest.raises(RuntimeError) as exc_info:
@@ -391,7 +441,7 @@ async def test_correction_creates_brand_new_pending_action() -> None:
     class MultiActionGateway(StubVoiceGateway):
         async def handle_chat(self, request: ChatRequest) -> ChatResponse:
             self.chat_calls.append(request.message)
-            if "แก้" in request.message or "089" in request.message:
+            if "0899999999" in request.message or "phone" in request.message:
                 self.all_actions[new_action_id] = new_pending
                 return ChatResponse(
                     conversation_id=request.conversation_id or uuid4(),
@@ -406,9 +456,10 @@ async def test_correction_creates_brand_new_pending_action() -> None:
 
     await bridge.handle_text("แจ้งเหตุไฟดับครับ")
     assert bridge.pending_action_id == str(old_action_id)
+    bridge.mark_read_back_delivered()
 
-    # ปฏิเสธรายการเดิม -> เข้าโหมดแก้ไข
-    await bridge.handle_text("ไม่ใช่ครับ")
+    # ปฏิเสธรายการเดิมผ่าน speech transcription -> เข้าโหมดแก้ไข
+    await bridge.process_user_transcription("ไม่ใช่ครับ")
     assert gateway.all_actions[old_action_id].status is PendingActionStatus.REJECTED
     assert bridge.in_correction_mode is True
 
@@ -422,8 +473,9 @@ async def test_correction_creates_brand_new_pending_action() -> None:
     assert gateway.all_actions[old_action_id].status is PendingActionStatus.REJECTED
 
     # Action ใหม่มี read-back ใหม่
-    assert bridge.read_back_completed is True
     assert "0899999999" in bridge.read_back_text
+    bridge.mark_read_back_delivered()
+    assert bridge.read_back_completed is True
 
     # ผู้ใช้พูด "ยืนยันครับ" ต่อรายการใหม่
     await bridge.process_user_transcription("ยืนยันครับ")
@@ -456,16 +508,16 @@ async def test_correction_ceiling_enforced() -> None:
     # จำลองการปฏิเสธและขอแก้ 3 รอบ
     for i in range(3):
         await bridge.handle_text("แจ้งไฟดับ")
-        res = await bridge.handle_text("ไม่ใช่ครับ")
+        res = await bridge.process_user_transcription("ไม่ใช่ครับ")
         assert bridge.correction_count == i + 1
         assert bridge.in_correction_mode is True
 
     # รอบที่ 4: เกินเพดาน 3 ครั้ง
     await bridge.handle_text("แจ้งไฟดับ")
-    res4 = await bridge.handle_text("ไม่ใช่ครับ")
+    res4 = await bridge.process_user_transcription("ไม่ใช่ครับ")
     assert bridge.in_correction_mode is False
-    assert "เกินเพดาน 3 ครั้ง" in res4["message"]
-    assert "1129" in res4["message"]
+    assert "เกินเพดาน 3 ครั้ง" in res4["response"]["message"]
+    assert "1129" in res4["response"]["message"]
 
 
 # ===========================================================================
@@ -491,35 +543,60 @@ async def test_ambiguous_speech_bounded_retries_and_terminal_rejection() -> None
     gateway = StubVoiceGateway(pending)
     bridge = VoiceBridge(gateway)
     await bridge.handle_text("แจ้งไฟดับ")
+    bridge.mark_read_back_delivered()
 
     # 1st ambiguous
-    await bridge.process_user_transcription("ขอคิดดูก่อนนะ")
+    res1 = await bridge.process_user_transcription("ขอคิดดูก่อนนะ")
     assert bridge.retry_count == 1
     assert bridge.has_pending_action is True
+    assert "ครั้งที่ 1/3" in res1["response"]["message"]
 
     # 2nd ambiguous
-    await bridge.process_user_transcription("อะไรนะ")
+    res2 = await bridge.process_user_transcription("อะไรนะ")
     assert bridge.retry_count == 2
     assert bridge.has_pending_action is True
+    assert "ครั้งที่ 2/3" in res2["response"]["message"]
 
     # 3rd ambiguous
-    await bridge.process_user_transcription("เดี๋ยวก่อน")
+    res3 = await bridge.process_user_transcription("เดี๋ยวก่อน")
     assert bridge.retry_count == 3
     assert bridge.has_pending_action is True
+    assert "ครั้งที่ 3/3" in res3["response"]["message"]
 
     # 4th ambiguous: เกินเพดาน 3 ครั้ง -> terminal reject
-    await bridge.process_user_transcription("ฮัลโหล")
+    res4 = await bridge.process_user_transcription("ฮัลโหล")
     assert bridge.has_pending_action is False
     assert gateway.all_actions[pending.pending_action_id].status is PendingActionStatus.REJECTED
-    assert "ถามซ้ำเกินกำหนด" in gateway.reject_calls[0][1]
+    assert gateway.reject_calls[0][1] == "speech_unrecognized_exceeded_retries"
+    assert "ขอยกเลิกรายการนี้เพื่อความปลอดภัย" in res4["response"]["message"]
 
 
 # ===========================================================================
-# 6. voiceConfirm Gating (T6.3)
+# 6. voiceConfirm Gating in Declarative Tools and VoiceBridge (T6.3)
 # ===========================================================================
+
+def test_declarative_tool_forwards_voice_confirm_false() -> None:
+    """T6.3: declarative tools ต้องส่งต่อ voice_confirm จาก schema ไปยัง OperationSpec"""
+    shape = ToolOperationShape(
+        action="submit_payment",
+        description="การชำระเงินไม่อนุญาตยืนยันด้วยเสียง",
+        input_schema={"type": "object", "properties": {"amount": {"type": "number"}}},
+        output_schema=None,
+        exposure="internal",
+        mode="submit",
+        submit_action=None,
+        policy="write_confirm",
+        limits=None,
+        client_context=None,
+        voice_confirm=False,
+    )
+    spec = _operation_spec_from_shape(shape)
+    assert spec.voice_confirm is False
+    assert spec.policy == OperationPolicy.WRITE_CONFIRM
+
 
 @pytest.mark.asyncio
-async def test_voice_confirm_false_fails_closed_in_bridge_and_main_agent() -> None:
+async def test_voice_confirm_false_fails_closed_in_bridge() -> None:
     """T6.3: หาก operation มี voice_confirm=False การยืนยันด้วยเสียงต้อง fail closed"""
     pending = PendingAction(
         pending_action_id=uuid4(),
@@ -545,13 +622,16 @@ async def test_voice_confirm_false_fails_closed_in_bridge_and_main_agent() -> No
     gateway = RestrictedGateway(pending)
     bridge = VoiceBridge(gateway)
     await bridge.handle_text("จ่ายค่าไฟ")
+    bridge.mark_read_back_delivered()
 
     # Bridge ตรวจพบว่าไม่อนุญาตยืนยันด้วยเสียง
     assert bridge._voice_confirm_allowed is False
 
-    # ผู้ใช้พูด "ยืนยันครับ" -> consent ต้องไม่ถูกเปิด
-    await bridge.process_user_transcription("ยืนยันครับ")
+    # ผู้ใช้พูด "ยืนยันครับ" -> consent ต้องไม่ถูกเปิด และส่งกลับ error voice_confirm_disabled
+    res = await bridge.process_user_transcription("ยืนยันครับ")
     assert bridge._consent_granted is False
+    assert res is not None
+    assert res["response"]["error"]["code"] == "voice_confirm_disabled"
 
     # พยายามยืนยัน -> fail closed ด้วย code="voice_confirm_disabled"
     with pytest.raises(VoiceBridgeError) as exc_info:
@@ -574,12 +654,12 @@ def test_strip_voice_citations_removes_urls_and_markers() -> None:
 
 
 # ===========================================================================
-# 8. Redacted Confirmation Evidence (T6.4)
+# 8. Redacted Confirmation Evidence & Trace Redaction (T6.4)
 # ===========================================================================
 
 def test_sanitize_confirmation_evidence_scrubs_pii_and_tokens() -> None:
     """T6.4: หลักฐานการยืนยันต้องปกปิด PII และ token (บัตรประชาชน 13 หลัก, บัตรเครดิต 16 หลัก, bearer token)"""
-    text_with_pii = "ยืนยันข้อมูล บัตรประชาชน 1234567890123 และ Bearer secret-token-abc บัตรเครดิต 1111222233334444"
+    text_with_pii = "ยืนยันข้อมูล บัตรประชาชน 1234567890123 และ Bearer secret-token-abc บัตรเครดิต 1111222233334444 เบอร์ 0812345678"
     sanitized = sanitize_confirmation_evidence(text_with_pii)
     assert "1234567890123" not in sanitized
     assert "[redacted-id]" in sanitized
@@ -587,10 +667,52 @@ def test_sanitize_confirmation_evidence_scrubs_pii_and_tokens() -> None:
     assert "[redacted-token]" in sanitized
     assert "1111222233334444" not in sanitized
     assert "[redacted-card]" in sanitized
+    assert "0812345678" not in sanitized
+    assert "[redacted-phone]" in sanitized
+
+
+def test_build_confirmation_evidence_structured_sanitization() -> None:
+    """T6.4: build_confirmation_evidence ต้องสร้างหลักฐานที่มีโครงสร้างชัดเจน และ scrub ฟิลด์อ่อนไหว"""
+    pending = PendingAction(
+        pending_action_id=uuid4(),
+        conversation_id=uuid4(),
+        tool_slug="oms_tool",
+        prepare_action="prepare_outage_report",
+        submit_action="submit_outage_report",
+        prepared_input={
+            "ca_number": "123456789012",
+            "phone": "0812345678",
+            "description": "ไฟดับซอย 5",
+            "idempotency_key": "secret-key",
+        },
+        summary="แจ้งไฟดับ CA 123456789012 เบอร์ 0812345678",
+        status=PendingActionStatus.PENDING_CONFIRMATION,
+        idempotency_key="idem-1",
+        created_at=datetime.now(timezone.utc),
+        updated_at=datetime.now(timezone.utc),
+    )
+    evidence = build_confirmation_evidence(
+        pending_action=pending,
+        transcription="ยืนยันครับ",
+        channel="voice",
+    )
+    assert evidence["channel"] == "voice"
+    assert evidence["transcription"] == "ยืนยันครับ"
+    assert "readBackSummary" in evidence
+    assert "readBackFields" in evidence
+    fields = evidence["readBackFields"]
+    assert "idempotency_key" not in fields
+    assert fields["phone"] == "[redacted-phone]"
+    assert fields["ca_number"] == "[redacted-ca]"
+    assert fields["description"] == "ไฟดับซอย 5"
+
+    # ตรวจสอบการผ่าน redact() ของ stores.py: ข้อความยาวเกิน 200 ตัวอักษรต้องถูกตัด
+    redacted_trace = redact(evidence)
+    assert isinstance(redacted_trace, dict)
 
 
 # ===========================================================================
-# 9. GeminiLiveSession Real Audio / Transcription Routing
+# 9. GeminiLiveSession Real Audio / Transcription Routing & Delivery
 # ===========================================================================
 
 class LiveSessionFakeWebSocket:
@@ -601,12 +723,21 @@ class LiveSessionFakeWebSocket:
         self.sent_json.append(data)
 
 
+class LiveSessionFakeGeminiSession:
+    def __init__(self) -> None:
+        self.sent_client_content: list[Any] = []
+
+    async def send_client_content(self, turns: list[Any], turn_complete: bool = True) -> None:
+        self.sent_client_content.append({"turns": turns, "turn_complete": turn_complete})
+
+
 @pytest.mark.asyncio
 async def test_gemini_live_session_routes_transcripts_and_blocks_unconsented_tool_call() -> None:
     """ทดสอบการประสานระหว่าง GeminiLiveSession กับ VoiceBridge:
-    - input_transcription ของผู้ใช้ถูกส่งเข้า process_user_transcription
-    - หากผู้ใช้ยังไม่ยินยอม โมเดลเรียก pea_confirm_pending_action จะได้ error consent_required
-    - หากผู้ใช้ถอดเสียงได้ "ยืนยันครับ" โมเดลเรียก confirm จะได้ submitted
+    - input_transcription ของผู้ใช้ถูกสะสมจน finished แล้วส่งเข้า process_user_transcription
+    - หากยังไม่ได้ส่งมอบการอ่านทวน โมเดลเรียก pea_confirm_pending_action จะได้ action_conflict
+    - หากอ่านทวนแล้วแต่ผู้ใช้ยังไม่ยินยอม โมเดลเรียก confirm จะได้ consent_required
+    - หากผู้ใช้ถอดเสียงได้ "ไม่ใช่ครับ" รายการเดิมถูก reject และได้รับ guidance
     """
     pending = PendingAction(
         pending_action_id=uuid4(),
@@ -628,22 +759,40 @@ async def test_gemini_live_session_routes_transcripts_and_blocks_unconsented_too
     session = object.__new__(GeminiLiveSession)
     session._bridge = bridge
     websocket = LiveSessionFakeWebSocket()
+    fake_gemini = LiveSessionFakeGeminiSession()
 
-    # 1. โมเดลพยายามลักไก่เรียก confirm โดยที่ไม่มี transcription คำยินยอมของผู้ใช้
+    # 1. ยังไม่ได้อ่านทวน -> โมเดลเรียก confirm ได้ action_conflict
+    res_not_read = await session._call_bridge("pea_confirm_pending_action", {})
+    assert "error" in res_not_read
+    assert res_not_read["error"]["code"] == "action_conflict"
+
+    # 2. อ่านทวนส่งมอบแล้ว
+    bridge.mark_read_back_delivered()
+
+    # 3. โมเดลพยายามลักไก่เรียก confirm โดยที่ไม่มี transcription คำยินยอมของผู้ใช้ -> consent_required
     res_unconsented = await session._call_bridge("pea_confirm_pending_action", {"confirmationNote": "ยืนยัน"})
     assert "error" in res_unconsented
     assert res_unconsented["error"]["code"] == "consent_required"
 
-    # 2. เสียงผู้ใช้เข้ามาทาง WebSocket transcription: "ไม่ใช่ครับ"
-    fake_content = SimpleNamespace(
-        input_transcription=SimpleNamespace(text="ไม่ใช่ครับ", finished=True),
+    # 4. เสียงผู้ใช้เข้ามาทาง WebSocket transcription แบบแบ่งชิ้น (streaming chunks)
+    chunk1 = SimpleNamespace(
+        input_transcription=SimpleNamespace(text="ไม่", finished=False),
         output_transcription=None,
     )
-    await session._forward_transcripts(websocket, fake_content)
+    chunk2 = SimpleNamespace(
+        input_transcription=SimpleNamespace(text="ใช่ครับ", finished=True),
+        output_transcription=None,
+    )
+    await session._forward_transcripts(websocket, fake_gemini, chunk1)
+    await session._forward_transcripts(websocket, fake_gemini, chunk2)
+
     # Action เดิมต้องถูก reject
     assert bridge.has_pending_action is False
     assert gateway.all_actions[pending.pending_action_id].status is PendingActionStatus.REJECTED
 
-    # 3. โมเดลเรียก confirm หลังถูก reject -> ต้องได้ no_pending_action
+    # fake_gemini ได้รับ guidance ให้พูดกับผู้ใช้ต่อ
+    assert len(fake_gemini.sent_client_content) == 1
+
+    # 5. โมเดลเรียก confirm หลังถูก reject -> ต้องได้ no_pending_action
     res_rejected = await session._call_bridge("pea_confirm_pending_action", {})
     assert res_rejected["error"]["code"] == "no_pending_action"

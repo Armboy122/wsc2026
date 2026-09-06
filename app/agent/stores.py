@@ -64,8 +64,6 @@ def redact(value: Any, *, key: str = "") -> Any:
     if isinstance(value, (list, tuple)):
         return [redact(item) for item in value[:20]]
     if isinstance(value, str) and len(value) > 200:
-        if norm_key in {"readbacktext", "readback"}:
-            return value[:500]
         return "[redacted]"
     return value
 

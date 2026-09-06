@@ -141,4 +141,5 @@ def _operation_spec_from_shape(operation: ToolOperationShape) -> OperationSpec:
         submit_action=operation.submit_action,
         limits=limits,
         client_context=operation.client_context,
+        voice_confirm=operation.voice_confirm,
     )

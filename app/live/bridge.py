@@ -70,32 +70,75 @@ _FIELD_LABELS: dict[str, str] = {
 
 # T6.1 & CONTRACTS-V2 §6.3:
 # ปฏิเสธ: ยกเลิก · ไม่ใช่ · ไม่เอา · ผิด · แก้ไข (+ ไม่เอาแล้ว, ไม่ต้องแล้ว, ไม่ต้อง, ขอยกเลิก, หยุดก่อน, ไม่ทำแล้ว, เลิกทำ, cancel)
-_REFUSAL_PHRASES: tuple[str, ...] = (
-    "ไม่ใช่", "ไม่เอาแล้ว", "ไม่เอา", "ไม่ต้องแล้ว", "ไม่ต้อง",
-    "ขอยกเลิก", "หยุดก่อน", "ไม่ทำแล้ว", "เลิกทำ", "cancel",
-    "ยกเลิก", "ผิด", "แก้ไข", "แก้", "ไม่ถูกต้อง", "ไม่ยืนยัน", "ไม่ตกลง",
+_POLITE_PARTICLES_REGEX = re.compile(
+    r"(?:ครับ|ค่ะ|คะ|จ้ะ|จ้า|นะครับ|นะคะ|นะ|หน่อย|ด้วย|สิ|เลย|แล้ว|ก่อน)+$"
 )
-_CANCEL_REASON = "ผู้ใช้ปฏิเสธรายการด้วยเสียง"
 
-# ยืนยัน: ยืนยัน · ตกลง · ใช่ (+ครับ/ค่ะ) · ถูกต้อง · เอาเลย
-# สังเกต negative lookbehind (?<!ไม่) เพื่อป้องกันกรณี "ไม่ใช่" หลุดมาเข้า confirm
-_CONFIRM_PATTERN = re.compile(r"(?<!ไม่)(?:ยืนยัน|ตกลง|ถูกต้อง|เอาเลย|ใช่)")
+_QUESTION_WORDS = (
+    "ไหม", "มั้ย", "หรือไม่", "หรือเปล่า", "หรือยัง", "หรือ", "ทำไม",
+    "อะไร", "ใคร", "ที่ไหน", "เมื่อไหร่", "ยังไง", "อย่างไร", "เท่าไหร่",
+    "กี่", "ดีไหม", "เหรอ", "หรอ", "?", "what", "why", "how", "when", "where", "who",
+)
+
+_REFUSAL_EXACT = frozenset({
+    "ไม่ใช่", "ไม่", "ไม่เอา", "ไม่เอาแล้ว", "ไม่ต้อง", "ไม่ต้องแล้ว",
+    "ขอยกเลิก", "ยกเลิก", "ไม่ทำแล้ว", "เลิกทำ", "หยุดก่อน",
+    "ข้อมูลผิด", "ผิด", "ไม่ถูกต้อง", "ข้อมูลไม่ถูกต้อง", "ข้อมูลไม่ถูก",
+    "ขอแก้ไข", "ขอแก้ไขข้อมูล", "แก้ไข", "แก้ไขข้อมูล", "แก้", "แก้ข้อมูล", "เปลี่ยน", "ขอเปลี่ยน",
+    "ไม่ยืนยัน", "ไม่ตกลง", "ยังไม่พร้อม", "ยังไม่พร้อมยืนยัน", "ยังไม่ยืนยัน", "ยังไม่ตกลง",
+    "cancel", "no", "reject",
+})
+
+_CONFIRM_EXACT = frozenset({
+    "ยืนยัน", "ตกลง", "ถูกต้อง", "ถูกต้องแล้ว", "ใช่", "เอาเลย", "ตามนั้น", "ดำเนินการเลย",
+    "yes", "confirm", "ok", "okay",
+})
+
+_CANCEL_REASON = "ผู้ใช้ปฏิเสธรายการด้วยเสียง"
 
 
 def match_voice_intent(text: str) -> str:
-    """Deterministic refusal-first matching:
+    """Deterministic refusal-first matching with closed allowlist normalization:
     คืนค่า 'refusal' | 'confirm' | 'unrecognized'
-    🔒 กติกาความปลอดภัย T6.1: ต้องตรวจชุดปฏิเสธก่อนชุดยืนยันเสมอ
+    🔒 กติกาความปลอดภัย T6.1:
+    - ตรวจชุดปฏิเสธก่อนชุดยืนยันเสมอ
+    - ข้อความคำถาม / ข้อความกำกวม / มีคำปฏิเสธ ต้องไม่ผ่านเป็นยืนยันเด็ดขาด
     """
-    normalized = " ".join(text.casefold().split())
-    if not normalized or len(normalized) > 40:
+    if not isinstance(text, str):
         return "unrecognized"
-    # 1. ตรวจชุดปฏิเสธก่อนเสมอ!
-    if any(phrase in normalized for phrase in _REFUSAL_PHRASES):
+    s = " ".join(text.casefold().strip().split())
+    # ตัดเครื่องหมายวรรคตอน
+    s = re.sub(r"[?!.,:;]+", " ", s).strip()
+    s = " ".join(s.split())
+    if not s or len(s) > 40:
+        return "unrecognized"
+
+    # 1. ข้อความที่เป็นคำถาม ห้ามเป็นคำยืนยันโดยเด็ดขาด (เช่น "ต้องยืนยันไหมครับ", "ยืนยันทำไม")
+    if any(q in s for q in _QUESTION_WORDS):
+        return "unrecognized"
+
+    # ตัดคำลงท้ายสุภาพเพื่อเทียบคำศัพท์แก่น
+    stripped = _POLITE_PARTICLES_REGEX.sub("", s).strip()
+    stripped = " ".join(stripped.split())
+    if not stripped:
+        stripped = s
+
+    # 2. ตรวจชุดปฏิเสธก่อนเสมอ (refusal-first)
+    if stripped in _REFUSAL_EXACT or s in _REFUSAL_EXACT:
         return "refusal"
-    # 2. ตรวจชุดยืนยัน
-    if _CONFIRM_PATTERN.search(normalized):
+    if any(phrase in s for phrase in ("ยังไม่พร้อม", "ไม่ยืนยัน", "ไม่ตกลง", "ขอยกเลิก", "ไม่เอาแล้ว", "ไม่ต้องแล้ว", "ไม่ใช่", "ข้อมูลผิด", "ขอแก้ไข", "แก้ไขข้อมูล")):
+        return "refusal"
+    if s.startswith("ไม่") or s.startswith("ยังไม่"):
+        return "refusal"
+
+    # 3. ตรวจคำปฏิเสธอื่น ๆ ที่ยังหลงเหลือ — ถ้ามี ห้ามเป็น confirm เด็ดขาด
+    if any(neg in s for neg in ("ไม่", "ยังไม่", "อย่า", "ห้าม", "มิ", "no", "not")):
+        return "unrecognized"
+
+    # 4. ตรวจชุดยืนยันแบบ closed allowlist เท่านั้น
+    if stripped in _CONFIRM_EXACT or s in _CONFIRM_EXACT:
         return "confirm"
+
     return "unrecognized"
 
 
@@ -128,11 +171,94 @@ def sanitize_confirmation_evidence(text: str) -> str:
         return ""
     cleaned = text.strip()
     cleaned = re.sub(r"\b\d{13}\b", "[redacted-id]", cleaned)
+    cleaned = re.sub(r"\b\d{12}\b", "[redacted-ca]", cleaned)
     cleaned = re.sub(r"\b\d{16}\b", "[redacted-card]", cleaned)
-    cleaned = re.sub(r"(?i)bearer\s+[a-zA-Z0-9_\-\.]+", "[redacted-token]", cleaned)
-    if len(cleaned) > 500:
-        cleaned = cleaned[:500] + "..."
+    cleaned = re.sub(r"\b0\d{8,9}\b", "[redacted-phone]", cleaned)
+    cleaned = re.sub(r"(?i)bearer\s+[a-zA-Z0-9_\-\.]+", "Bearer [redacted-token]", cleaned)
+    if len(cleaned) > 200:
+        cleaned = cleaned[:197] + "..."
     return cleaned
+
+
+def build_confirmation_evidence(
+    *,
+    pending_action: Any,
+    transcription: str,
+    channel: str = "voice",
+) -> dict[str, Any]:
+    """สร้าง confirmation evidence ที่ปลอดภัยต่อ trace โดยไม่ทำให้ trace redaction เสียหาย (T6.4)"""
+    prepared = getattr(pending_action, "prepared_input", None) or {}
+    sanitized_fields: dict[str, Any] = {}
+    for k, v in prepared.items():
+        if k.startswith("_") or k in {"idempotency_key", "idempotencyKey", "token"}:
+            continue
+        norm_k = "".join(c for c in k.casefold() if c.isalnum())
+        if norm_k in {"phone", "contactphone", "canumber", "citizenid", "nationalid", "idcard"}:
+            sanitized_fields[k] = sanitize_confirmation_evidence(str(v))
+        elif isinstance(v, str):
+            sanitized_fields[k] = sanitize_confirmation_evidence(v)
+        else:
+            sanitized_fields[k] = v
+
+    summary = getattr(pending_action, "summary", "รายการรอดำเนินการ")
+    clean_summary = sanitize_confirmation_evidence(summary)
+    if len(clean_summary) > 100:
+        clean_summary = clean_summary[:97] + "..."
+
+    return {
+        "channel": channel,
+        "transcription": sanitize_confirmation_evidence(transcription),
+        "confirmedAt": datetime.now(timezone.utc).isoformat(),
+        "readBackSummary": clean_summary,
+        "readBackFields": sanitized_fields,
+    }
+
+
+def extract_field_correction(
+    text: str,
+    last_input: Mapping[str, Any],
+    schema_properties: Mapping[str, Any] | None = None,
+) -> dict[str, Any] | None:
+    """แกะฟิลด์ที่ผู้ใช้ระบุแก้ไขในโหมด schema-driven correction (T6.2)"""
+    if not text or not last_input:
+        return None
+    normalized = text.strip()
+    if normalized in {"ทั้งหมด", "เริ่มใหม่", "ทำใหม่", "ยกเลิกทั้งหมด"}:
+        return None
+
+    updated = dict(last_input)
+    matched = False
+
+    # 1. Phone number (0812345678 / 0899999999)
+    phone_match = re.search(r"\b0\d{8,9}\b", normalized)
+    if phone_match:
+        phone_key = next((k for k in updated if "phone" in k.lower() or "contact" in k.lower()), None)
+        if phone_key:
+            updated[phone_key] = phone_match.group(0)
+            matched = True
+
+    # 2. CA number (12 digits)
+    ca_match = re.search(r"\b\d{12}\b", normalized)
+    if ca_match:
+        ca_key = next((k for k in updated if "ca" in k.lower()), None)
+        if ca_key:
+            updated[ca_key] = ca_match.group(0)
+            matched = True
+
+    # 3. Label/Key pattern: (?:แก้|เปลี่ยน)? <label|key> (?:เป็น|คือ|:)? <val>
+    for key in list(updated.keys()):
+        if key.startswith("_") or key in {"idempotency_key", "idempotencyKey", "token"}:
+            continue
+        label = _FIELD_LABELS.get(key, key)
+        pattern = rf"(?:แก้|เปลี่ยน)?\s*(?:{re.escape(label)}|{re.escape(key)})\s*(?:เป็น|คือ|:|=)?\s*([^\s;,]+)"
+        m = re.search(pattern, normalized)
+        if m:
+            val = m.group(1).strip()
+            if val:
+                updated[key] = val
+                matched = True
+
+    return updated if matched else None
 
 
 def strip_voice_citations(text: str) -> str:
@@ -197,15 +323,22 @@ class VoiceBridge:
         self._conversation_id: UUID | None = None
         self._pending_action_id: UUID | None = None
         self._current_pending_action: Any | None = None
+        self._last_rejected_action_id: UUID | None = None
+        self._last_rejected_input: dict[str, Any] | None = None
+        self._last_rejected_tool_slug: str | None = None
+        self._last_rejected_prepare_action: str | None = None
+        self._last_rejected_summary: str | None = None
         self._read_back_text: str | None = None
-        self._read_back_completed: bool = False
+        self._read_back_generation: int = 0
+        self._read_back_delivered: bool = False
         self._voice_confirm_allowed: bool = True
         self._consent_granted: bool = False
         self._transcribed_consent: str | None = None
+        self._consent_pending_action_id: UUID | None = None
+        self._consent_generation: int = 0
         self._retry_count: int = 0
         self._in_correction_mode: bool = False
         self._correction_count: int = 0
-        self._last_rejected_action_id: UUID | None = None
         self._lock = asyncio.Lock()
 
     @property
@@ -225,8 +358,25 @@ class VoiceBridge:
 
     @property
     def read_back_completed(self) -> bool:
-        """True เมื่อได้อ่านทวนรายการทั้งหมดแล้ว"""
-        return self._read_back_completed
+        """True เมื่อการอ่านทวนข้อมูลเสร็จสิ้นและส่งถึงผู้ใช้เรียบร้อยแล้วโดยไม่ถูกขัดจังหวะ"""
+        return self._read_back_delivered
+
+    def mark_read_back_delivered(
+        self, pending_action_id: UUID | None = None, generation: int | None = None
+    ) -> None:
+        """เรียกเมื่อการส่งออกเสียงอ่านทวนถึงผู้ใช้เรียบร้อยแล้วโดยไม่ถูกขัดจังหวะ (T6.1 / T6.3)"""
+        if pending_action_id is not None and self._pending_action_id != pending_action_id:
+            return
+        if generation is not None and self._read_back_generation != generation:
+            return
+        self._read_back_delivered = True
+
+    def mark_interrupted(self) -> None:
+        """เรียกเมื่อผู้ใช้พูดแทรกระหว่างที่ผู้ช่วยกำลังพูด (audio.interrupted) (T6.1 / T6.3)"""
+        self._read_back_delivered = False
+        self._consent_granted = False
+        self._transcribed_consent = None
+        self._consent_pending_action_id = None
 
     @property
     def read_back_text(self) -> str | None:
@@ -258,7 +408,7 @@ class VoiceBridge:
             return fn(tool_slug, action)
         return None
 
-    async def process_user_transcription(self, text: str) -> None:
+    async def process_user_transcription(self, text: str) -> dict[str, Any] | None:
         """ประมวลผลข้อความถอดเสียงจริงของผู้ใช้แบบ deterministic matching (T6.1)
 
         🔒 ข้อกำหนดความปลอดภัย:
@@ -267,26 +417,85 @@ class VoiceBridge:
         - ตรวจชุดปฏิเสธก่อนชุดยืนยันเสมอ
         """
         async with self._lock:
-            if self._pending_action_id is None:
-                return
+            cleaned = text.strip() if isinstance(text, str) else ""
+            if not cleaned:
+                return None
 
-            intent = match_voice_intent(text)
+            if self._pending_action_id is None:
+                return None
+
+            intent = match_voice_intent(cleaned)
+
+            # 1. ผู้ใช้พูดปฏิเสธ -> ยุติรายการเดิม และเข้าสู่โหมดแก้ไข
             if intent == "refusal":
-                # Spoken refusal terminates old action immediately
-                await self._handle_refusal_locked()
-            elif intent == "confirm":
-                if self._read_back_completed and self._voice_confirm_allowed:
-                    self._consent_granted = True
-                    self._transcribed_consent = sanitize_confirmation_evidence(text)
-                else:
+                self._consent_granted = False
+                self._transcribed_consent = None
+                self._consent_pending_action_id = None
+                return await self._handle_refusal_locked()
+
+            # 2. ผู้ใช้พูดยืนยัน
+            if intent == "confirm":
+                if not self._voice_confirm_allowed:
                     self._consent_granted = False
-            else:
-                # Ambiguous / unrecognized speech
-                if not self._in_correction_mode:
-                    self._retry_count += 1
-                    if self._retry_count > _MAX_RETRIES:
-                        await self._reject_locked("ถามซ้ำเกินกำหนด 3 ครั้ง ยกเลิกรายการ")
-                        self._retry_count = 0
+                    return {
+                        "operation": "reject",
+                        "response": {
+                            "error": {
+                                "code": "voice_confirm_disabled",
+                                "message": "รายการนี้ไม่อนุญาตให้ยืนยันด้วยเสียง กรุณายืนยันผ่านหน้าจอครับ",
+                            }
+                        },
+                    }
+                if not self._read_back_delivered or not self._read_back_text:
+                    self._consent_granted = False
+                    return {
+                        "operation": "reject",
+                        "response": {
+                            "error": {
+                                "code": "read_back_incomplete",
+                                "message": "ยังอ่านทวนข้อมูลไม่เสร็จสิ้น หรือถูกขัดจังหวะ กรุณาฟังการอ่านทวนก่อนยืนยันครับ",
+                            }
+                        },
+                    }
+                self._consent_granted = True
+                self._transcribed_consent = sanitize_confirmation_evidence(cleaned)
+                self._consent_pending_action_id = self._pending_action_id
+                self._consent_generation = self._read_back_generation
+                return {
+                    "operation": "chat",
+                    "response": {
+                        "message": "รับทราบคำยืนยันครับ ระบบกำลังดำเนินการ",
+                        "voiceGuidance": "แจ้งผู้ใช้ว่ารับทราบคำยืนยันแล้ว และกำลังดำเนินการส่งรายการ",
+                    },
+                }
+
+            # 3. คำพูดกำกวม หรือคำถามนอกเรื่อง -> unrecognized
+            self._consent_granted = False
+            self._transcribed_consent = None
+            self._consent_pending_action_id = None
+            if not self._in_correction_mode:
+                self._retry_count += 1
+                if self._retry_count > _MAX_RETRIES:
+                    decision = await self._reject_internal_locked("speech_unrecognized_exceeded_retries")
+                    self._in_correction_mode = False
+                    return {
+                        "operation": "reject",
+                        "response": {
+                            "pendingAction": decision.get("pendingAction"),
+                            "message": "ขออภัยครับ ไม่สามารถจับใจความคำยืนยันได้ครบ 3 ครั้ง ระบบขอยกเลิกรายการนี้เพื่อความปลอดภัยครับ",
+                            "voiceGuidance": "แจ้งผู้ใช้ว่าขอยกเลิกรายการเนื่องจากไม่สามารถจับใจความได้ครบ 3 ครั้ง",
+                        },
+                    }
+
+                return {
+                    "operation": "chat",
+                    "response": {
+                        "message": f"ขออภัยครับ ฟังไม่ชัดเจน กรุณาตอบ ยืนยัน หรือแจ้งแก้ไขครับ (ครั้งที่ {self._retry_count}/3)",
+                        "voiceGuidance": f"ถามผู้ใช้อีกครั้งอย่างสุภาพ: ขออภัยครับ ฟังไม่ชัดเจน กรุณาตอบ ยืนยัน หรือแจ้งแก้ไขครับ (ครั้งที่ {self._retry_count} จาก 3 ครั้ง)",
+                    },
+                }
+
+            return None
 
     async def handle_text(self, message: str) -> dict[str, Any]:
         """ส่งข้อความเสียง/พิมพ์หนึ่งรอบไปยัง Main Agent
@@ -300,17 +509,11 @@ class VoiceBridge:
             if not text:
                 raise InvalidTextError()
 
-            # 1. ถ้ามี pending action และไม่ได้อยู่ในโหมดแก้ไข
-            if self._pending_action_id is not None and not self._in_correction_mode:
-                intent = match_voice_intent(text)
-                if intent == "refusal":
-                    return await self._handle_refusal_locked()
-                elif intent == "confirm":
-                    if self._read_back_completed and self._voice_confirm_allowed:
-                        self._consent_granted = True
-                        self._transcribed_consent = sanitize_confirmation_evidence(text)
+            # 🔒 T6.1: handle_text เป็นคำสั่งผ่าน LLM (pea_agent_chat)
+            # จึงต้องไม่ให้คำยินยอมหรือตัดสินใจปฏิเสธแทนผู้ใช้โดยเด็ดขาด!
+            # คำยินยอมและคำปฏิเสธจะถูกประมวลผลผ่าน process_user_transcription เท่านั้น
 
-            # 2. ถ้าอยู่ในโหมดแก้ไข (T6.2)
+            # 1. ถ้าอยู่ในโหมดแก้ไข (T6.2)
             if self._in_correction_mode:
                 if self._correction_count > _MAX_CORRECTIONS:
                     self._in_correction_mode = False
@@ -321,9 +524,30 @@ class VoiceBridge:
                         "voiceGuidance": "แจ้งผู้ใช้ว่าแก้ไขเกินเพดาน 3 ครั้ง และแนะนำให้ติดต่อสายด่วน 1129",
                     }
 
+            # 2. ผสานการแก้ไขฟิลด์ข้อมูลเข้ากับ input เดิม หากอยู่ในโหมดแก้ไข
+            message_to_send = text
+            if self._in_correction_mode and self._last_rejected_input:
+                schema = None
+                if self._last_rejected_tool_slug and self._last_rejected_prepare_action:
+                    schema = self._get_operation_schema(
+                        self._last_rejected_tool_slug, self._last_rejected_prepare_action
+                    )
+                props = schema.get("properties", {}) if schema else {}
+                corrected_input = extract_field_correction(text, self._last_rejected_input, props)
+                if corrected_input:
+                    field_parts = [
+                        f"{k}: {v}"
+                        for k, v in corrected_input.items()
+                        if not k.startswith("_") and k not in {"idempotency_key", "idempotencyKey", "token"}
+                    ]
+                    prefix = "แจ้งเหตุไฟดับ"
+                    if self._last_rejected_summary and not self._last_rejected_summary.startswith("รายการ"):
+                        prefix = self._last_rejected_summary
+                    message_to_send = f"{prefix}; " + "; ".join(field_parts)
+
             # 3. ส่งข้อความเข้า MainAgent
             try:
-                request = ChatRequest(conversation_id=self._conversation_id, message=text)
+                request = ChatRequest(conversation_id=self._conversation_id, message=message_to_send)
             except ValidationError as exc:
                 raise InvalidTextError(
                     f"ข้อความยาวเกินกำหนด (สูงสุด {_MAX_MESSAGE_LENGTH} ตัวอักษร) กรุณาลองอีกครั้งครับ"
@@ -347,6 +571,10 @@ class VoiceBridge:
                 self._retry_count = 0
                 self._consent_granted = False
                 self._transcribed_consent = None
+                self._consent_pending_action_id = None
+                self._consent_generation = 0
+                self._read_back_generation += 1
+                self._read_back_delivered = False  # 🔒 T6.1 & T6.3: ยังไม่ได้ส่งมอบเสียงถึงผู้ใช้จริง!
 
                 # ตรวจ voiceConfirm
                 spec = self._get_operation_spec(
@@ -362,7 +590,6 @@ class VoiceBridge:
                 )
                 props = schema.get("properties", {}) if schema else {}
                 self._read_back_text = build_read_back_text(response.pending_action, props)
-                self._read_back_completed = True
 
             payload = response.model_dump(mode="json", by_alias=True)
             payload["voiceGuidance"] = self._voice_guidance(response)
@@ -371,10 +598,16 @@ class VoiceBridge:
     async def _handle_refusal_locked(self) -> dict[str, Any]:
         """ผู้ใช้ปฏิเสธรายการด้วยเสียง -> reject action เดิม และเข้าสู่โหมดแก้ไข (T6.2)"""
         last_action = self._current_pending_action
-        rejected_resp = await self._reject_locked(_CANCEL_REASON)
+        if last_action:
+            self._last_rejected_input = dict(getattr(last_action, "prepared_input", None) or {})
+            self._last_rejected_tool_slug = getattr(last_action, "tool_slug", None)
+            self._last_rejected_prepare_action = getattr(last_action, "prepare_action", None)
+            self._last_rejected_summary = getattr(last_action, "summary", None)
+        rejected_resp = await self._reject_internal_locked(_CANCEL_REASON)
         self._consent_granted = False
         self._transcribed_consent = None
-        self._read_back_completed = False
+        self._consent_pending_action_id = None
+        self._read_back_delivered = False
         self._read_back_text = None
 
         self._correction_count += 1
@@ -387,7 +620,7 @@ class VoiceBridge:
                 "inCorrectionMode": False,
                 "voiceGuidance": "แจ้งผู้ใช้ว่าแก้ไขเกินเพดาน 3 ครั้ง และแนะนำให้ติดต่อสายด่วน 1129",
             })
-            return payload
+            return {"operation": "reject", "response": payload}
 
         self._in_correction_mode = True
         schema = None
@@ -417,7 +650,7 @@ class VoiceBridge:
             "inCorrectionMode": True,
             "voiceGuidance": f"ถามผู้ใช้ว่าต้องการแก้ไขส่วนไหนจากรายการ: {fields_str} หรือทั้งหมด",
         })
-        return payload
+        return {"operation": "reject", "response": payload}
 
     def _voice_guidance(self, response: Any) -> str | None:
         """บอกเสียงว่าต้องพูดอย่างไรกับตัวเลือกและลิงก์ในคำตอบรอบนี้"""
@@ -496,23 +729,26 @@ class VoiceBridge:
         if not self._voice_confirm_allowed:
             raise VoiceBridgeError("voice_confirm_disabled", "รายการนี้ไม่อนุญาตให้ยืนยันด้วยเสียง (voiceConfirm: false)")
 
-        # 🔒 T6.1 Structural safety: read-back must have been completed
-        if not self._read_back_completed:
-            raise ActionConflictError("ยังไม่ได้อ่านทวนรายการทั้งหมดให้ผู้ใช้ฟัง กรุณาอ่านทวนก่อนยืนยัน")
+        # 🔒 T6.1 & T6.3 Structural safety: read-back delivery must have been completed without interrupt
+        if not self._read_back_delivered or not self._read_back_text:
+            raise ActionConflictError("ยังไม่ได้อ่านทวนรายการทั้งหมดให้ผู้ใช้ฟัง หรือถูกขัดจังหวะ กรุณาอ่านทวนใหม่ก่อนยืนยัน")
 
         # 🔒 T6.1 Structural safety: LLM call cannot constitute consent; genuine speech consent is required
-        if not self._consent_granted:
+        if (
+            not self._consent_granted
+            or self._consent_pending_action_id != pending_action_id
+            or self._consent_generation != self._read_back_generation
+        ):
             raise VoiceBridgeError("consent_required", "ยังไม่ได้รับคำยินยอมที่ชัดเจนจากเสียงของผู้ใช้")
 
         note = self._normalize_optional_text(confirmation_note, _MAX_NOTE_LENGTH, "confirmationNote")
 
-        # 🔒 T6.4 Confirmation evidence
-        evidence = {
-            "readBackText": sanitize_confirmation_evidence(self._read_back_text or ""),
-            "transcription": sanitize_confirmation_evidence(self._transcribed_consent or "ยืนยัน"),
-            "confirmedAt": datetime.now(timezone.utc).isoformat(),
-            "channel": "voice",
-        }
+        # 🔒 T6.4 Confirmation evidence safely structured without leaking raw customer fields
+        evidence = build_confirmation_evidence(
+            pending_action=self._current_pending_action,
+            transcription=self._transcribed_consent or "ยืนยัน",
+            channel="voice",
+        )
 
         try:
             with trace_channel("voice"):
@@ -536,7 +772,8 @@ class VoiceBridge:
         # Reset consent and read-back state
         self._consent_granted = False
         self._transcribed_consent = None
-        self._read_back_completed = False
+        self._consent_pending_action_id = None
+        self._read_back_delivered = False
         self._read_back_text = None
         self._clear_if_terminal(decision)
         return decision.model_dump(mode="json", by_alias=True)
@@ -571,10 +808,13 @@ class VoiceBridge:
         self._last_rejected_action_id = pending_action_id
         self._consent_granted = False
         self._transcribed_consent = None
-        self._read_back_completed = False
+        self._consent_pending_action_id = None
+        self._read_back_delivered = False
         self._read_back_text = None
         self._clear_if_terminal(decision)
         return decision.model_dump(mode="json", by_alias=True)
+
+    _reject_internal_locked = _reject_locked
 
     def _require_pending(self) -> UUID:
         if self._pending_action_id is None:

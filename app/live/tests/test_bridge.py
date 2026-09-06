@@ -161,6 +161,7 @@ async def _bridge_with_pending(
     )
     result = await bridge.handle_text("เตรียมเรื่องร้องเรียน")
     assert result["pendingAction"] is not None
+    bridge.mark_read_back_delivered()
     await bridge.process_user_transcription("ยืนยันครับ")
     return bridge, gateway
 
@@ -573,6 +574,7 @@ async def test_voice_flow_against_real_main_agent() -> None:
     assert bridge.has_pending_action is True
 
     # ยืนยันด้วยเสียง → internal submit หนึ่งครั้ง → สถานะสิ้นสุดและล้าง pending
+    bridge.mark_read_back_delivered()
     await bridge.process_user_transcription("ยืนยันครับ")
     decision = await bridge.confirm_current(confirmation_note="ยืนยันจากเสียง")
     assert decision["pendingAction"]["status"] == "submitted"
@@ -753,11 +755,11 @@ async def test_spoken_refusal_rejects_the_pending_action(refusal: str) -> None:
     """คำปฏิเสธชัดเจนต้องปิดรายการทันที ไม่ปล่อยให้ pending ค้าง"""
     bridge, gateway = await _bridge_with_pending()
 
-    result = await bridge.handle_text(refusal)
+    result = await bridge.process_user_transcription(refusal)
 
     assert len(gateway.reject_calls) == 1
     assert gateway.reject_calls[0][1] == "ผู้ใช้ปฏิเสธรายการด้วยเสียง"
-    assert result["pendingAction"]["status"] == "rejected"
+    assert result["response"]["pendingAction"]["status"] == "rejected"
     # รายการถูกปิดแล้ว การยืนยันภายหลังต้อง fail closed
     assert bridge.has_pending_action is False
     with pytest.raises(NoPendingActionError):
@@ -770,7 +772,7 @@ async def test_refusal_does_not_reach_the_chat_path() -> None:
     bridge, gateway = await _bridge_with_pending()
     chat_calls_before = len(gateway.chat_calls)
 
-    await bridge.handle_text("ไม่เอาแล้วครับ")
+    await bridge.process_user_transcription("ไม่เอาแล้วครับ")
 
     assert len(gateway.chat_calls) == chat_calls_before
 

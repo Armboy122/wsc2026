@@ -97,6 +97,7 @@ def from_plugin(loaded: LoadedPlugin) -> ToolShape:
                 policy=operation.effective_policy.value,
                 limits=_limits_to_dict(operation.limits),
                 client_context=operation.client_context,
+                voice_confirm=operation.voice_confirm,
             )
             for operation in manifest.operations
         ),

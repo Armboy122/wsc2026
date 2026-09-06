@@ -195,33 +195,70 @@ class GeminiLiveSession:
                 if content is not None:
                     if content.interrupted:
                         await websocket.send_json({"type": "audio.interrupted"})
-                    await self._forward_transcripts(websocket, content)
+                        bridge = getattr(self, "_bridge", None)
+                        if bridge is not None and hasattr(bridge, "mark_interrupted"):
+                            bridge.mark_interrupted()
+                    await self._forward_transcripts(websocket, session, content)
                     for part in ((content.model_turn.parts or ()) if content.model_turn else ()):
                         inline_data = part.inline_data
                         if inline_data is not None and inline_data.data:
                             await websocket.send_bytes(inline_data.data)
                     if content.turn_complete:
                         await websocket.send_json({"type": "turn.complete"})
+                        bridge = getattr(self, "_bridge", None)
+                        if bridge is not None and hasattr(bridge, "mark_read_back_delivered"):
+                            bridge.mark_read_back_delivered()
                 if event.tool_call is not None:
                     await self._respond_to_calls(websocket, session, event.tool_call.function_calls or [])
 
-    async def _forward_transcripts(self, websocket: WebSocket, content: Any) -> None:
-        for name, event_type, role in (
-            ("input_transcription", "transcript.user", "user"),
-            ("output_transcription", "transcript.assistant", "assistant"),
-        ):
-            transcription = getattr(content, name, None)
-            text = getattr(transcription, "text", None)
+    async def _forward_transcripts(self, websocket: WebSocket, session: Any, content: Any) -> None:
+        if not hasattr(self, "_accumulated_user_transcription"):
+            self._accumulated_user_transcription = []
+
+        input_transcription = getattr(content, "input_transcription", None)
+        if input_transcription is not None:
+            text = getattr(input_transcription, "text", None) or ""
             if text:
-                final = bool(getattr(transcription, "finished", False))
+                self._accumulated_user_transcription.append(text)
+            final = bool(getattr(input_transcription, "finished", False))
+            if text or final:
                 await websocket.send_json({
-                    "type": event_type,
-                    "role": role,
+                    "type": "transcript.user",
+                    "role": "user",
                     "text": text,
                     "final": final,
                 })
-                if role == "user" and final and hasattr(self._bridge, "process_user_transcription"):
-                    await self._bridge.process_user_transcription(text)
+            if final:
+                full_text = "".join(self._accumulated_user_transcription).strip()
+                self._accumulated_user_transcription.clear()
+                if full_text and hasattr(self._bridge, "process_user_transcription"):
+                    transcription_result = await self._bridge.process_user_transcription(full_text)
+                    if transcription_result and isinstance(transcription_result, dict):
+                        op = transcription_result.get("operation", "chat")
+                        resp = transcription_result.get("response", transcription_result)
+                        await websocket.send_json({
+                            "type": "agent.response",
+                            "operation": op,
+                            "response": resp,
+                        })
+                        guidance = resp.get("voiceGuidance") or resp.get("message")
+                        if guidance and hasattr(session, "send_client_content"):
+                            with suppress(Exception):
+                                await session.send_client_content(
+                                    turns=[types.Content(role="user", parts=[types.Part.from_text(text=guidance)])],
+                                    turn_complete=True,
+                                )
+
+        output_transcription = getattr(content, "output_transcription", None)
+        if output_transcription is not None:
+            text = getattr(output_transcription, "text", None)
+            if text:
+                await websocket.send_json({
+                    "type": "transcript.assistant",
+                    "role": "assistant",
+                    "text": text,
+                    "final": bool(getattr(output_transcription, "finished", False)),
+                })
 
     async def _respond_to_calls(self, websocket: WebSocket, session: Any, calls: list[Any]) -> None:
         responses: list[types.FunctionResponse] = []
