@@ -444,6 +444,9 @@ import {
     var baseline = operation || {};
     card.dataset.baselineOperation = JSON.stringify(baseline);
     card.dataset.baselineSchema = JSON.stringify(baseline.inputSchema || {});
+    // The selected submit action may not have an option yet when a prepare card
+    // is created before the submit cards. Keep it until all cards are available.
+    card.dataset.initialSubmitAction = baseline.submitAction || "";
 
     $('[data-op="action"]', card).value = (operation && operation.action) || "";
     $('[data-op="policy"]', card).value = (operation && operation.policy) || "plain_read";
@@ -511,7 +514,7 @@ import {
         if (action) submitActions.push(action);
       }
     });
-    var selected = submitInput.value;
+    var selected = submitInput.value || card.dataset.initialSubmitAction || "";
     submitInput.replaceChildren(el("option", null, "— เลือก operation mode=submit —"));
     submitInput.firstElementChild.value = "";
     submitActions.forEach(function (action) {
@@ -520,6 +523,9 @@ import {
       submitInput.appendChild(option);
     });
     submitInput.value = submitActions.indexOf(selected) >= 0 ? selected : "";
+    if (submitInput.value || (submitActions.length > 0 && selected)) {
+      delete card.dataset.initialSubmitAction;
+    }
     var tryButton = $('[data-op-action="try"]', card);
     tryButton.disabled = mode === "prepare";
     tryButton.title = mode === "prepare" ? "operation แบบ prepare ไม่มี HTTP request ให้ยิง" : "";
@@ -614,6 +620,10 @@ import {
     views.toolEnabled.checked = !!tool.enabled;
     views.operationsContainer.replaceChildren();
     (tool.operations || []).forEach(addOperationCard);
+    // addOperationCard builds submit options from cards that already exist. Re-sync
+    // after loading the complete definition so an unchanged prepare operation keeps
+    // its submitAction instead of becoming invalid on the next save.
+    views.operationsContainer.querySelectorAll(".operation-card").forEach(syncSubmitField);
     renumberOperations();
     showHidden(views.toolFormError, true);
     views.toolsList.hidden = true;

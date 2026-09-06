@@ -144,6 +144,16 @@ def test_new_submit_operation_is_available_to_prepare_cards() -> None:
     assert "if ($('[data-op=\"mode\"]', other).value === \"submit\")" in source
 
 
+def test_existing_prepare_operations_are_resynced_after_form_load() -> None:
+    source = ADMIN_JS.read_text()
+    loaded = source.index("(tool.operations || []).forEach(addOperationCard);")
+    resync = source.index(
+        'views.operationsContainer.querySelectorAll(".operation-card").forEach(syncSubmitField);',
+        loaded,
+    )
+    assert resync < source.index("renumberOperations();", resync)
+
+
 def test_build_try_payload_scenarios() -> None:
     # 1. New tool without credential
     new_no_auth = run_node(
