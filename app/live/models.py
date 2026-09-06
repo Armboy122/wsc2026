@@ -30,6 +30,8 @@ class MainAgentGateway(Protocol):
         self,
         pending_action_id: UUID,
         confirmation_note: str | None = None,
+        *,
+        evidence: dict[str, Any] | None = None,
     ) -> ActionDecisionResponse:
         """ส่งรายการที่รอดำเนินการหนึ่งครั้ง โดยการเรียกซ้ำให้ผลเหมือนเดิม"""
         ...
@@ -40,6 +42,14 @@ class MainAgentGateway(Protocol):
         reason: str,
     ) -> ActionDecisionResponse:
         """ปฏิเสธรายการที่รอดำเนินการ โดยเป็นสถานะสิ้นสุดและเรียกซ้ำได้"""
+        ...
+
+    def get_operation_schema(self, tool_slug: str, action: str) -> dict[str, Any] | None:
+        """คืนค่า JSON schema ของ input สำหรับ operation นี้"""
+        ...
+
+    def get_operation_spec(self, tool_slug: str, action: str) -> Any:
+        """คืนค่า OperationSpec สำหรับ operation นี้"""
         ...
 
 

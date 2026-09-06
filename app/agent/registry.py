@@ -281,6 +281,27 @@ class ToolRegistry:
                 return spec
         return OperationSpec()
 
+    def operation_schema(self, tool_slug: str | tuple[str, str], action: str | None = None) -> dict[str, Any] | None:
+        """คืนค่า JSON schema ของ input สำหรับ operation นี้"""
+        if isinstance(tool_slug, tuple):
+            slug_str = str(tool_slug[0])
+            action_str = str(tool_slug[1])
+        elif action is not None:
+            slug_str = str(tool_slug)
+            action_str = str(action)
+        else:
+            action_str = tool_slug.value if hasattr(tool_slug, "value") else str(tool_slug)
+            slug_str = ""
+        for definition in self._catalogue:
+            if (not slug_str or definition.name == slug_str) and action_str in definition.actions:
+                if definition.input_schemas and action_str in definition.input_schemas:
+                    return dict(definition.input_schemas[action_str])
+                for act_enum, model in INPUT_MODELS.items():
+                    act_name = act_enum.value if hasattr(act_enum, "value") else str(act_enum)
+                    if act_name == action_str:
+                        return model.model_json_schema(by_alias=True, mode="validation")
+        return None
+
     def operation_spec_for_call(self, call: ToolCall) -> OperationSpec:
         tool_name = call.name.value if hasattr(call.name, "value") else str(call.name)
         action_name = call.action.value if hasattr(call.action, "value") else str(call.action)

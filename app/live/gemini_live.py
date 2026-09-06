@@ -213,12 +213,15 @@ class GeminiLiveSession:
             transcription = getattr(content, name, None)
             text = getattr(transcription, "text", None)
             if text:
+                final = bool(getattr(transcription, "finished", False))
                 await websocket.send_json({
                     "type": event_type,
                     "role": role,
                     "text": text,
-                    "final": bool(getattr(transcription, "finished", False)),
+                    "final": final,
                 })
+                if role == "user" and final and hasattr(self._bridge, "process_user_transcription"):
+                    await self._bridge.process_user_transcription(text)
 
     async def _respond_to_calls(self, websocket: WebSocket, session: Any, calls: list[Any]) -> None:
         responses: list[types.FunctionResponse] = []

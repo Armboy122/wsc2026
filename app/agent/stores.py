@@ -44,6 +44,11 @@ def trace_channel(channel: str) -> Iterator[None]:
         _TRACE_CHANNEL.reset(token)
 
 
+def current_trace_channel() -> str | None:
+    """Return the active trace channel for the current context."""
+    return _TRACE_CHANNEL.get()
+
+
 def _normalized_field_key(key: str) -> str:
     """Canonicalize JSON field names across camelCase, snake_case, and separators."""
     return "".join(character for character in key.casefold() if character.isalnum())
@@ -51,13 +56,16 @@ def _normalized_field_key(key: str) -> str:
 
 def redact(value: Any, *, key: str = "") -> Any:
     """เก็บข้อมูลวินิจฉัย trace ให้มีประโยชน์โดยไม่เก็บข้อความหรือ payload ที่ละเอียดอ่อน"""
-    if _normalized_field_key(key) in _SENSITIVE_KEYS:
+    norm_key = _normalized_field_key(key)
+    if norm_key in _SENSITIVE_KEYS:
         return "[redacted]"
     if isinstance(value, dict):
         return {str(item_key): redact(item_value, key=str(item_key)) for item_key, item_value in list(value.items())[:20]}
     if isinstance(value, (list, tuple)):
         return [redact(item) for item in value[:20]]
     if isinstance(value, str) and len(value) > 200:
+        if norm_key in {"readbacktext", "readback"}:
+            return value[:500]
         return "[redacted]"
     return value
 

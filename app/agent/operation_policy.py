@@ -64,6 +64,7 @@ class OperationSpec:
     submit_action: str | None = None
     limits: OperationLimits | None = None
     client_context: Mapping[str, str] | None = None
+    voice_confirm: bool = True
 
     def __post_init__(self) -> None:
         if self.mode not in _ALLOWED_MODES:

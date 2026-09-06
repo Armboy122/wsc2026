@@ -14,7 +14,7 @@ from pydantic import ValidationError
 from app.agent.guided_flow import GuidedFlows, GuidedTurn
 from app.agent.operation_policy import OperationPolicy, OperationSpec
 from app.agent.registry import ToolContext, ToolRegistry, _error_result
-from app.agent.stores import ConversationStore, PendingActionStore, TraceStore
+from app.agent.stores import ConversationStore, PendingActionStore, TraceStore, current_trace_channel
 from app.agent.response_policy import ErrorPresentation, ResponsePolicies
 from app.channel.actions import format_actions
 from app.contracts import (
@@ -308,6 +308,16 @@ class MainAgent:
             for result in all_results
         ):
             self._grounded_conversations.add(conversation_id)
+        if current_trace_channel() == "voice" and citations:
+            await self._traces.append(
+                trace_id,
+                TraceEventKind.RESPONSE_DEGRADED,
+                {
+                    "reason": "voice_channel_citation_degraded",
+                    "citationCount": len(citations),
+                },
+                channel="voice",
+            )
         self._conversations.append(conversation_id, LLMMessage("assistant", message))
         simulation = any(r.simulation for r in all_results) or (pending is not None)
         actions = format_actions(pending_action=pending)
@@ -322,7 +332,13 @@ class MainAgent:
             actions=actions,
         )
 
-    async def confirm_pending_action(self, pending_action_id: UUID, confirmation_note: str | None = None) -> ActionDecisionResponse:
+    async def confirm_pending_action(
+        self,
+        pending_action_id: UUID,
+        confirmation_note: str | None = None,
+        *,
+        evidence: dict[str, Any] | None = None,
+    ) -> ActionDecisionResponse:
         task = self._pending_actions.confirmation_task_for(pending_action_id)
         if task is not None:
             return await asyncio.shield(task)
@@ -336,6 +352,13 @@ class MainAgent:
         if pending.status not in {PendingActionStatus.PENDING_CONFIRMATION, PendingActionStatus.CONFIRMED}:
             raise InvalidActionStateError("ไม่สามารถยืนยันรายการในสถานะปัจจุบันได้")
 
+        confirmation_spec = self._tools.operation_spec(
+            pending.tool_slug, pending.prepare_action
+        )
+        # 🔒 T6.3 voiceConfirm gating: fail closed if voiceConfirm is false on voice channel
+        if current_trace_channel() == "voice" and not confirmation_spec.voice_confirm:
+            raise InvalidActionStateError("รายการนี้ไม่อนุญาตให้ยืนยันด้วยเสียง (voiceConfirm: false)")
+
         transitioned = pending.status is PendingActionStatus.PENDING_CONFIRMATION
         confirmed = pending.model_copy(
             update={"status": PendingActionStatus.CONFIRMED, "updated_at": _now()}
@@ -346,7 +369,9 @@ class MainAgent:
         if not owner:
             if event is not None:
                 await event.wait()
-                return await self.confirm_pending_action(pending_action_id, confirmation_note)
+                return await self.confirm_pending_action(
+                    pending_action_id, confirmation_note, evidence=evidence
+                )
             current = self._require_pending(pending_action_id)
             if current.status in {PendingActionStatus.SUBMITTED, PendingActionStatus.FAILED}:
                 return ActionDecisionResponse(pending_action=current, tool_result=current.submission_result, trace_id=trace_id)
@@ -359,13 +384,18 @@ class MainAgent:
             pending_action_id=pending_action_id,
         ):
             try:
-                confirmation_spec = self._tools.operation_spec(
-                    pending.tool_slug, pending.prepare_action
-                )
+                confirmed_event_data: dict[str, Any] = {
+                    "pendingActionId": str(pending_action_id),
+                    "hasNote": bool(confirmation_note),
+                }
+                if evidence:
+                    for k, v in evidence.items():
+                        if k not in confirmed_event_data:
+                            confirmed_event_data[k] = v
                 await self._traces.append(
                     trace_id,
                     TraceEventKind.ACTION_CONFIRMED,
-                    {"pendingActionId": str(pending_action_id), "hasNote": bool(confirmation_note)},
+                    confirmed_event_data,
                     tool_slug=pending.tool_slug,
                     action=pending.prepare_action,
                     policy=confirmation_spec.policy.value,
@@ -482,6 +512,12 @@ class MainAgent:
         if trace is None:
             raise NotFoundError("ไม่พบ trace")
         return trace
+
+    def get_operation_schema(self, tool_slug: str, action: str) -> dict[str, Any] | None:
+        return self._tools.operation_schema(tool_slug, action)
+
+    def get_operation_spec(self, tool_slug: str, action: str) -> OperationSpec:
+        return self._tools.operation_spec(tool_slug, action)
 
     async def reset_demo(self) -> ResetResponse:
         await self._pending_actions.drain_confirmation_tasks()

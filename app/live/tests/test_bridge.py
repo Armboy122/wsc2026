@@ -105,6 +105,8 @@ class FakeGateway:
         self,
         pending_action_id: UUID,
         confirmation_note: str | None = None,
+        *,
+        evidence: dict[str, Any] | None = None,
     ) -> ActionDecisionResponse:
         self.confirm_calls.append((pending_action_id, confirmation_note))
         if self.confirm_error is not None:
@@ -159,6 +161,7 @@ async def _bridge_with_pending(
     )
     result = await bridge.handle_text("เตรียมเรื่องร้องเรียน")
     assert result["pendingAction"] is not None
+    await bridge.process_user_transcription("ยืนยันครับ")
     return bridge, gateway
 
 
@@ -570,6 +573,7 @@ async def test_voice_flow_against_real_main_agent() -> None:
     assert bridge.has_pending_action is True
 
     # ยืนยันด้วยเสียง → internal submit หนึ่งครั้ง → สถานะสิ้นสุดและล้าง pending
+    await bridge.process_user_transcription("ยืนยันครับ")
     decision = await bridge.confirm_current(confirmation_note="ยืนยันจากเสียง")
     assert decision["pendingAction"]["status"] == "submitted"
     assert decision["toolResult"]["status"] == "success"

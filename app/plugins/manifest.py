@@ -68,6 +68,7 @@ class PluginOperation(BaseModel):
     policy: OperationPolicy | None = None
     limits: OperationLimits | None = None
     client_context: dict[str, str] | None = Field(default=None, alias="clientContext")
+    voice_confirm: bool = Field(default=True, alias="voiceConfirm")
 
     @model_validator(mode="after")
     def _check_input_schema(self) -> PluginOperation:
@@ -155,6 +156,7 @@ class PluginOperation(BaseModel):
             submit_action=self.submit_action.value if self.submit_action is not None else None,
             limits=self.limits,
             client_context=self.client_context,
+            voice_confirm=self.voice_confirm,
         )
 
 

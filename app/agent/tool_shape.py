@@ -139,6 +139,7 @@ def from_db_row(tool_row: sqlite3.Row, operation_rows: list[sqlite3.Row]) -> Too
                 client_context=json.loads(row["client_context"]) if row["client_context"] else None,
                 http_method=row["http_method"],
                 url_template=row["url_template"],
+                voice_confirm=bool(row["voice_confirm"]) if "voice_confirm" in row.keys() else True,
             )
             for row in operation_rows
         ),
