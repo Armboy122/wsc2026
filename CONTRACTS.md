@@ -186,7 +186,6 @@ trace และ redaction ทั้งหมดไม่เปลี่ยนแ
 | `session.ready` | Gemini session เชื่อมต่อพร้อมแล้ว |
 | `transcript.user` | ถอดเสียงผู้ใช้ (fields: `role=user`, `text`, `final`) |
 | `transcript.assistant` | ถอดเสียงผู้ช่วย (fields: `role=assistant`, `text`, `final`) |
-| `assistant.progress` | ข้อความตอบรับสั้นระหว่างประมวลผล (fields: `text`) |
 | `agent.response` | ผลลัพธ์จาก bridge: `{ "operation": "chat" \| "confirm" \| "reject" \| "unknown", "response": {...} }` |
 | `audio.interrupted` | ผู้ใช้พูดแทรก — ให้ล้างคิวเสียงตอบที่เหลือ |
 | `turn.complete` | รอบการตอบจบแล้ว |

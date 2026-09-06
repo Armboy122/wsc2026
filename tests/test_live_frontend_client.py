@@ -11,14 +11,22 @@ CLIENT = ROOT / "web" / "gemini-live-client.js"
 
 
 @pytest.mark.skipif(shutil.which("node") is None, reason="Node.js is required for GeminiLiveClient tests")
-def test_gemini_live_client_acknowledgement_lifecycle_and_cancellation() -> None:
-    """GeminiLiveClient must speak assistant.progress and cancel on interruption, real audio, turn completion, or disconnect."""
+def test_gemini_live_client_event_handling_without_progress_injection() -> None:
+    """Client event handling must stay display-only for JSON events.
+
+    Regression: assistant.progress used to be spoken aloud through browser
+    speechSynthesis — a non-Gemini voice that leaked into the microphone and
+    looped the conversation.  The progress acknowledgement was removed
+    entirely; the client must never synthesize speech and must ignore the
+    event if a server ever sends it again.
+    """
     script = r"""
 import { GeminiLiveClient } from "./web/gemini-live-client.js";
 
-let spokenUtterance = null;
+let speakCalls = 0;
 let cancelCalls = 0;
 
+// Browser TTS must never be touched by the client for progress text.
 globalThis.SpeechSynthesisUtterance = class {
   constructor(text) {
     this.text = text;
@@ -26,12 +34,11 @@ globalThis.SpeechSynthesisUtterance = class {
     this.rate = 1.0;
   }
 };
-
 globalThis.speechSynthesis = {
   speaking: false,
   pending: false,
   speak(utterance) {
-    spokenUtterance = utterance;
+    speakCalls += 1;
     this.speaking = true;
   },
   cancel() {
@@ -40,7 +47,6 @@ globalThis.speechSynthesis = {
   }
 };
 
-let progressReported = null;
 let stateHistory = [];
 let interruptedCount = 0;
 let turnCompleteCount = 0;
@@ -49,7 +55,6 @@ let transcripts = [];
 let errors = [];
 
 const client = new GeminiLiveClient({
-  onProgress: (text) => { progressReported = text; },
   onState: (state) => { stateHistory.push(state); },
   onInterrupted: () => { interruptedCount += 1; },
   onTurnComplete: () => { turnCompleteCount += 1; },
@@ -64,7 +69,7 @@ let playbackFlushes = 0;
 client.media.playPcm16 = (buf) => { pcmBuffers.push(buf); };
 client.media.flushPlayback = () => { playbackFlushes += 1; };
 
-// 1. assistant.progress triggers Thai speech synthesis promptly
+// 1. assistant.progress is ignored — never spoken, never forwarded
 client.handleMessage({
   data: JSON.stringify({
     type: "assistant.progress",
@@ -72,23 +77,19 @@ client.handleMessage({
   })
 });
 
-if (!spokenUtterance || spokenUtterance.text !== "ขอตรวจสอบรายละเอียดให้สักครู่นะครับ") {
-  throw new Error(`expected utterance text "ขอตรวจสอบรายละเอียดให้สักครู่นะครับ", got ${spokenUtterance?.text}`);
+if (speakCalls !== 0) {
+  throw new Error(`expected speechSynthesis.speak to never be called, got ${speakCalls} calls`);
 }
-if (spokenUtterance.lang !== "th-TH") {
-  throw new Error(`expected utterance lang "th-TH", got ${spokenUtterance?.lang}`);
+if (cancelCalls !== 0) {
+  throw new Error(`expected speechSynthesis.cancel to never be called, got ${cancelCalls} calls`);
 }
-if (progressReported !== "ขอตรวจสอบรายละเอียดให้สักครู่นะครับ") {
-  throw new Error(`expected onProgress to receive text, got ${progressReported}`);
+if (stateHistory.length !== 0) {
+  throw new Error(`expected no state change for progress, got ${stateHistory.join(",")}`);
 }
 
-// 2. Real Gemini audio starts arriving -> cancels acknowledgement immediately and plays PCM
+// 2. Real Gemini audio still plays and reports 'speaking'
 const audioChunk = new ArrayBuffer(640);
-const preAudioCancels = cancelCalls;
 client.handleMessage({ data: audioChunk });
-if (cancelCalls <= preAudioCancels) {
-  throw new Error("expected audio arrival to immediately cancel acknowledgement");
-}
 if (pcmBuffers.length !== 1 || pcmBuffers[0] !== audioChunk) {
   throw new Error("expected PCM buffer to be scheduled for playback");
 }
@@ -96,15 +97,8 @@ if (stateHistory[stateHistory.length - 1] !== "speaking") {
   throw new Error(`expected state 'speaking', got ${stateHistory[stateHistory.length - 1]}`);
 }
 
-// 3. New progress message, then user interrupts -> cancels acknowledgement immediately
-client.handleMessage({
-  data: JSON.stringify({ type: "assistant.progress", text: "กำลังตรวจสอบ..." })
-});
-const preInterruptCancels = cancelCalls;
+// 3. User interrupts -> playback flushes and onInterrupted fires
 client.handleMessage({ data: JSON.stringify({ type: "audio.interrupted" }) });
-if (cancelCalls <= preInterruptCancels) {
-  throw new Error("expected audio.interrupted to immediately cancel acknowledgement");
-}
 if (playbackFlushes !== 1) {
   throw new Error("expected media playback to flush on interruption");
 }
@@ -112,59 +106,28 @@ if (interruptedCount !== 1) {
   throw new Error("expected onInterrupted handler to be called");
 }
 
-// 4. User starts new utterance (transcript.user) -> cancels acknowledgement
-client.handleMessage({
-  data: JSON.stringify({ type: "assistant.progress", text: "กำลังตรวจสอบ..." })
-});
-const preUserCancels = cancelCalls;
+// 4. User transcript is forwarded
 client.handleMessage({
   data: JSON.stringify({ type: "transcript.user", role: "user", text: "ขอยกเลิกครับ", final: false })
 });
-if (cancelCalls <= preUserCancels) {
-  throw new Error("expected transcript.user to immediately cancel acknowledgement");
-}
 if (transcripts.length !== 1 || transcripts[0].text !== "ขอยกเลิกครับ") {
   throw new Error("expected onTranscript to receive user utterance");
 }
 
-// 5. Turn completes -> cancels acknowledgement
-client.handleMessage({
-  data: JSON.stringify({ type: "assistant.progress", text: "กำลังตรวจสอบ..." })
-});
-const preTurnCancels = cancelCalls;
+// 5. Turn completes -> onTurnComplete fires
 client.handleMessage({ data: JSON.stringify({ type: "turn.complete" }) });
-if (cancelCalls <= preTurnCancels) {
-  throw new Error("expected turn.complete to immediately cancel acknowledgement");
-}
 if (turnCompleteCount !== 1) {
   throw new Error("expected onTurnComplete handler to be called");
 }
 
-// 6. Error event -> cancels acknowledgement
+// 6. Error event is surfaced
 client.ready = true;
-client.handleMessage({
-  data: JSON.stringify({ type: "assistant.progress", text: "กำลังตรวจสอบ..." })
-});
-const preErrorCancels = cancelCalls;
 client.handleMessage({ data: JSON.stringify({ type: "error", message: "ระบบขัดข้อง" }) });
-if (cancelCalls <= preErrorCancels) {
-  throw new Error("expected error to immediately cancel acknowledgement");
-}
 if (errors.length !== 1 || errors[0] !== "ระบบขัดข้อง") {
   throw new Error("expected onError handler to be called with error message");
 }
 
-// 7. Disconnect -> cancels acknowledgement
-client.handleMessage({
-  data: JSON.stringify({ type: "assistant.progress", text: "กำลังตรวจสอบ..." })
-});
-const preDisconnectCancels = cancelCalls;
-client.disconnect();
-if (cancelCalls <= preDisconnectCancels) {
-  throw new Error("expected disconnect to immediately cancel acknowledgement");
-}
-
-// 8. Existing safe events preserved
+// 7. agent.response is forwarded unchanged
 client.handleMessage({
   data: JSON.stringify({
     type: "agent.response",

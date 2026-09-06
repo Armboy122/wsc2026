@@ -16,7 +16,7 @@
 | `POST /api/v1/web/actions/{pendingActionId}/confirm` | ให้มนุษย์ยืนยันการเขียนข้อมูลที่เตรียมไว้ (`confirmationNote` เป็นตัวเลือก) |
 | `POST /api/v1/web/actions/{pendingActionId}/reject` | ปฏิเสธและสิ้นสุดการดำเนินการ (ต้องมี `reason` ที่ไม่เป็นค่าว่าง) |
 | `GET /api/v1/traces/{traceId}` | แสดงเหตุการณ์ trace ที่เรียงตามลำดับและปกปิดข้อมูลแล้วในแผง "การตรวจสอบ" เมื่อมี admin session |
-| `WS /ws/live` | โหมดเสียง Gemini Live: ส่งไมโครโฟน PCM16 16kHz เป็น binary รับเสียงตอบกลับ PCM16 24kHz และ event JSON (`session.ready`, `transcript.*`, `assistant.progress`, `agent.response`, `audio.interrupted`, `turn.complete`, `error`) |
+| `WS /ws/live` | โหมดเสียง Gemini Live: ส่งไมโครโฟน PCM16 16kHz เป็น binary รับเสียงตอบกลับ PCM16 24kHz และ event JSON (`session.ready`, `transcript.*`, `agent.response`, `audio.interrupted`, `turn.complete`, `error`) |
 
 นอกเหนือจากช่องทางทั้งสองนี้ ส่วนติดต่อไม่เรียกจุดเชื่อมต่ออื่น (`/health` ไม่จำเป็นสำหรับ
 ส่วนติดต่อนี้) ชื่อฟิลด์ใช้รูปแบบ camelCase JSON ของโมเดลที่ตรึงไว้ทุกประการ

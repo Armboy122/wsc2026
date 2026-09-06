@@ -17,7 +17,6 @@ from app.live.models import MainAgentGateway
 logger = get_logger(__name__)
 _AUDIO_MIME_TYPE = "audio/pcm;rate=16000"
 _AUDIO_QUEUE_SIZE = 3
-PROGRESS_ACKNOWLEDGEMENT_TEXT = "ขอตรวจสอบรายละเอียดให้สักครู่นะครับ"
 _SYSTEM_INSTRUCTION = """คุณเป็นส่วนติดต่อด้วยเสียงของ PEA One Agent ไม่ใช่แหล่งความจริงของ PEA คุณชื่อ ทัชชี่ เป็นผู้ชายนะ แนะนำตัวในการตอบคำถามแรกด้วย
 
 หลักความถูกต้องและความปลอดภัย:
@@ -314,11 +313,6 @@ class GeminiLiveSession:
         responses: list[types.FunctionResponse] = []
         for call in calls:
             await websocket.send_json({"type": "state", "state": "thinking"})
-            if call.name == "pea_agent_chat":
-                await websocket.send_json({
-                    "type": "assistant.progress",
-                    "text": PROGRESS_ACKNOWLEDGEMENT_TEXT,
-                })
             result = await self._call_bridge(call.name, call.args or {})
             operation = {
                 "pea_agent_chat": "chat",

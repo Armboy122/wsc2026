@@ -9,7 +9,6 @@ import pytest
 
 from app.live.gemini_live import (
     _AUDIO_QUEUE_SIZE,
-    PROGRESS_ACKNOWLEDGEMENT_TEXT,
     GeminiLiveSession,
     live_connect_config,
 )
@@ -159,7 +158,7 @@ class FakeLiveSession:
 
 
 @pytest.mark.asyncio
-async def test_respond_to_calls_emits_progress_before_bridge_completion_and_tool_response() -> None:
+async def test_respond_to_calls_sends_thinking_before_bridge_completion_and_tool_response() -> None:
     websocket = FakeWebSocket()
     session = FakeLiveSession()
     live = object.__new__(GeminiLiveSession)
@@ -169,18 +168,16 @@ async def test_respond_to_calls_emits_progress_before_bridge_completion_and_tool
     call = SimpleNamespace(id="call-chat-1", name="pea_agent_chat", args={"message": "ตรวจสอบค่าไฟ"})
     await live._respond_to_calls(websocket, session, [call])
 
-    # 1. While bridge was running, assistant.progress had already been sent
-    assert bridge.events_at_call_time == [
-        {"type": "state", "state": "thinking"},
-        {"type": "assistant.progress", "text": PROGRESS_ACKNOWLEDGEMENT_TEXT},
-    ]
+    # 1. While bridge was running, only the thinking state had been sent —
+    #    no acknowledgement is injected (regression: injected progress text
+    #    caused a double/looping response on the voice-only channel).
+    assert bridge.events_at_call_time == [{"type": "state", "state": "thinking"}]
     # At call time, tool response was NOT yet sent
     assert len(bridge.tool_responses_at_call_time) == 0
 
     # 2. Final event ordering
     assert websocket.json_events == [
         {"type": "state", "state": "thinking"},
-        {"type": "assistant.progress", "text": PROGRESS_ACKNOWLEDGEMENT_TEXT},
         {
             "type": "agent.response",
             "operation": "chat",
@@ -193,7 +190,7 @@ async def test_respond_to_calls_emits_progress_before_bridge_completion_and_tool
 
 
 @pytest.mark.asyncio
-async def test_respond_to_calls_does_not_emit_progress_for_confirmation() -> None:
+async def test_respond_to_calls_sends_no_progress_for_confirmation() -> None:
     websocket = FakeWebSocket()
     session = FakeLiveSession()
     live = object.__new__(GeminiLiveSession)
@@ -218,7 +215,7 @@ async def test_respond_to_calls_does_not_emit_progress_for_confirmation() -> Non
 
 
 @pytest.mark.asyncio
-async def test_respond_to_calls_does_not_emit_progress_for_unknown_function() -> None:
+async def test_respond_to_calls_sends_no_progress_for_unknown_function() -> None:
     websocket = FakeWebSocket()
     session = FakeLiveSession()
     live = object.__new__(GeminiLiveSession)
