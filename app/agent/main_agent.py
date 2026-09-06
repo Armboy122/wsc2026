@@ -16,6 +16,7 @@ from app.agent.operation_policy import OperationPolicy, OperationSpec
 from app.agent.registry import ToolContext, ToolRegistry, _error_result
 from app.agent.stores import ConversationStore, PendingActionStore, TraceStore
 from app.agent.response_policy import ErrorPresentation, ResponsePolicies
+from app.channel.actions import format_actions
 from app.contracts import (
     INPUT_MODELS,
     PREPARE_TO_SUBMIT,
@@ -308,7 +309,18 @@ class MainAgent:
         ):
             self._grounded_conversations.add(conversation_id)
         self._conversations.append(conversation_id, LLMMessage("assistant", message))
-        return ChatResponse(conversation_id=conversation_id, trace_id=trace_id, message=message, citations=citations, pending_action=pending, tool_results=tuple(all_results))
+        simulation = any(r.simulation for r in all_results) or (pending is not None)
+        actions = format_actions(pending_action=pending)
+        return ChatResponse(
+            conversation_id=conversation_id,
+            trace_id=trace_id,
+            message=message,
+            citations=citations,
+            pending_action=pending,
+            tool_results=tuple(all_results),
+            simulation=simulation,
+            actions=actions,
+        )
 
     async def confirm_pending_action(self, pending_action_id: UUID, confirmation_note: str | None = None) -> ActionDecisionResponse:
         task = self._pending_actions.confirmation_task_for(pending_action_id)
@@ -540,6 +552,8 @@ class MainAgent:
 
         self._conversations.append(conversation_id, LLMMessage("user", request.message))
         self._conversations.append(conversation_id, LLMMessage("assistant", message))
+        simulation = any(r.simulation for r in results) or (pending is not None)
+        actions = format_actions(pending_action=pending, choice_prompt=turn.prompt)
         return ChatResponse(
             conversation_id=conversation_id,
             trace_id=trace_id,
@@ -547,6 +561,8 @@ class MainAgent:
             pending_action=pending,
             tool_results=tuple(results),
             choice_prompt=turn.prompt,
+            simulation=simulation,
+            actions=actions,
         )
 
     async def _execute_chat_call(self, call: ToolCall, conversation_id: UUID, trace_id: UUID) -> ToolResult:

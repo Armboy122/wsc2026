@@ -21,6 +21,8 @@ _SECRET_FIELD_NAMES: frozenset[str] = frozenset({
     "voc_api_key",
     "line_channel_secret",
     "line_channel_access_token",
+    "telegram_bot_token",
+    "telegram_bot_secret",
     "admin_password",
     "state_key",
 })
@@ -77,6 +79,8 @@ class Settings:
     voc_consent_notice_version: str = "VOC-PDPA-DEMO-1.0"
     line_channel_secret: str | None = field(default=None, repr=False)
     line_channel_access_token: str | None = field(default=None, repr=False)
+    telegram_bot_token: str | None = field(default=None, repr=False)
+    telegram_bot_secret: str | None = field(default=None, repr=False)
     # D3.1: รหัสผ่านหน้า admin — ไม่ตั้ง = ปิด admin ทั้งหมด (fail closed ไม่มี default password)
     admin_password: str | None = field(default=None, repr=False)
     db_path: Path = field(default_factory=lambda: Path("data/pea.db"))
@@ -184,6 +188,8 @@ class Settings:
 
         line_channel_secret = _get("LINE_CHANNEL_SECRET")
         line_channel_access_token = _get("LINE_CHANNEL_ACCESS_TOKEN")
+        telegram_bot_token = _get("TELEGRAM_BOT_TOKEN")
+        telegram_bot_secret = _get("TELEGRAM_BOT_SECRET")
         admin_password = _get("ADMIN_PASSWORD")
         db_path = Path(_get("DB_PATH") or "data/pea.db")
         state_key = _get("PEA_STATE_KEY")
@@ -228,6 +234,8 @@ class Settings:
             voc_consent_notice_version=voc_consent_notice_version,
             line_channel_secret=line_channel_secret,
             line_channel_access_token=line_channel_access_token,
+            telegram_bot_token=telegram_bot_token,
+            telegram_bot_secret=telegram_bot_secret,
             admin_password=admin_password,
             db_path=db_path,
             state_key=state_key,

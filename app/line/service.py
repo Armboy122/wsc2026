@@ -23,24 +23,23 @@ from app.line.bridge import LineBridge, LineBridgeError
 
 logger = get_logger(__name__)
 
+from app.channel import (
+    ACTION_CONFIRM as _POSTBACK_CONFIRM,
+    ACTION_INTENT_PREFIX as _POSTBACK_INTENT_PREFIX,
+    ACTION_NEW_CHAT as _POSTBACK_NEW_CHAT,
+    ACTION_REJECT as _POSTBACK_REJECT,
+    SIMULATION_NOTICE as _SIMULATION_NOTICE,
+    WELCOME_TEXT as _WELCOME_TEXT,
+    split_text,
+    truncate_button_label,
+)
+
 # เพดานของ LINE: ข้อความ text ยาวได้ ~2,000 ตัวอักษร และ reply/push
 # หนึ่งครั้งส่งได้มากสุด 5 ข้อความ
 _MAX_TEXT_CHARS = 1900
 _MAX_MESSAGES_PER_CALL = 5
 
 _LOADING_SECONDS = 30
-_SIMULATION_NOTICE = "ℹ️ รายการนี้ทำงานบนระบบจำลองเพื่อการสาธิต (ไม่ใช่ระบบ PEA จริง)"
-
-_WELCOME_TEXT = (
-    "สวัสดีครับ ผมคือ น้องทัชชี่ พร้อมให้บริการแล้วครับ📌"
-)
-
-_POSTBACK_CONFIRM = "action=confirm"
-_POSTBACK_REJECT = "action=reject"
-_POSTBACK_NEW_CHAT = "action=new_chat"
-# ปุ่มเมนู rich menu ส่ง intent เป็นข้อความเข้า flow แชตเดิม เช่น
-# "action=intent&text=%E0%B9%81%E0%B8%88%E0%B9%89%E0%B8%87%E0%B9%84%E0%B8%9F%E0%B8%94%E0%B8%B1%E0%B8%9A"
-_POSTBACK_INTENT_PREFIX = "action=intent&text="
 
 # เพดานของ LINE: ปุ่ม uri ใน template มีได้ 4 ปุ่ม และ label ยาวสุด 20 ตัวอักษร
 _MAX_URI_BUTTONS = 3  # เผื่อปุ่มที่ 4 ไว้ให้ "เริ่มแชทใหม่"
@@ -253,7 +252,10 @@ def format_chat_messages(response: dict[str, Any]) -> list[dict[str, Any]]:
         messages.extend(_citation_messages(citations))
 
     tool_results = response.get("toolResults") or []
-    if any(tool_result.get("simulation") for tool_result in tool_results):
+    is_simulated = bool(response.get("simulation")) or any(
+        tool_result.get("simulation") for tool_result in tool_results
+    )
+    if is_simulated:
         messages.append({"type": "text", "text": _SIMULATION_NOTICE})
 
     pending_action = response.get("pendingAction")
@@ -348,7 +350,7 @@ def _citation_messages(citations: list[dict[str, Any]]) -> list[dict[str, Any]]:
 
 def _truncate_button_label(text: str) -> str:
     """ตัดป้ายปุ่มให้อยู่ในเพดาน 20 ตัวอักษรของ LINE"""
-    return text if len(text) <= _MAX_BUTTON_LABEL else text[:_MAX_BUTTON_LABEL - 1] + "…"
+    return truncate_button_label(text, _MAX_BUTTON_LABEL)
 
 
 def _pending_action_messages(pending_action: dict[str, Any]) -> list[dict[str, Any]]:
@@ -377,30 +379,8 @@ def _pending_action_messages(pending_action: dict[str, Any]) -> list[dict[str, A
 
 
 def _split_text(text: str, limit: int = _MAX_TEXT_CHARS) -> list[str]:
-    """ตัดข้อความยาวให้อยู่ในเพดานต่อข้อความของ LINE
-
-    พยายามตัดที่บรรทัดก่อน ถ้าบรรทัดเดียวยาวเกินจึงตัดหยาบ ๆ ตามความยาว
-    """
-    if len(text) <= limit:
-        return [text]
-    parts: list[str] = []
-    current = ""
-    for line in text.split("\n"):
-        while len(line) > limit:
-            if current:
-                parts.append(current)
-                current = ""
-            parts.append(line[:limit])
-            line = line[limit:]
-        candidate = f"{current}\n{line}" if current else line
-        if len(candidate) > limit:
-            parts.append(current)
-            current = line
-        else:
-            current = candidate
-    if current:
-        parts.append(current)
-    return parts
+    """ตัดข้อความยาวให้อยู่ในเพดานต่อข้อความของ LINE"""
+    return split_text(text, limit)
 
 
 def _user_id_of(event: dict[str, Any]) -> str | None:

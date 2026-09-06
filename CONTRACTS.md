@@ -260,6 +260,48 @@ trace และ redaction ทั้งหมดไม่เปลี่ยนแ
 - ก่อนเริ่ม agent loop ระบบแสดง loading indicator ("...") ผ่าน LINE API
   และตอบกลับด้วย reply token เมื่อทำได้ หาก token หมดอายุจะใช้ push แทน
 
+## ช่องทาง Telegram `POST /webhook/telegram` (ส่วนเพิ่มเติม v2 — P10)
+
+ช่องทาง Telegram เป็นสัญญาเพิ่มเติมอีกช่องทางหนึ่งแบบเดียวกับ LINE: สัญญา HTTP v1
+ยังคง frozen ตามเดิม ช่องทางนี้ส่งต่อข้อความและคำตัดสินไปยัง Main Agent ผ่าน
+`TelegramBridge` โดยไม่มีนโยบายธุรกิจใด ๆ ในชั้น Telegram
+
+### จุดเชื่อมต่อ
+
+- `POST /webhook/telegram` เปิดเฉพาะเมื่อตั้ง `TELEGRAM_BOT_TOKEN` และ
+  `TELEGRAM_BOT_SECRET` ครบ (เว้นว่าง = route ไม่ถูกลงทะเบียน / ตอบ 404 fail closed)
+- ทุกคำขอต้องมี header `X-Telegram-Bot-Api-Secret-Token` ที่ตรงกับ `TELEGRAM_BOT_SECRET`
+  โดยตรวจสอบด้วย `secrets.compare_digest` — ไม่ผ่านตอบ `403` ทันที (fail closed)
+- webhook ตอบ `200 {"ok": true}` ทันทีแล้วประมวลผล update ใน background
+
+### Update ที่รองรับ
+
+| update ของ Telegram | พฤติกรรม |
+|---|---|
+| `message` (text) | ส่งข้อความไปยัง `MainAgent.handle_chat` ผ่าน bridge (รองรับคำสั่ง `/start`) |
+| `message` (ไม่ใช่ text) | ตอบกลับแจ้งเตือนว่ารองรับเฉพาะข้อความพิมพ์ |
+| `message.migrate_to_chat_id` | ย้ายสถานะบทสนทนาและ pending action ไปยัง id ใหม่เมื่อกลุ่มอัปเกรดเป็น supergroup |
+| `callback_query` | ตอบ `answerCallbackQuery` เสมอใน `finally`, ประมวลผลคำตัดสิน หรือแจ้งเตือนเมื่อไม่มีรายการ |
+
+### ข้อบังคับด้านความปลอดภัยและการแสดงผล
+
+- **การยืนยัน/ปฏิเสธ/เลือกตัวเลือกทำผ่านปุ่ม Inline Keyboard เท่านั้น** — ข้อมูลในปุ่ม
+  มีขนาด `callback_data` ไม่เกิน 64 bytes โดยใช้ server-side opaque token (`act:<token>`)
+  ที่ผูกมัดกับ `chat_id`, ผู้ส่งที่ได้รับอนุญาต (`user_id`), ชนิดการกระทำ, และ `pending_action_id` หรือ `prompt_id` ที่แสดงบนหน้าจอ
+- **ตรวจสอบสิทธิ์ผู้กดปุ่มอย่างเคร่งครัด (Ownership & Replay Protection)**:
+  - ปฏิเสธการกดปุ่มข้ามผู้ใช้ (cross-user rejection) พร้อมแจ้งเตือน alert ให้ผู้กดทราบ
+  - ปฏิเสธการกดซ้ำ (replayed callback) และปุ่มที่หมดอายุ/ไม่พบ (stale/forged callback)
+  - ป้องกัน race condition และ double-confirmation ด้วย per-user per-chat lock
+- **การเลือก ChoicePrompt**:
+  - คง `prompt_id` และค่าตัวเลือก (value) ภาษาไทยและอักขระพิเศษไว้ครบถ้วนโดยไม่ถูกตัดทอน
+- **ปุ่ม single-use ถูกลบหลังกด** — เรียก `editMessageReplyMarkup` ลบปุ่มออกจากข้อความเดิม
+  หลังการกด
+- **การปกปิดโทเค็น (Token Redaction)**:
+  - มีการติดตั้งตัวกรอง scrub บอทโทเค็นออกจากข้อความ log (`httpx` logger), exception traceback,
+    และ error representations ทั้งหมดเพื่อป้องกัน token leak
+- ข้อความตอบกลับตัดไม่เกิน 4,096 ตัวอักษรต่อข้อความตามเพดาน Telegram และส่งรายการ
+  citation รวมถึงป้าย simulation แยกชัดเจน
+
 ## หน้า admin `POST /api/v1/admin/*` (ส่วนเพิ่มเติม v2 — D3.1)
 
 สัญญา HTTP v1 ข้างต้นยัง frozen ตามเดิม ส่วนนี้คือสัญญาเพิ่มเติมของหน้า admin ซึ่ง

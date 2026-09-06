@@ -371,6 +371,16 @@ class ChatRequest(FrozenModel):
         return self
 
 
+ActionKind = Literal["confirm", "reject", "pick", "link"]
+
+
+class Action(FrozenModel):
+    label: str = Field(min_length=1, max_length=100)
+    value: str = Field(min_length=1, max_length=64)
+    kind: ActionKind
+    single_use: bool = Field(default=False, serialization_alias="singleUse")
+
+
 class ChatResponse(FrozenModel):
     conversation_id: UUID = Field(serialization_alias="conversationId")
     trace_id: UUID = Field(serialization_alias="traceId")
@@ -379,6 +389,8 @@ class ChatResponse(FrozenModel):
     pending_action: PendingAction | None = Field(default=None, serialization_alias="pendingAction")
     tool_results: tuple[ToolResult, ...] = Field(default=(), serialization_alias="toolResults")
     choice_prompt: ChoicePrompt | None = Field(default=None, serialization_alias="choicePrompt")
+    simulation: bool = False
+    actions: tuple[Action, ...] = ()
 
 
 class ConfirmActionRequest(FrozenModel):

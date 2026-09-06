@@ -344,6 +344,22 @@ Main Agent **ไม่ปล่อยข้อความอิสระขอ�
 
 ---
 
+## ช่องทางเชื่อมต่อ (Channel Adapters)
+
+ระบบรองรับการให้บริการผ่านหลายช่องทาง โดยมีชั้น channel กลางจัดการ capability และการแปลงคำตอบ:
+
+| ช่องทาง | Endpoint | การยืนยันตัวตน | ปุ่ม / ขีดจำกัดข้อความ |
+|---|---|---|---|
+| **Web UI** | `POST /api/v1/web/chat` | Opaque Session Cookie | ปุ่มเต็มรูปแบบ / ไม่จำกัดความยาว |
+| **Public API** | `POST /api/v1/chat` | Header `X-API-Key` | Degrade เป็นข้อความ + id / ไม่จำกัดความยาว |
+| **LINE Messaging API** | `POST /webhook/line` | Header `X-Line-Signature` (HMAC) | Template & Quick Reply / ตัดข้อความที่ 1900 อักขระ |
+| **Telegram Bot API** | `POST /webhook/telegram` | Header `X-Telegram-Bot-Api-Secret-Token` (`compare_digest`) | Inline Keyboard (`callback_data` ≤ 64 bytes) / ตัดข้อความที่ 4096 อักขระ |
+| **Voice Mode** | `WS /ws/live` | Session-bound | เสียงอ่านทวน (read-back) / Degrade citations |
+
+> ⚠️ หากไม่กำหนด credentials ใน `.env` สำหรับ LINE หรือ Telegram ช่องทางนั้นจะถูกปิดแบบ fail-closed (ตอบ `404`) โดยไม่ส่งผลกระทบต่อการทำงานของระบบหลัก
+
+---
+
 ## การแก้ปัญหา (Troubleshooting)
 
 | อาการ | วิธีแก้ |

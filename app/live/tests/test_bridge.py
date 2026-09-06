@@ -495,7 +495,18 @@ async def test_chat_result_is_json_serializable_camel_case() -> None:
 
     result = await bridge.handle_text("เตรียมเรื่องร้องเรียน")
 
-    assert set(result) == {"conversationId", "traceId", "message", "citations", "pendingAction", "toolResults", "choicePrompt", "voiceGuidance"}
+    assert set(result) == {
+        "conversationId",
+        "traceId",
+        "message",
+        "citations",
+        "pendingAction",
+        "toolResults",
+        "choicePrompt",
+        "voiceGuidance",
+        "simulation",
+        "actions",
+    }
     assert isinstance(result["pendingAction"], dict)
     assert json.dumps(result, ensure_ascii=False)  # JSON-safe
 

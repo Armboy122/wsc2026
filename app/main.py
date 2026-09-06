@@ -276,6 +276,22 @@ if settings.line_channel_secret and settings.line_channel_access_token:
     )
     app.include_router(line_router)
 
+# ช่องทาง Telegram เปิดเฉพาะเมื่อกรอก credential ครบ (เว้นว่าง = ปิดทั้ง route และบริการแบบ fail closed)
+if settings.telegram_bot_token and settings.telegram_bot_secret:
+    from app.api.telegram import configure_telegram_webhook, router as telegram_router
+    from app.telegram.api_client import TelegramApiClient
+    from app.telegram.bridge import TelegramBridge
+    from app.telegram.service import TelegramWebhookService
+
+    configure_telegram_webhook(
+        TelegramWebhookService(
+            secret=settings.telegram_bot_secret,
+            client=TelegramApiClient(settings.telegram_bot_token),
+            bridge=TelegramBridge(main_agent),
+        )
+    )
+    app.include_router(telegram_router)
+
 _web_root = Path(__file__).resolve().parents[1] / "web"
 if _web_root.is_dir():
     app.mount("/", StaticFiles(directory=_web_root, html=True), name="web")
