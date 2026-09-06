@@ -271,6 +271,13 @@ def strip_voice_citations(text: str) -> str:
     return " ".join(cleaned.split())
 
 
+def _normalize_text_for_match(text: str) -> str:
+    """ตัดช่องว่าง เครื่องหมายวรรคตอน และแปลงเป็นตัวพิมพ์เล็กเพื่อเทียบข้อความ"""
+    if not isinstance(text, str):
+        return ""
+    return re.sub(r"[\s\-_/.,:;()\[\]\"']+", "", text.casefold())
+
+
 class VoiceBridgeError(RuntimeError):
     """ข้อผิดพลาด fail-closed ของ voice bridge พร้อมข้อความที่ปลอดภัยต่อผู้ใช้"""
 
@@ -330,7 +337,9 @@ class VoiceBridge:
         self._last_rejected_summary: str | None = None
         self._read_back_text: str | None = None
         self._read_back_generation: int = 0
+        self._interrupted_generation: int | None = None
         self._read_back_delivered: bool = False
+        self._required_read_back_fields: dict[str, str] = {}
         self._voice_confirm_allowed: bool = True
         self._consent_granted: bool = False
         self._transcribed_consent: str | None = None
@@ -357,26 +366,99 @@ class VoiceBridge:
         return self._pending_action_id is not None
 
     @property
+    def read_back_generation(self) -> int:
+        """เลขรุ่นของการอ่านทวน (read-back generation) สำหรับรายการปัจจุบัน"""
+        return self._read_back_generation
+
+    @property
+    def required_read_back_fields(self) -> dict[str, str]:
+        """พจนานุกรม field ที่ต้องอ่านทวนให้ครบถ้วนก่อนส่งมอบสำเร็จ"""
+        return dict(self._required_read_back_fields)
+
+    @property
     def read_back_completed(self) -> bool:
         """True เมื่อการอ่านทวนข้อมูลเสร็จสิ้นและส่งถึงผู้ใช้เรียบร้อยแล้วโดยไม่ถูกขัดจังหวะ"""
         return self._read_back_delivered
 
     def mark_read_back_delivered(
-        self, pending_action_id: UUID | None = None, generation: int | None = None
-    ) -> None:
-        """เรียกเมื่อการส่งออกเสียงอ่านทวนถึงผู้ใช้เรียบร้อยแล้วโดยไม่ถูกขัดจังหวะ (T6.1 / T6.3)"""
-        if pending_action_id is not None and self._pending_action_id != pending_action_id:
-            return
-        if generation is not None and self._read_back_generation != generation:
-            return
-        self._read_back_delivered = True
+        self,
+        pending_action_id: UUID | str | None = None,
+        generation: int | None = None,
+        *,
+        transcript: str | None = None,
+        audio_delivered: bool = False,
+    ) -> bool:
+        """ตรวจสอบและบันทึกว่าการอ่านทวนข้อมูลถูกส่งมอบถึงผู้ใช้สมบูรณ์แล้วจริง (T6.1 / T6.3)
 
-    def mark_interrupted(self) -> None:
+        🔒 ข้อกำหนดความปลอดภัยตามการตรวจสอบของ orchestrator:
+        1. ต้องส่งมอบเสียงจริงที่มีขนาดมากกว่า 0 ไบต์ (audio_delivered=True)
+        2. ต้องระบุ pending_action_id และ generation ตรงกับรายการปัจจุบัน
+        3. ต้องไม่อยู่ใน generation ที่ถูกขัดจังหวะ (interrupted)
+        4. ข้อความถอดเสียงที่ส่งออก (transcript) ต้องมีข้อมูลครบทุก field ที่จะบันทึก
+           (ไม่รับ output ว่างเปล่า หรือ partial read-back ที่อ่านไม่ครบ)
+        5. Fail-closed: คืนค่า False ทันทีหากเงื่อนไขใดไม่ครบถ้วน และไม่เปลี่ยนสถานะเป็น delivered
+        """
+        # 1. ต้องมีการส่งมอบเสียงจริง
+        if not audio_delivered:
+            return False
+
+        # 2. ตรวจสอบ pending_action_id
+        if self._pending_action_id is None or pending_action_id is None:
+            return False
+        if str(self._pending_action_id) != str(pending_action_id):
+            return False
+
+        # 3. ตรวจสอบ generation
+        if generation is None or self._read_back_generation != generation:
+            return False
+
+        # 4. ตรวจสอบว่า generation นี้ไม่ถูกขัดจังหวะ
+        if (
+            self._interrupted_generation is not None
+            and self._interrupted_generation >= self._read_back_generation
+        ):
+            return False
+
+        # 5. ตรวจสอบ transcript
+        if not transcript or not isinstance(transcript, str):
+            return False
+        clean_text = transcript.strip()
+        if not clean_text:
+            return False
+
+        # 6. ตรวจสอบว่า transcript มีครบทุก field ที่ต้องอ่านทวน
+        required_fields = self._required_read_back_fields
+        text_fold = clean_text.casefold()
+        norm_transcript = _normalize_text_for_match(clean_text)
+
+        for key, expected_val in required_fields.items():
+            expected_str = str(expected_val).strip()
+            if not expected_str:
+                continue
+            expected_fold = expected_str.casefold()
+            norm_expected = _normalize_text_for_match(expected_str)
+
+            found = (expected_fold in text_fold) or (norm_expected in norm_transcript)
+            if not found:
+                # ข้อมูลขาดหาย (partial read-back) -> fail closed
+                return False
+
+        self._read_back_delivered = True
+        return True
+
+    def mark_interrupted(
+        self,
+        pending_action_id: UUID | str | None = None,
+        generation: int | None = None,
+    ) -> None:
         """เรียกเมื่อผู้ใช้พูดแทรกระหว่างที่ผู้ช่วยกำลังพูด (audio.interrupted) (T6.1 / T6.3)"""
         self._read_back_delivered = False
         self._consent_granted = False
         self._transcribed_consent = None
         self._consent_pending_action_id = None
+        if self._read_back_generation > 0:
+            target_gen = generation if generation is not None else self._read_back_generation
+            self._interrupted_generation = max(self._interrupted_generation or 0, target_gen, self._read_back_generation)
 
     @property
     def read_back_text(self) -> str | None:
@@ -574,6 +656,7 @@ class VoiceBridge:
                 self._consent_pending_action_id = None
                 self._consent_generation = 0
                 self._read_back_generation += 1
+                self._interrupted_generation = None
                 self._read_back_delivered = False  # 🔒 T6.1 & T6.3: ยังไม่ได้ส่งมอบเสียงถึงผู้ใช้จริง!
 
                 # ตรวจ voiceConfirm
@@ -590,6 +673,30 @@ class VoiceBridge:
                 )
                 props = schema.get("properties", {}) if schema else {}
                 self._read_back_text = build_read_back_text(response.pending_action, props)
+
+                # รวบรวมฟิลด์ทั้งหมดที่ต้องอ่านทวน (T6.1 / T6.3)
+                self._required_read_back_fields = {}
+                prepared = getattr(response.pending_action, "prepared_input", None) or {}
+                for k, v in prepared.items():
+                    if k.startswith("_") or k in {
+                        "idempotency_key",
+                        "idempotencyKey",
+                        "token",
+                        "trace_id",
+                        "channel",
+                        "conversation_id",
+                        "conversationId",
+                    }:
+                        continue
+                    if v is not None:
+                        val_str = str(v).strip()
+                        if val_str:
+                            self._required_read_back_fields[k] = val_str
+
+                if not self._required_read_back_fields:
+                    summary = getattr(response.pending_action, "summary", "")
+                    if summary:
+                        self._required_read_back_fields["summary"] = summary.strip()
 
             payload = response.model_dump(mode="json", by_alias=True)
             payload["voiceGuidance"] = self._voice_guidance(response)
@@ -609,6 +716,8 @@ class VoiceBridge:
         self._consent_pending_action_id = None
         self._read_back_delivered = False
         self._read_back_text = None
+        self._interrupted_generation = None
+        self._required_read_back_fields.clear()
 
         self._correction_count += 1
         if self._correction_count > _MAX_CORRECTIONS:
@@ -775,6 +884,8 @@ class VoiceBridge:
         self._consent_pending_action_id = None
         self._read_back_delivered = False
         self._read_back_text = None
+        self._interrupted_generation = None
+        self._required_read_back_fields.clear()
         self._clear_if_terminal(decision)
         return decision.model_dump(mode="json", by_alias=True)
 
@@ -811,6 +922,8 @@ class VoiceBridge:
         self._consent_pending_action_id = None
         self._read_back_delivered = False
         self._read_back_text = None
+        self._interrupted_generation = None
+        self._required_read_back_fields.clear()
         self._clear_if_terminal(decision)
         return decision.model_dump(mode="json", by_alias=True)
 

@@ -190,28 +190,76 @@ class GeminiLiveSession:
         # google-genai's receive() ends after each complete model turn.  Re-enter it
         # to preserve this WebSocket's VoiceBridge conversation across turns.
         while True:
+            turn_audio_bytes = 0
+            turn_transcripts: list[str] = []
+            turn_interrupted = False
+            bridge = getattr(self, "_bridge", None)
+            turn_pending_id = getattr(bridge, "pending_action_id", None)
+            turn_generation = getattr(bridge, "read_back_generation", 0)
+
             async for event in session.receive():
                 content = event.server_content
                 if content is not None:
                     if content.interrupted:
+                        turn_interrupted = True
+                        turn_audio_bytes = 0
+                        turn_transcripts.clear()
                         await websocket.send_json({"type": "audio.interrupted"})
-                        bridge = getattr(self, "_bridge", None)
                         if bridge is not None and hasattr(bridge, "mark_interrupted"):
-                            bridge.mark_interrupted()
-                    await self._forward_transcripts(websocket, session, content)
+                            bridge.mark_interrupted(
+                                pending_action_id=turn_pending_id,
+                                generation=turn_generation,
+                            )
+                    await self._forward_transcripts(
+                        websocket, session, content, turn_transcripts=turn_transcripts
+                    )
                     for part in ((content.model_turn.parts or ()) if content.model_turn else ()):
-                        inline_data = part.inline_data
+                        inline_data = getattr(part, "inline_data", None)
                         if inline_data is not None and inline_data.data:
+                            turn_audio_bytes += len(inline_data.data)
                             await websocket.send_bytes(inline_data.data)
+                        part_text = getattr(part, "text", None)
+                        if part_text:
+                            turn_transcripts.append(part_text)
                     if content.turn_complete:
                         await websocket.send_json({"type": "turn.complete"})
-                        bridge = getattr(self, "_bridge", None)
-                        if bridge is not None and hasattr(bridge, "mark_read_back_delivered"):
-                            bridge.mark_read_back_delivered()
+                        if (
+                            not turn_interrupted
+                            and turn_audio_bytes > 0
+                            and turn_transcripts
+                            and bridge is not None
+                            and hasattr(bridge, "mark_read_back_delivered")
+                        ):
+                            full_transcript = " ".join(turn_transcripts).strip()
+                            bridge.mark_read_back_delivered(
+                                pending_action_id=turn_pending_id,
+                                generation=turn_generation,
+                                transcript=full_transcript,
+                                audio_delivered=True,
+                            )
+                        # Reset for next turn
+                        turn_audio_bytes = 0
+                        turn_transcripts.clear()
+                        turn_interrupted = False
+                        turn_pending_id = getattr(bridge, "pending_action_id", None)
+                        turn_generation = getattr(bridge, "read_back_generation", 0)
+
                 if event.tool_call is not None:
                     await self._respond_to_calls(websocket, session, event.tool_call.function_calls or [])
+                    # Resample pending action and generation after tool calls
+                    turn_audio_bytes = 0
+                    turn_transcripts.clear()
+                    turn_interrupted = False
+                    turn_pending_id = getattr(bridge, "pending_action_id", None)
+                    turn_generation = getattr(bridge, "read_back_generation", 0)
 
-    async def _forward_transcripts(self, websocket: WebSocket, session: Any, content: Any) -> None:
+    async def _forward_transcripts(
+        self,
+        websocket: WebSocket,
+        session: Any,
+        content: Any,
+        turn_transcripts: list[str] | None = None,
+    ) -> None:
         if not hasattr(self, "_accumulated_user_transcription"):
             self._accumulated_user_transcription = []
 
@@ -253,6 +301,8 @@ class GeminiLiveSession:
         if output_transcription is not None:
             text = getattr(output_transcription, "text", None)
             if text:
+                if turn_transcripts is not None:
+                    turn_transcripts.append(text)
                 await websocket.send_json({
                     "type": "transcript.assistant",
                     "role": "assistant",

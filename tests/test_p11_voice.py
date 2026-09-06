@@ -276,7 +276,12 @@ async def test_llm_cannot_decide_voice_confirmation_structural_safety() -> None:
     assert len(gateway.reject_calls) == 0
 
     # ส่งมอบการอ่านทวนเสียงสำเร็จ
-    bridge.mark_read_back_delivered()
+    assert bridge.mark_read_back_delivered(
+        pending_action_id=bridge.pending_action_id,
+        generation=bridge.read_back_generation,
+        transcript=bridge.read_back_text,
+        audio_delivered=True,
+    ) is True
     assert bridge.read_back_completed is True
 
     # 2. จำลองกรณี LLM หลอน/พยายามเรียก confirm โดยที่ผู้ใช้ไม่ได้พูดคำยินยอมจริง
@@ -338,7 +343,12 @@ async def test_confirm_before_read_back_and_interruption_fail_closed() -> None:
     assert "ยังไม่ได้อ่านทวน" in str(exc_info.value)
 
     # 2. ส่งมอบการอ่านทวน
-    bridge.mark_read_back_delivered()
+    assert bridge.mark_read_back_delivered(
+        pending_action_id=bridge.pending_action_id,
+        generation=bridge.read_back_generation,
+        transcript=bridge.read_back_text,
+        audio_delivered=True,
+    ) is True
     assert bridge.read_back_completed is True
 
     # 3. ผู้ใช้พูดแทรก (interrupted)
@@ -378,7 +388,12 @@ async def test_refusal_terminates_old_action_and_enters_schema_driven_correction
     bridge = VoiceBridge(gateway)
     await bridge.handle_text("แจ้งเหตุไฟดับครับ")
     assert bridge.has_pending_action is True
-    bridge.mark_read_back_delivered()
+    assert bridge.mark_read_back_delivered(
+        pending_action_id=bridge.pending_action_id,
+        generation=bridge.read_back_generation,
+        transcript=bridge.read_back_text,
+        audio_delivered=True,
+    ) is True
 
     # ผู้ใช้พูดปฏิเสธเสียงจริง: "ไม่ใช่ครับ ข้อมูลเบอร์โทรผิด"
     result = await bridge.process_user_transcription("ไม่ใช่ครับ")
@@ -456,7 +471,12 @@ async def test_correction_creates_brand_new_pending_action() -> None:
 
     await bridge.handle_text("แจ้งเหตุไฟดับครับ")
     assert bridge.pending_action_id == str(old_action_id)
-    bridge.mark_read_back_delivered()
+    assert bridge.mark_read_back_delivered(
+        pending_action_id=bridge.pending_action_id,
+        generation=bridge.read_back_generation,
+        transcript=bridge.read_back_text,
+        audio_delivered=True,
+    ) is True
 
     # ปฏิเสธรายการเดิมผ่าน speech transcription -> เข้าโหมดแก้ไข
     await bridge.process_user_transcription("ไม่ใช่ครับ")
@@ -474,7 +494,12 @@ async def test_correction_creates_brand_new_pending_action() -> None:
 
     # Action ใหม่มี read-back ใหม่
     assert "0899999999" in bridge.read_back_text
-    bridge.mark_read_back_delivered()
+    assert bridge.mark_read_back_delivered(
+        pending_action_id=bridge.pending_action_id,
+        generation=bridge.read_back_generation,
+        transcript=bridge.read_back_text,
+        audio_delivered=True,
+    ) is True
     assert bridge.read_back_completed is True
 
     # ผู้ใช้พูด "ยืนยันครับ" ต่อรายการใหม่
@@ -543,7 +568,12 @@ async def test_ambiguous_speech_bounded_retries_and_terminal_rejection() -> None
     gateway = StubVoiceGateway(pending)
     bridge = VoiceBridge(gateway)
     await bridge.handle_text("แจ้งไฟดับ")
-    bridge.mark_read_back_delivered()
+    assert bridge.mark_read_back_delivered(
+        pending_action_id=bridge.pending_action_id,
+        generation=bridge.read_back_generation,
+        transcript=bridge.read_back_text,
+        audio_delivered=True,
+    ) is True
 
     # 1st ambiguous
     res1 = await bridge.process_user_transcription("ขอคิดดูก่อนนะ")
@@ -622,7 +652,12 @@ async def test_voice_confirm_false_fails_closed_in_bridge() -> None:
     gateway = RestrictedGateway(pending)
     bridge = VoiceBridge(gateway)
     await bridge.handle_text("จ่ายค่าไฟ")
-    bridge.mark_read_back_delivered()
+    assert bridge.mark_read_back_delivered(
+        pending_action_id=bridge.pending_action_id,
+        generation=bridge.read_back_generation,
+        transcript=bridge.read_back_text,
+        audio_delivered=True,
+    ) is True
 
     # Bridge ตรวจพบว่าไม่อนุญาตยืนยันด้วยเสียง
     assert bridge._voice_confirm_allowed is False
@@ -718,9 +753,13 @@ def test_build_confirmation_evidence_structured_sanitization() -> None:
 class LiveSessionFakeWebSocket:
     def __init__(self) -> None:
         self.sent_json: list[dict[str, Any]] = []
+        self.sent_bytes: list[bytes] = []
 
     async def send_json(self, data: dict[str, Any]) -> None:
         self.sent_json.append(data)
+
+    async def send_bytes(self, data: bytes) -> None:
+        self.sent_bytes.append(data)
 
 
 class LiveSessionFakeGeminiSession:
@@ -767,7 +806,12 @@ async def test_gemini_live_session_routes_transcripts_and_blocks_unconsented_too
     assert res_not_read["error"]["code"] == "action_conflict"
 
     # 2. อ่านทวนส่งมอบแล้ว
-    bridge.mark_read_back_delivered()
+    assert bridge.mark_read_back_delivered(
+        pending_action_id=bridge.pending_action_id,
+        generation=bridge.read_back_generation,
+        transcript=bridge.read_back_text,
+        audio_delivered=True,
+    ) is True
 
     # 3. โมเดลพยายามลักไก่เรียก confirm โดยที่ไม่มี transcription คำยินยอมของผู้ใช้ -> consent_required
     res_unconsented = await session._call_bridge("pea_confirm_pending_action", {"confirmationNote": "ยืนยัน"})
@@ -796,3 +840,252 @@ async def test_gemini_live_session_routes_transcripts_and_blocks_unconsented_too
     # 5. โมเดลเรียก confirm หลังถูก reject -> ต้องได้ no_pending_action
     res_rejected = await session._call_bridge("pea_confirm_pending_action", {})
     assert res_rejected["error"]["code"] == "no_pending_action"
+
+
+class _SentinelStop(Exception):
+    """Sentinel exception to terminate receive loop in test without infinite while True."""
+    pass
+
+
+class _EventStreamGeminiSession:
+    def __init__(self, events: list[Any]) -> None:
+        self._events = list(events)
+        self.sent_client_content: list[Any] = []
+
+    async def receive(self):
+        for ev in self._events:
+            yield ev
+        raise _SentinelStop("finished turn events")
+
+    async def send_client_content(self, turns: list[Any], turn_complete: bool = True) -> None:
+        self.sent_client_content.append({"turns": turns, "turn_complete": turn_complete})
+
+
+@pytest.mark.asyncio
+async def test_gemini_live_session_real_receive_gemini_gating_scenarios() -> None:
+    """🔒 ทดสอบการขับเคลื่อนผ่าน _receive_gemini จริงตามการตรวจสอบของ orchestrator:
+    1) Empty turn (turn_complete=True แต่ไม่มีเสียง/ข้อความ) -> ไม่เปิด read_back_completed
+    2) Interrupted + turn_complete ใน event เดียวกัน (reproduction bug) -> ไม่เปิด read_back_completed
+    3) Partial read-back (มีเสียงและข้อความแต่ขาด field บางส่วน) -> ไม่เปิด read_back_completed
+    4) Prior-generation completion หลังมี pending action ใหม่ -> ไม่ยอมรับการส่งมอบของรุ่นเก่า
+    5) Legitimate full ordered read-back (มีเสียงครบ + ครบทุก field + turn_complete)
+       -> read_back_completed เปิด -> เสียงผู้ใช้ยินยอม "ยืนยันครับ" -> submit สำเร็จครั้งเดียว
+    """
+    action_id_1 = uuid4()
+    pending1 = PendingAction(
+        pending_action_id=action_id_1,
+        conversation_id=uuid4(),
+        tool_slug="oms_tool",
+        prepare_action="prepare_outage_report",
+        submit_action="submit_outage_report",
+        prepared_input={"ca_number": "020012345678", "phone": "0812345678"},
+        summary="แจ้งไฟดับ CA 020012345678",
+        status=PendingActionStatus.PENDING_CONFIRMATION,
+        idempotency_key="idem-gate-1",
+        created_at=datetime.now(timezone.utc),
+        updated_at=datetime.now(timezone.utc),
+    )
+
+    action_id_2 = uuid4()
+    pending2 = PendingAction(
+        pending_action_id=action_id_2,
+        conversation_id=uuid4(),
+        tool_slug="oms_tool",
+        prepare_action="prepare_outage_report",
+        submit_action="submit_outage_report",
+        prepared_input={"ca_number": "020012345678", "phone": "0899999999"},
+        summary="แจ้งไฟดับ CA 020012345678 เบอร์ใหม่",
+        status=PendingActionStatus.PENDING_CONFIRMATION,
+        idempotency_key="idem-gate-2",
+        created_at=datetime.now(timezone.utc),
+        updated_at=datetime.now(timezone.utc),
+    )
+
+    class MultiGateway(StubVoiceGateway):
+        def __init__(self) -> None:
+            super().__init__(pending1)
+            self.all_actions[action_id_2] = pending2
+
+        async def handle_chat(self, request: ChatRequest) -> ChatResponse:
+            if "เบอร์ใหม่" in request.message:
+                return ChatResponse(
+                    conversation_id=request.conversation_id or uuid4(),
+                    trace_id=uuid4(),
+                    message="เตรียมรายการใหม่เรียบร้อย",
+                    pending_action=pending2,
+                )
+            return await super().handle_chat(request)
+
+    gateway = MultiGateway()
+    bridge = VoiceBridge(gateway)
+    session = object.__new__(GeminiLiveSession)
+    session._bridge = bridge
+
+    # เริ่มต้นเตรียม pending action 1
+    await bridge.handle_text("แจ้งเหตุไฟดับครับ")
+    assert bridge.pending_action_id == str(action_id_1)
+    gen_1 = bridge.read_back_generation
+    assert gen_1 > 0
+    assert bridge.read_back_completed is False
+
+    # --- Scenario 1: Empty turn (turn_complete=True แต่ไม่มีเสียงและไม่มี transcript) ---
+    ws1 = LiveSessionFakeWebSocket()
+    empty_event = SimpleNamespace(
+        server_content=SimpleNamespace(
+            interrupted=False,
+            turn_complete=True,
+            model_turn=None,
+            input_transcription=None,
+            output_transcription=None,
+        ),
+        tool_call=None,
+    )
+    fake_gemini_1 = _EventStreamGeminiSession([empty_event])
+    with pytest.raises(_SentinelStop):
+        await session._receive_gemini(ws1, fake_gemini_1)
+
+    assert bridge.read_back_completed is False
+    res_s1 = await bridge.process_user_transcription("ยืนยันครับ")
+    assert res_s1["response"]["error"]["code"] == "read_back_incomplete"
+    assert bridge._consent_granted is False
+    with pytest.raises(ActionConflictError):
+        await bridge.confirm_current()
+    assert len(gateway.confirm_calls) == 0
+
+    # --- Scenario 2: Interrupted + turn_complete ใน event เดียวกัน (Orchestrator Reproduction) ---
+    ws2 = LiveSessionFakeWebSocket()
+    interrupted_event = SimpleNamespace(
+        server_content=SimpleNamespace(
+            interrupted=True,
+            turn_complete=True,
+            model_turn=None,
+            input_transcription=None,
+            output_transcription=None,
+        ),
+        tool_call=None,
+    )
+    fake_gemini_2 = _EventStreamGeminiSession([interrupted_event])
+    with pytest.raises(_SentinelStop):
+        await session._receive_gemini(ws2, fake_gemini_2)
+
+    assert bridge.read_back_completed is False
+    res_s2 = await bridge.process_user_transcription("ยืนยันครับ")
+    assert res_s2["response"]["error"]["code"] == "read_back_incomplete"
+    assert bridge._consent_granted is False
+    with pytest.raises(ActionConflictError):
+        await bridge.confirm_current()
+    assert len(gateway.confirm_calls) == 0
+
+    # --- Scenario 3: Partial read-back (มีเสียงแต่ transcript ขาดบาง field เช่น ขาดเบอร์โทร) ---
+    # เตรียม pending action 1 ใหม่อีกรอบเพื่อให้ gen ไม่ติด interrupted
+    await bridge.handle_text("ขออ่านทวนใหม่ครับ")
+    gen_1b = bridge.read_back_generation
+    assert bridge.read_back_completed is False
+
+    ws3 = LiveSessionFakeWebSocket()
+    partial_chunk = SimpleNamespace(
+        server_content=SimpleNamespace(
+            interrupted=False,
+            turn_complete=False,
+            model_turn=SimpleNamespace(
+                parts=[SimpleNamespace(inline_data=SimpleNamespace(data=b"\x00\x01\x02\x03"), text=None)]
+            ),
+            input_transcription=None,
+            output_transcription=SimpleNamespace(
+                text="ขออ่านทวนข้อมูลครับ หมายเลขผู้ใช้ไฟฟ้า คือ 020012345678", finished=False
+            ),
+        ),
+        tool_call=None,
+    )
+    partial_complete = SimpleNamespace(
+        server_content=SimpleNamespace(
+            interrupted=False,
+            turn_complete=True,
+            model_turn=None,
+            input_transcription=None,
+            output_transcription=None,
+        ),
+        tool_call=None,
+    )
+    fake_gemini_3 = _EventStreamGeminiSession([partial_chunk, partial_complete])
+    with pytest.raises(_SentinelStop):
+        await session._receive_gemini(ws3, fake_gemini_3)
+
+    # ขาด phone "0812345678" -> mark_read_back_delivered ต้องปฏิเสธ
+    assert bridge.read_back_completed is False
+    res_s3 = await bridge.process_user_transcription("ยืนยันครับ")
+    assert res_s3["response"]["error"]["code"] == "read_back_incomplete"
+    assert bridge._consent_granted is False
+    with pytest.raises(ActionConflictError):
+        await bridge.confirm_current()
+    assert len(gateway.confirm_calls) == 0
+
+    # --- Scenario 4: Prior-generation completion หลังมี pending action ใหม่ ---
+    # สร้าง pending action 2 (generation ใหม่)
+    await bridge.handle_text("เปลี่ยนเป็นเบอร์ใหม่ครับ")
+    assert bridge.pending_action_id == str(action_id_2)
+    gen_2 = bridge.read_back_generation
+    assert gen_2 > gen_1b
+
+    # จำลอง event จากรุ่นเก่า (gen_1b / action_id_1) ที่มาถึงช้า
+    old_delivery_rejected = bridge.mark_read_back_delivered(
+        pending_action_id=action_id_1,
+        generation=gen_1b,
+        transcript="หมายเลขผู้ใช้ไฟฟ้า คือ 020012345678 และ เบอร์โทรศัพท์ คือ 0812345678",
+        audio_delivered=True,
+    )
+    assert old_delivery_rejected is False
+    assert bridge.read_back_completed is False
+
+    # --- Scenario 5: Legitimate full ordered read-back สำหรับรายการปัจจุบัน ---
+    ws5 = LiveSessionFakeWebSocket()
+    full_audio_chunk = SimpleNamespace(
+        server_content=SimpleNamespace(
+            interrupted=False,
+            turn_complete=False,
+            model_turn=SimpleNamespace(
+                parts=[SimpleNamespace(inline_data=SimpleNamespace(data=b"\x10\x20\x30\x40" * 10), text=None)]
+            ),
+            input_transcription=None,
+            output_transcription=SimpleNamespace(
+                text="ขออ่านทวนข้อมูลที่จะบันทึกครับ: หมายเลขผู้ใช้ไฟฟ้า คือ 020012345678 และ เบอร์โทรศัพท์ คือ 0899999999 ข้อมูลถูกต้องหรือไม่ครับ",
+                finished=True,
+            ),
+        ),
+        tool_call=None,
+    )
+    full_complete = SimpleNamespace(
+        server_content=SimpleNamespace(
+            interrupted=False,
+            turn_complete=True,
+            model_turn=None,
+            input_transcription=None,
+            output_transcription=None,
+        ),
+        tool_call=None,
+    )
+    fake_gemini_5 = _EventStreamGeminiSession([full_audio_chunk, full_complete])
+    with pytest.raises(_SentinelStop):
+        await session._receive_gemini(ws5, fake_gemini_5)
+
+    # อ่านทวนส่งมอบสำเร็จแล้ว!
+    assert bridge.read_back_completed is True
+
+    # ผู้ใช้พูดคำยินยอมด้วยเสียงจริงผ่าน speech transcription
+    consent_res = await bridge.process_user_transcription("ยืนยันครับ")
+    assert consent_res is not None
+    assert consent_res["operation"] == "chat"
+    assert bridge._consent_granted is True
+
+    # โมเดลเรียก confirm_current สำเร็จและส่งไปยัง backend ครั้งเดียว
+    decision = await bridge.confirm_current(confirmation_note="ยืนยันจากเสียง")
+    assert decision["pendingAction"]["status"] == "submitted"
+    assert decision["pendingAction"]["pendingActionId"] == str(action_id_2)
+    assert len(gateway.confirm_calls) == 1
+    assert gateway.confirm_calls[0][0] == action_id_2
+    assert gateway.all_actions[action_id_2].status is PendingActionStatus.SUBMITTED
+    assert bridge.has_pending_action is False
+
+    # การยืนยันซ้ำ fail closed
+    with pytest.raises(NoPendingActionError):
+        await bridge.confirm_current()
