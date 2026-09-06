@@ -1,11 +1,10 @@
 /* ============================================================
  * PEA One Agent — UI สาธิตสำหรับการแข่งขัน (AI-05)
  * ไคลเอนต์แบบสแตติกที่ไม่พึ่งพาไลบรารี สำหรับสัญญา v1 ที่ตรึงไว้:
- *   POST /api/v1/chat
- *   POST /api/v1/actions/{pendingActionId}/confirm
- *   POST /api/v1/actions/{pendingActionId}/reject
- *   GET  /api/v1/traces/{traceId}
- *   POST /api/v1/reset
+ *   POST /api/v1/web/chat
+ *   POST /api/v1/web/actions/{pendingActionId}/confirm
+ *   POST /api/v1/web/actions/{pendingActionId}/reject
+ *   GET  /api/v1/traces/{traceId} (admin session only)
  *
  * กฎความปลอดภัยที่ฝังอยู่ในไฟล์นี้:
  *   - ไม่แสดง chain-of-thought โดยเด็ดขาด และปิดบังคีย์ใด ๆ ที่คล้ายข้อมูลความคิด
@@ -24,12 +23,19 @@ import { isTracePanelEnabled } from './trace-flag.js';
 
   /* ---------- เส้นทางที่ตรึงไว้ ---------- */
   const API = {
-    chat: '/api/v1/chat',
-    confirm: (id) => `/api/v1/actions/${encodeURIComponent(id)}/confirm`,
-    reject: (id) => `/api/v1/actions/${encodeURIComponent(id)}/reject`,
+    session: '/api/v1/web/session',
+    chat: '/api/v1/web/chat',
+    confirm: (id) => `/api/v1/web/actions/${encodeURIComponent(id)}/confirm`,
+    reject: (id) => `/api/v1/web/actions/${encodeURIComponent(id)}/reject`,
     trace: (id) => `/api/v1/traces/${encodeURIComponent(id)}`,
-    reset: '/api/v1/reset',
   };
+
+  const webSessionReady = fetch(API.session, {
+    method: 'POST',
+    credentials: 'same-origin',
+  }).then((res) => {
+    if (!res.ok) throw new Error(`web session ${res.status}`);
+  });
 
   // Go BE (wsc2026-be) — currently a separate origin/port from whatever
   // serves this static page, so this isn't just API.chat's relative path.
@@ -235,10 +241,12 @@ import { isTracePanelEnabled } from './trace-flag.js';
   async function api(url, options = {}) {
     let res;
     try {
+      await webSessionReady;
       res = await fetch(url, {
         method: options.method || 'GET',
         headers: options.body ? { 'Content-Type': 'application/json' } : undefined,
         body: options.body ? JSON.stringify(options.body) : undefined,
+        credentials: 'same-origin',
       });
     } catch (err) {
       throw new ApiError(0, 'ไม่สามารถเชื่อมต่อเซิร์ฟเวอร์ได้ — โปรดตรวจสอบว่าระบบหลังบ้าน (backend) กำลังทำงานอยู่');
@@ -798,33 +806,23 @@ import { isTracePanelEnabled } from './trace-flag.js';
 
   /* ---------- การรีเซ็ต ---------- */
 
-  async function resetDemo() {
+  function resetDemo() {
     els.resetBtn.disabled = true;
-    try {
-      await api(API.reset, { method: 'POST' });
-      state.conversationId = null;
-      state.lastTraceId = null;
-      updateTraceIdLabel();
-      els.traceEvents.innerHTML = '';
-      els.traceEmpty.hidden = false;
-      els.traceEmpty.textContent = 'ยังไม่มีเหตุการณ์ — ส่งข้อความเพื่อเริ่มต้น';
+    state.conversationId = null;
+    state.lastTraceId = null;
+    updateTraceIdLabel();
+    els.traceEvents.innerHTML = '';
+    els.traceEmpty.hidden = false;
+    els.traceEmpty.textContent = 'ยังไม่มีเหตุการณ์ — ส่งข้อความเพื่อเริ่มต้น';
 
-      els.thread.innerHTML = '';
-      addSystemNotice(
-        '<strong>รีเซ็ตข้อมูลการสาธิตเรียบร้อย</strong> — ล้างบทสนทนา การกระทำที่รอยืนยัน ข้อมูลระบบจำลอง และบันทึกการตรวจสอบทั้งหมดแล้ว (ข้อมูลจำลองเท่านั้น)',
-        'notice-system'
-      );
-      announce('รีเซ็ตระบบสาธิตเรียบร้อยแล้ว');
-      els.input.focus();
-    } catch (err) {
-      addSystemNotice(
-        `<strong>รีเซ็ตไม่สำเร็จ</strong><br>${escapeHtml(err instanceof ApiError ? err.message : 'ไม่สามารถติดต่อเซิร์ฟเวอร์ได้')}`,
-        'notice-error'
-      );
-      announce('รีเซ็ตล้มเหลว');
-    } finally {
-      els.resetBtn.disabled = false;
-    }
+    els.thread.innerHTML = '';
+    addSystemNotice(
+      '<strong>เริ่มบทสนทนาใหม่แล้ว</strong> — ล้างข้อมูลบนหน้าจอนี้เท่านั้น การกระทำที่รอยืนยันและบันทึกการตรวจสอบบนเซิร์ฟเวอร์ยังคงอยู่',
+      'notice-system'
+    );
+    announce('เริ่มบทสนทนาใหม่แล้ว');
+    els.input.focus();
+    els.resetBtn.disabled = false;
   }
 
   /* ---------- การเชื่อมการทำงานของช่องเขียนข้อความ ---------- */

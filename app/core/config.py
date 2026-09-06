@@ -81,6 +81,7 @@ class Settings:
     admin_password: str | None = field(default=None, repr=False)
     db_path: Path = field(default_factory=lambda: Path("data/pea.db"))
     state_key: str | None = field(default=None, repr=False)
+    public_api_rate_limit_per_minute: int = 60
 
     @classmethod
     def from_env(
@@ -186,6 +187,14 @@ class Settings:
         admin_password = _get("ADMIN_PASSWORD")
         db_path = Path(_get("DB_PATH") or "data/pea.db")
         state_key = _get("PEA_STATE_KEY")
+        try:
+            public_api_rate_limit_per_minute = int(
+                env.get("PUBLIC_API_RATE_LIMIT_PER_MINUTE", "60")
+            )
+            if public_api_rate_limit_per_minute < 1:
+                raise ValueError
+        except (TypeError, ValueError):
+            public_api_rate_limit_per_minute = 60
 
         return cls(
             app_env=env.get("APP_ENV", "development").lower(),
@@ -222,6 +231,7 @@ class Settings:
             admin_password=admin_password,
             db_path=db_path,
             state_key=state_key,
+            public_api_rate_limit_per_minute=public_api_rate_limit_per_minute,
         )
 
     @property

@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from dataclasses import replace
 import re
 from uuid import UUID
 
@@ -77,28 +78,37 @@ def _registry() -> ToolRegistry:
 @pytest.fixture
 def client() -> TestClient:
     # แทนที่ทั้ง agent และ readiness เพื่อไม่ให้ black-box test เรียก provider ภายนอก
+    from app.core import admin_auth
     from app.core.di import adapter_service, agent_service
     from app.main import app
 
     agent_service.set_agent(MainAgent(LLMClient(DemoLLMAdapter((OmsDemoBehavior(),))), _registry()))
     adapter_service.set_llm(_Ready())
     adapter_service.set_knowledge(_Ready())
-    with TestClient(app) as test_client:
-        test_client.post("/api/v1/reset", json={})
-        yield test_client
+    original_settings = app.state.settings
+    app.state.settings = replace(original_settings, admin_password="test-admin-password")
+    admin_token = admin_auth.admin_session_store.create()
+    try:
+        with TestClient(app) as test_client:
+            test_client.cookies.set(admin_auth.ADMIN_SESSION_COOKIE, admin_token)
+            assert test_client.post("/api/v1/web/session").status_code == 200
+            assert test_client.post("/api/v1/reset", json={}).status_code == 200
+            yield test_client
+    finally:
+        admin_auth.admin_session_store.revoke(admin_token)
+        app.state.settings = original_settings
 
 
 def post_chat(client: TestClient, message: str, **extra: object):
-    return client.post("/api/v1/chat", json={"message": message, **extra})
+    return client.post("/api/v1/web/chat", json={"message": message, **extra})
 
 
 def test_health_has_safe_readiness_shape(client: TestClient) -> None:
     response = client.get("/health")
     assert response.status_code == 200
     body = response.json()
-    assert body["simulationMode"] is True
     assert body["status"] == "ok"
-    assert set(body) == {"status", "llmAdapter", "knowledgeBackend", "simulationMode"}
+    assert set(body) == {"status"}
     assert not re.search(r"secret|token|api.?key|account.?number", response.text, re.I)
 
 
@@ -149,8 +159,8 @@ def test_prepare_confirm_is_idempotent_and_trace_ordered(client: TestClient) -> 
     )
     pending = response.json()["pendingAction"]
     action_id = pending["pendingActionId"]
-    first = client.post(f"/api/v1/actions/{action_id}/confirm", json={})
-    second = client.post(f"/api/v1/actions/{action_id}/confirm", json={})
+    first = client.post(f"/api/v1/web/actions/{action_id}/confirm", json={})
+    second = client.post(f"/api/v1/web/actions/{action_id}/confirm", json={})
     assert first.status_code == second.status_code == 200
     assert first.json() == second.json()
     events = client.get(f"/api/v1/traces/{first.json()['traceId']}").json()["events"]
@@ -165,12 +175,12 @@ def test_reject_is_terminal_and_confirm_returns_conflict(client: TestClient) -> 
     )
     action_id = response.json()["pendingAction"]["pendingActionId"]
     rejected = client.post(
-        f"/api/v1/actions/{action_id}/reject",
+        f"/api/v1/web/actions/{action_id}/reject",
         json={"reason": "ยังไม่ดำเนินการ"},
     )
     assert rejected.status_code == 200
     assert rejected.json()["pendingAction"]["status"] == "rejected"
-    assert client.post(f"/api/v1/actions/{action_id}/confirm", json={}).status_code == 409
+    assert client.post(f"/api/v1/web/actions/{action_id}/confirm", json={}).status_code == 409
 
 
 def test_reset_keeps_append_only_trace_history(client: TestClient) -> None:
@@ -181,9 +191,9 @@ def test_reset_keeps_append_only_trace_history(client: TestClient) -> None:
 
 
 def test_invalid_action_id_and_reject_payloads_fail_closed(client: TestClient) -> None:
-    assert client.post("/api/v1/actions/not-a-uuid/reject", json={"reason": "x"}).status_code == 422
-    assert client.post("/api/v1/actions/00000000-0000-0000-0000-000000000000/reject", json={}).status_code == 422
-    assert client.post("/api/v1/actions/00000000-0000-0000-0000-000000000000/confirm", json={"confirmed": True}).status_code == 422
+    assert client.post("/api/v1/web/actions/not-a-uuid/reject", json={"reason": "x"}).status_code == 422
+    assert client.post("/api/v1/web/actions/00000000-0000-0000-0000-000000000000/reject", json={}).status_code == 422
+    assert client.post("/api/v1/web/actions/00000000-0000-0000-0000-000000000000/confirm", json={"confirmed": True}).status_code == 422
 
 
 def test_trace_redacts_secrets_and_prompt_injection(client: TestClient) -> None:

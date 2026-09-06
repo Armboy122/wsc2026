@@ -97,6 +97,10 @@ class AdminPromptInput(AdminModel):
     content: str = Field(min_length=1, max_length=20_000)
 
 
+class AdminApiKeyCreateInput(AdminModel):
+    name: str = Field(min_length=1, max_length=100)
+
+
 class ToolName(str, Enum):
     KNOWLEDGE = "knowledge_tool"
     VOC = "voc_tool"
@@ -402,9 +406,6 @@ class ResetResponse(FrozenModel):
 
 class HealthResponse(FrozenModel):
     status: Literal["ok", "degraded"]
-    llm_adapter: Literal["ready", "unavailable"] = Field(serialization_alias="llmAdapter")
-    knowledge_backend: Literal["ready", "unavailable"] = Field(serialization_alias="knowledgeBackend")
-    simulation_mode: Literal[True] = Field(True, serialization_alias="simulationMode")
 
 
 # สัญญาข้อมูลนำเข้าและผลลัพธ์เฉพาะแต่ละการกระทำ

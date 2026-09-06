@@ -15,6 +15,34 @@
 
 ## อินเทอร์เฟซ HTTP สาธารณะ
 
+ยกเว้น `/health` ทุก endpoint สาธารณะต้องมี API key ใน `X-API-Key` (รองรับ
+`Authorization: Bearer` สำหรับ client ที่ใช้มาตรฐานนั้น) โดย key ถูกสร้างและเพิกถอน
+ผ่าน admin API เท่านั้น การสนทนาใหม่จะได้ `conversationId` จาก server เสมอ และ id
+ที่เป็นของ key อื่นตอบ `404` แบบเดียวกับ resource ที่ไม่มีอยู่
+
+หน้า web ที่ bundle มากับแอปใช้ namespace `/api/v1/web/*` และ opaque HttpOnly
+same-origin session แยกจาก public API key ส่วน `GET /api/v1/traces/{id}` และ
+`POST /api/v1/reset` เดิมต้องใช้ admin session ไม่รับ API key ของระบบภายนอก
+หน้า web เริ่ม session ที่ `POST /api/v1/web/session` แล้วใช้ `chat`, `actions`,
+ใต้ namespace เดียวกัน โดย conversation และ pending action ผูกกับ web session นั้น
+หน้าเว็บไม่มี alias สำหรับ `traces` หรือ `reset`: trace panel ใช้ endpoint ฝั่ง admin
+เมื่อมี admin session ส่วนปุ่มเริ่มใหม่ล้างเฉพาะ state บนหน้าเว็บ
+
+ข้อผิดพลาดของ public API ใช้ envelope ปิดดังนี้ และไม่เปิดเผย stack trace ชื่อ tool
+หรือ URL ปลายทาง:
+
+```json
+{"error":{"code":"unauthorized","message":"ไม่สามารถยืนยันตัวตนได้","traceId":"UUID"}}
+```
+
+`code` ที่ใช้ได้คือ `invalid_input`, `not_found`, `unavailable`, `conflict`,
+`confirmation_required`, `internal`, `unauthorized` และ `rate_limited`;
+แต่ละ API key มีตัวนับคำขอในหน่วยความจำต่อหนึ่งนาที เกินขีดจำกัดตอบ `429`.
+
+การจัดการ key (ต้องใช้ admin session): `POST /api/v1/admin/api-keys` รับ `{ "name": "..." }`
+และคืนค่า `apiKey` จริงครั้งเดียว, `GET /api/v1/admin/api-keys` คืนเฉพาะ metadata,
+และ `POST /api/v1/admin/api-keys/{id}/revoke` เพิกถอน key.
+
 ### `POST /api/v1/chat`
 
 คำขอ (`ChatRequest`):
@@ -126,13 +154,11 @@ terminal `failed` เพื่อไม่ให้เหลือสถาน�
 คืนค่า `HealthResponse`:
 
 ```json
-{
-  "status": "ok",
-  "llmAdapter": "ready",
-  "knowledgeBackend": "ready",
-  "simulationMode": true
-}
+{ "status": "ok" }
 ```
+
+เส้นทางนี้ไม่ต้องยืนยันตัวตนและจึงเปิดเผยเฉพาะสถานะรวม `ok` หรือ `degraded`;
+ไม่เปิดเผยชื่อหรือสถานะรายองค์ประกอบภายใน
 
 ห้ามเปิดเผย credential, URL ของ endpoint, หมายเลขบัญชี หรือข้อมูลลูกค้า
 

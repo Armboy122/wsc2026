@@ -21,6 +21,7 @@ def test_default_settings() -> None:
     )
     assert settings.gemini_long_context_model == "gemini-3.5-flash-lite"
     assert settings.state_key is None
+    assert settings.public_api_rate_limit_per_minute == 60
 
 
 def test_env_override() -> None:
@@ -35,6 +36,7 @@ def test_env_override() -> None:
             "KNOWLEDGE_SOURCE_ROOT": "/srv/pea-knowledge",
             "GEMINI_LONG_CONTEXT_MODEL": "gemini-3.6-pro",
             "PEA_STATE_KEY": "state-key",
+            "PUBLIC_API_RATE_LIMIT_PER_MINUTE": "17",
         }
     )
     assert settings.app_env == "production"
@@ -47,6 +49,13 @@ def test_env_override() -> None:
     assert settings.knowledge_source_root == Path("/srv/pea-knowledge")
     assert settings.gemini_long_context_model == "gemini-3.6-pro"
     assert settings.state_key == "state-key"
+    assert settings.public_api_rate_limit_per_minute == 17
+
+
+def test_invalid_public_api_settings_are_handled_safely() -> None:
+    assert Settings.from_env(
+        {"PUBLIC_API_RATE_LIMIT_PER_MINUTE": "0"}
+    ).public_api_rate_limit_per_minute == 60
 
 
 def test_main_knowledge_and_judge_llm_configs_are_independent() -> None:

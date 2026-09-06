@@ -30,6 +30,7 @@ from app.core.config import LLMRuntimeSettings, load_settings
 from app.core.di import adapter_service, agent_service
 from app.core.errors import ConflictException, NotFoundException, platform_exception_handler
 from app.core.prompt_admin import PromptAdminService
+from app.core.public_api import ApiKeyStore, ConversationOwnership, InMemoryRateLimiter
 from app.core.startup import create_platform_app, startup_event
 from app.core.tool_admin import ToolAdminService
 from app.db import Database
@@ -198,6 +199,9 @@ adapter_service.set_llm(llm_adapter)
 adapter_service.set_knowledge(_KnowledgeReadiness(knowledge_backend))
 
 app = create_platform_app(settings)
+app.state.api_key_store = ApiKeyStore(db)
+app.state.conversation_ownership = ConversationOwnership(db)
+app.state.public_api_rate_limiter = InMemoryRateLimiter(settings.public_api_rate_limit_per_minute)
 app.include_router(router)
 app.include_router(live_router)
 app.include_router(admin_router)

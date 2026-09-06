@@ -255,17 +255,24 @@
 ### T8.1 🔒 API key
 - ตาราง `api_key` · เก็บ hash · แสดงค่าจริงครั้งเดียว · เพิกถอนได้ · `tenant_id = 'default'`
 - **เทสบังคับ**: key ที่ถูกเพิกถอนใช้ไม่ได้ · ไม่มี key = 401
+- **P8 เสร็จ**: public boundary บังคับ API key ทุก environment; bundled web ย้ายไป
+  namespace `/api/v1/web/*` ที่ใช้ opaque HttpOnly same-origin session แยกกัน
 
 ### T8.2 🔒 conversation ownership
 - server ออก id เสมอ · ส่ง id ของ key อื่น = **404**
 - **เทสบังคับ**: key A เข้าถึง conversation ของ key B ไม่ได้ และได้ 404 ไม่ใช่ 403
+- **P8 เสร็จ**: conversation ผูกกับ API key ใน memory; pending action ผูกกับ API key
+  แบบ durable ใน SQLite (`pending_action.api_key_id`) และ bundled web แยก ownership
+  ต่อ opaque session โดยไม่ใช้ resource ข้าม session/ช่องทาง
 
 ### T8.3 error contract
 - `{error:{code,message,traceId}}` · code เป็นชุดปิด
 - **เทสบังคับ**: error ไม่มี stack trace / ชื่อ tool / URL ปลายทาง
+- **P8 เสร็จ**: public chat/action ใช้ closed error envelope และ trace/reset อยู่หลัง admin auth
 
 ### T8.4 rate limit
 - ตัวนับใน memory ต่อ key ต่อนาที · เกิน = 429
+- **P8 เสร็จ**: ตัวนับแยกต่อ key และตั้งเพดานได้ด้วย `PUBLIC_API_RATE_LIMIT_PER_MINUTE`
 
 ---
 

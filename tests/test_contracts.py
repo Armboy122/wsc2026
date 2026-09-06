@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from dataclasses import replace
 from uuid import UUID, uuid4
 
 import json
@@ -99,17 +100,27 @@ def _isolated_registry(post_counter: list[int] | None = None) -> ToolRegistry:
 @pytest.fixture
 def client() -> TestClient:
     # เปลี่ยนเฉพาะ DI ของ test เพื่อไม่ให้การทดสอบเรียก LLM, Knowledge หรือ OMS ภายนอก
+    from app.core import admin_auth
     from app.core.di import agent_service
     from app.main import app
 
     agent_service.set_agent(MainAgent(LLMClient(DemoLLMAdapter((OmsDemoBehavior(),))), _isolated_registry()))
-    with TestClient(app) as test_client:
-        assert test_client.post("/api/v1/reset", json={}).status_code == 200
-        yield test_client
+    original_settings = app.state.settings
+    app.state.settings = replace(original_settings, admin_password="test-admin-password")
+    admin_token = admin_auth.admin_session_store.create()
+    try:
+        with TestClient(app) as test_client:
+            test_client.cookies.set(admin_auth.ADMIN_SESSION_COOKIE, admin_token)
+            assert test_client.post("/api/v1/web/session").status_code == 200
+            assert test_client.post("/api/v1/reset", json={}).status_code == 200
+            yield test_client
+    finally:
+        admin_auth.admin_session_store.revoke(admin_token)
+        app.state.settings = original_settings
 
 
 def chat(client: TestClient, message: str) -> dict:
-    response = client.post("/api/v1/chat", json={"message": message})
+    response = client.post("/api/v1/web/chat", json={"message": message})
     assert response.status_code == 200, response.text
     body = response.json()
     UUID(body["conversationId"])
@@ -149,8 +160,8 @@ def test_anonymous_prepare_confirm_is_explicit_and_idempotent(client: TestClient
     assert pending["prepareAction"] == "prepare_anonymous_outage"
 
     action_id = pending["pendingActionId"]
-    first = client.post(f"/api/v1/actions/{action_id}/confirm", json={})
-    second = client.post(f"/api/v1/actions/{action_id}/confirm", json={})
+    first = client.post(f"/api/v1/web/actions/{action_id}/confirm", json={})
+    second = client.post(f"/api/v1/web/actions/{action_id}/confirm", json={})
     assert first.status_code == second.status_code == 200
     assert first.json() == second.json()
     assert first.json()["pendingAction"]["status"] == "submitted"
@@ -168,12 +179,12 @@ def test_anonymous_prepare_reject_is_terminal(client: TestClient) -> None:
     )
     action_id = body["pendingAction"]["pendingActionId"]
     rejected = client.post(
-        f"/api/v1/actions/{action_id}/reject",
+        f"/api/v1/web/actions/{action_id}/reject",
         json={"reason": "ยกเลิกการสาธิต"},
     )
     assert rejected.status_code == 200
     assert rejected.json()["pendingAction"]["status"] == "rejected"
-    assert client.post(f"/api/v1/actions/{action_id}/confirm", json={}).status_code == 409
+    assert client.post(f"/api/v1/web/actions/{action_id}/confirm", json={}).status_code == 409
 
 
 def test_prepared_input_is_reviewable_but_internal_key_is_hidden(client: TestClient) -> None:
@@ -208,7 +219,7 @@ def test_reset_clears_live_pending_but_keeps_trace_history(client: TestClient) -
     trace_id = body["traceId"]
     assert client.post("/api/v1/reset", json={}).status_code == 200
     assert client.get(f"/api/v1/traces/{trace_id}").status_code == 200
-    assert client.post(f"/api/v1/actions/{action_id}/confirm", json={}).status_code == 404
+    assert client.post(f"/api/v1/web/actions/{action_id}/confirm", json={}).status_code == 404
 
 
 def test_llm_catalogue_never_advertises_internal_submit_actions() -> None:

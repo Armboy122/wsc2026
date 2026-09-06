@@ -563,7 +563,7 @@ prompt             key, content, version, updated_at
 channel_profile    channel, allowed_tool_slugs
 domain_allowlist   domain, enabled, added_by
 api_key            id, name, key_hash, tenant_id, created_at, revoked_at
-pending_action     id, conversation_id, status, summary, payload, trace_id, ...
+pending_action     id, conversation_id, status, summary, payload, trace_id, api_key_id, ...
 trace_event        trace_id, sequence, at, kind, tool_slug, action,
                    config_version, policy, channel, data
                    UNIQUE(trace_id, sequence)
@@ -742,6 +742,7 @@ HTML/JS ธรรมดาต่อยอด `web/index.html` เดิม **ไ
 |---|---|
 | `POST /api/v1/chat` | ✅ เปิด (ต้องมี API key) |
 | `POST /api/v1/actions/{id}/confirm` · `/reject` | ✅ เปิด (ต้องมี API key) |
+| `POST /api/v1/web/session` · `/chat` · `/actions/{id}/confirm` · `/reject` | ✅ bundled web เท่านั้น (opaque HttpOnly SameSite session) |
 | `GET /api/v1/traces/{id}` | ❌ **ปิด** → หลัง admin auth |
 | `POST /api/v1/reset` | ❌ **ปิด** → หลัง admin auth |
 | `GET /health` | ✅ เปิด ไม่ต้องมี key (ต้องไม่บอกรายละเอียดภายใน) |
@@ -766,6 +767,13 @@ HTML/JS ธรรมดาต่อยอด `web/index.html` เดิม **ไ
 **คง `/api/v1` ไม่ขึ้น v2** เพราะสิ่งที่ V2 เพิ่ม (`simulation`, `actions[]`) เป็นการ **เติม** ไม่ใช่ลบ ⇒ client เก่าไม่พัง
 
 ⚠️ สิ่งที่ **จะ** พังคือ endpoint ที่ถูกปิด — เดโมปัจจุบันเรียก `/traces` อยู่ ต้องแก้ฝั่ง web ด้วย (อยู่ในลำดับการย้าย §12)
+
+bundled web จึงใช้ BFF namespace `/api/v1/web/*` แยกจาก public API และเริ่ม opaque
+session ผ่าน `/api/v1/web/session`; cookie เป็น HttpOnly + SameSite=Strict และไม่วาง
+API key ไว้ใน JavaScript แต่ละ session เป็น identity แยกกันและถือ ownership ของ
+conversation/pending action ของตัวเอง จึงใช้ resource ของ web session อื่นหรือ public
+API key ไม่ได้ ไม่มี web alias สำหรับ trace/reset: trace ยังคงหลัง admin auth และปุ่ม
+เริ่มบทสนทนาใหม่ล้างเฉพาะ state ฝั่ง browser
 
 ### 11.5 error contract
 

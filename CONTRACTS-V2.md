@@ -465,6 +465,9 @@ query string อันตรายเป็นพิเศษเพราะ API
 | `POST /api/v1/chat` | API key | |
 | `POST /api/v1/actions/{id}/confirm` | API key | |
 | `POST /api/v1/actions/{id}/reject` | API key | |
+| `POST /api/v1/web/session` | — | ออก opaque session ให้ bundled same-origin web channel |
+| `POST /api/v1/web/chat` | opaque web session | conversation ผูกกับ session |
+| `POST /api/v1/web/actions/{id}/confirm` · `/reject` | opaque web session | pending action ผูกกับ session |
 | `GET /health` | — | ห้ามบอกรายละเอียดภายใน |
 | `GET /api/v1/traces/{id}` | **admin session** | ⚠️ เปลี่ยนจาก V1 ที่เปิดสาธารณะ |
 | `POST /api/v1/reset` | **admin session** | ⚠️ เปลี่ยนจาก V1 |
@@ -480,6 +483,7 @@ query string อันตรายเป็นพิเศษเพราะ API
 | ประเภท | กลไก |
 |---|---|
 | Public API | API key ใน header · เก็บ **hash** ใน SQLite · แสดงค่าจริงครั้งเดียวตอนสร้าง · เพิกถอนได้ |
+| Bundled web | opaque HttpOnly SameSite=Strict cookie · ออกโดย `POST /api/v1/web/session` · conversation/pending แยกต่อ session |
 | Admin | `ADMIN_PASSWORD` จาก env + session cookie |
 | Telegram webhook | `secret_token` เทียบด้วย `compare_digest` ⚠️ **ไม่ผูก body** (อ่อนกว่า LINE) |
 | LINE webhook | HMAC-SHA256 ผูก body (ไม่เปลี่ยน) |
@@ -490,6 +494,9 @@ query string อันตรายเป็นพิเศษเพราะ API
 
 server ออก `conversationId` เสมอ · client ส่งกลับได้เฉพาะ id ที่ผูกกับ key ของตัวเอง
 ส่ง id ของ key อื่น → **404 ไม่ใช่ 403** (403 ยืนยันว่ามีอยู่จริง)
+
+กฎเดียวกันใช้กับ bundled web โดยผูก conversation และ pending action กับ opaque web
+session; web session อื่นหรือ API key ใช้ทรัพยากรข้ามช่องทางไม่ได้และได้ `404`
 
 ### 9.4 error contract
 
@@ -520,7 +527,7 @@ prompt(key, content, version, updated_at)
 channel_profile(channel, allowed_tool_slugs)
 domain_allowlist(domain, enabled, added_by)
 api_key(id, name, key_hash, tenant_id, created_at, revoked_at)
-pending_action(id, conversation_id, status, summary, payload, trace_id, ...)
+pending_action(id, conversation_id, status, summary, payload, trace_id, api_key_id, ...)
 trace_event(trace_id, sequence, at, kind, tool_slug, action,
             config_version, policy, channel, data)
             UNIQUE(trace_id, sequence)

@@ -9,12 +9,14 @@ handler ที่นี่แปลง request/response เท่านั้น
 
 from __future__ import annotations
 
+import uuid
 from typing import Annotated, Any
 
 from fastapi import APIRouter, Depends, HTTPException, Request, status
 from fastapi.responses import JSONResponse
 
 from app.contracts import (
+    AdminApiKeyCreateInput,
     AdminLoginRequest,
     AdminOperationInput,
     AdminPromptInput,
@@ -28,11 +30,16 @@ from app.core.config import Settings
 from app.core.errors import ConflictException
 from app.core.logging import get_logger, log_extra
 from app.core.prompt_admin import PromptAdminService, PromptValidationError
+from app.core.public_api import ApiKeyStore
 from app.core.tool_admin import ToolAdminService
 from app.tools.declarative_validator import DeclarativeValidationError
 
 router = APIRouter(prefix="/api/v1/admin", tags=["admin"])
 logger = get_logger(__name__)
+
+
+def _api_key_store(request: Request) -> ApiKeyStore:
+    return request.app.state.api_key_store
 
 
 @router.post("/login")
@@ -75,6 +82,55 @@ async def logout(request: Request) -> JSONResponse:
 @router.get("/session")
 async def session_status(_: Annotated[None, Depends(require_admin)]) -> dict[str, bool]:
     return {"authenticated": True}
+
+
+@router.post("/api-keys", status_code=status.HTTP_201_CREATED)
+async def create_api_key(
+    body: AdminApiKeyCreateInput,
+    _: Annotated[None, Depends(require_admin)],
+    service: Annotated[ApiKeyStore, Depends(_api_key_store)],
+) -> JSONResponse:
+    created = await service.create(body.name)
+    # The value is deliberately present only in this response; do not log it.
+    return JSONResponse(
+        {
+            "id": str(created.record.id),
+            "name": created.record.name,
+            "tenantId": created.record.tenant_id,
+            "createdAt": created.record.created_at.isoformat(),
+            "apiKey": created.value,
+        },
+        status_code=status.HTTP_201_CREATED,
+    )
+
+
+@router.get("/api-keys")
+async def list_api_keys(
+    _: Annotated[None, Depends(require_admin)],
+    service: Annotated[ApiKeyStore, Depends(_api_key_store)],
+) -> JSONResponse:
+    return JSONResponse({"apiKeys": await service.list()})
+
+
+@router.post("/api-keys/{key_id}/revoke")
+async def revoke_api_key(
+    key_id: str,
+    _: Annotated[None, Depends(require_admin)],
+    service: Annotated[ApiKeyStore, Depends(_api_key_store)],
+) -> JSONResponse:
+    try:
+        parsed_id = uuid.UUID(key_id)
+    except ValueError as error:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="ไม่พบ API key",
+        ) from error
+    if not await service.revoke(parsed_id):
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="ไม่พบ API key",
+        )
+    return JSONResponse({"id": key_id, "revoked": True})
 
 
 # ---------------------------------------------------------------- D3.3/D3.4/D3.5 --

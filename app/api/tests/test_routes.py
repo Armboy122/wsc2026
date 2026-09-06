@@ -10,7 +10,7 @@ import pytest
 from fastapi import FastAPI
 from httpx import ASGITransport, AsyncClient
 
-from app.api.routes import router
+from app.api.routes import WEB_SESSION_COOKIE, router
 from app.contracts import (
     ActionDecisionResponse,
     ChatResponse,
@@ -21,6 +21,8 @@ from app.contracts import (
     TraceEventKind,
     TraceResponse,
 )
+from app.core import admin_auth
+from app.core.config import Settings
 from app.core.di import agent_service
 from app.core.startup import create_platform_app
 
@@ -118,7 +120,7 @@ class ScriptedMainAgent:
 
 @pytest.fixture
 def app() -> FastAPI:
-    test_app = create_platform_app()
+    test_app = create_platform_app(Settings(admin_password="test-admin-password"))
     test_app.include_router(router)
     agent = ScriptedMainAgent()
     agent_service.set_agent(agent)
@@ -128,12 +130,26 @@ def app() -> FastAPI:
 @pytest.fixture
 async def client(app: FastAPI) -> AsyncClient:
     async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as ac:
-        yield ac
+        assert (await ac.post("/api/v1/web/session")).status_code == 200
+        admin_token = admin_auth.admin_session_store.create()
+        ac.cookies.set(admin_auth.ADMIN_SESSION_COOKIE, admin_token)
+        try:
+            yield ac
+        finally:
+            admin_auth.admin_session_store.revoke(admin_token)
+
+
+def claim_web_pending(app: FastAPI, client: AsyncClient, pending_id: uuid.UUID) -> None:
+    session = app.state.web_session_store.authenticate(
+        client.cookies.get(WEB_SESSION_COOKIE)
+    )
+    assert session is not None
+    assert app.state.web_session_store.claim_pending(session, pending_id)
 
 
 @pytest.mark.anyio
 async def test_chat_creates_conversation(client: AsyncClient) -> None:
-    response = await client.post("/api/v1/chat", json={"message": "hello"})
+    response = await client.post("/api/v1/web/chat", json={"message": "hello"})
     assert response.status_code == 200
     data = response.json()
     assert data["message"] == "ack"
@@ -143,8 +159,9 @@ async def test_chat_creates_conversation(client: AsyncClient) -> None:
 
 @pytest.mark.anyio
 async def test_chat_with_conversation_id(client: AsyncClient) -> None:
-    convo = str(uuid.uuid4())
-    response = await client.post("/api/v1/chat", json={"conversationId": convo, "message": "hi"})
+    created = await client.post("/api/v1/web/chat", json={"message": "hello"})
+    convo = created.json()["conversationId"]
+    response = await client.post("/api/v1/web/chat", json={"conversationId": convo, "message": "hi"})
     assert response.status_code == 200
     assert response.json()["conversationId"] == convo
 
@@ -166,8 +183,9 @@ async def test_confirm_pending_action(client: AsyncClient, app: FastAPI) -> None
         created_at=datetime.now(UTC),
         updated_at=datetime.now(UTC),
     )
+    claim_web_pending(app, client, pending_id)
     response = await client.post(
-        f"/api/v1/actions/{pending_id}/confirm",
+        f"/api/v1/web/actions/{pending_id}/confirm",
         json={"confirmationNote": "ok"},
     )
     assert response.status_code == 200
@@ -177,7 +195,7 @@ async def test_confirm_pending_action(client: AsyncClient, app: FastAPI) -> None
 
 
 @pytest.mark.anyio
-async def test_reject_pending_action(client: AsyncClient) -> None:
+async def test_reject_pending_action(client: AsyncClient, app: FastAPI) -> None:
     agent = agent_service.agent
     pending_id = uuid.uuid4()
     agent.pending[pending_id] = PendingAction(
@@ -193,8 +211,9 @@ async def test_reject_pending_action(client: AsyncClient) -> None:
         created_at=datetime.now(UTC),
         updated_at=datetime.now(UTC),
     )
+    claim_web_pending(app, client, pending_id)
     response = await client.post(
-        f"/api/v1/actions/{pending_id}/reject",
+        f"/api/v1/web/actions/{pending_id}/reject",
         json={"reason": "เปลี่ยนใจแล้ว"},
     )
     assert response.status_code == 200
@@ -242,13 +261,11 @@ async def test_health(client: AsyncClient) -> None:
     assert response.status_code == 200
     data = response.json()
     assert data["status"] == "ok"
-    assert data["llmAdapter"] == "ready"
-    assert data["knowledgeBackend"] == "ready"
-    assert data["simulationMode"] is True
+    assert set(data) == {"status"}
 
 
 @pytest.mark.anyio
 async def test_validation_error_returns_422(client: AsyncClient) -> None:
-    response = await client.post("/api/v1/chat", json={"message": ""})
+    response = await client.post("/api/v1/web/chat", json={"message": ""})
     assert response.status_code == 422
     assert response.json()["error"] == "invalid_request"

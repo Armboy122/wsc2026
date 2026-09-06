@@ -11,6 +11,7 @@ from app.core.config import Settings, load_settings
 from app.core.errors import register_exception_handlers
 from app.core.logging import configure_logging, get_logger
 from app.core.middleware import RequestIdMiddleware, add_cors_middleware
+from app.core.public_api import WebSessionStore
 
 logger = get_logger(__name__)
 
@@ -57,6 +58,7 @@ def create_platform_app(settings: Settings | None = None) -> FastAPI:
     register_exception_handlers(app)
 
     app.state.settings = settings
+    app.state.web_session_store = WebSessionStore()
     return app
 
 

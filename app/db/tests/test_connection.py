@@ -22,6 +22,7 @@ _EXPECTED_TABLES = {
     "schema_version",
     "trace_event",
     "pending_action",
+    "api_key",
 }
 
 
@@ -31,13 +32,18 @@ def _open(tmp_path: Path) -> Database:
     return db
 
 
-def test_migrate_creates_config_and_p7_state_tables(tmp_path: Path) -> None:
+def test_migrate_creates_config_and_persisted_state_tables(tmp_path: Path) -> None:
     db = _open(tmp_path)
     try:
         rows = db._conn.execute(
             "SELECT name FROM sqlite_master WHERE type='table' AND name NOT LIKE 'sqlite_%'"
         ).fetchall()
         assert {row[0] for row in rows} == _EXPECTED_TABLES
+        pending_columns = {
+            row[1]
+            for row in db._conn.execute("PRAGMA table_info(pending_action)").fetchall()
+        }
+        assert "api_key_id" in pending_columns
     finally:
         db.close()
 
@@ -48,7 +54,7 @@ def test_migrate_is_idempotent_and_records_schema_version_once(tmp_path: Path) -
         db.migrate()
         db.migrate()
         versions = db._conn.execute("SELECT version FROM schema_version").fetchall()
-        assert [row[0] for row in versions] == [1, 2, 3, 4]
+        assert [row[0] for row in versions] == [1, 2, 3, 4, 5, 6]
     finally:
         db.close()
 
@@ -302,9 +308,9 @@ async def test_legacy_d21_migrations_to_003_enable_declarative_http_tool(tmp_pat
     db = Database(db_path)
     try:
         db.migrate()
-        # schema_version ต้องอัปเดตถึง migration 004
+        # schema_version ต้องอัปเดตถึง migration 006
         versions = [row[0] for row in db._conn.execute("SELECT version FROM schema_version").fetchall()]
-        assert versions == [1, 2, 3, 4]
+        assert versions == [1, 2, 3, 4, 5, 6]
 
         cols_after = {row[1] for row in db._conn.execute("PRAGMA table_info(tool_operation)").fetchall()}
         assert "http_method" in cols_after
