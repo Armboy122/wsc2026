@@ -459,6 +459,23 @@ h5 { font-size: 0.9rem; margin: 0.75rem 0 0.35rem; color: var(--text-600); }
   font-weight: 600;
 }
 
+/* HTTP สำเร็จแต่ปลายทางปฏิเสธ/มีปัญหา (4xx/5xx) — แยกจาก "สำเร็จ" (เขียว) และ
+   "ระบบบล็อกก่อนส่งคำขอ"/"เชื่อมต่อไม่ได้" (แดง) ด้วยทั้งสีและข้อความ (A2) */
+.try-status-warn {
+  background: var(--amber-bg);
+  border: 1px solid var(--amber-border);
+  color: var(--amber-text);
+  border-radius: var(--radius-sm);
+  padding: 0.5rem 0.75rem;
+  font-weight: 600;
+}
+
+.try-status-note {
+  color: var(--text-600);
+  font-size: 0.85rem;
+  margin: 0.35rem 0 0;
+}
+
 /* ---------- แท็บ prompt (D3.6) ---------- */
 .prompt-grid { align-items: start; margin-top: 0.75rem; }
 .preview-card { position: sticky; top: 1rem; }

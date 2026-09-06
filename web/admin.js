@@ -2,6 +2,7 @@ import {
   buildOperationPayload,
   buildToolPayload,
   buildTryPayload,
+  describeTryOutcome,
   detectMetadataLoss,
   validateToolPayload,
 } from "./admin-form.js";
@@ -837,7 +838,9 @@ import {
 
   function clearTryStatus(tryPanel) {
     tryPanel
-      .querySelectorAll(".try-status-ok, .try-status-blocked, .try-output")
+      .querySelectorAll(
+        ".try-status-ok, .try-status-warn, .try-status-blocked, .try-status-note, .try-output"
+      )
       .forEach(function (node) {
         node.remove();
       });
@@ -852,21 +855,18 @@ import {
 
   function renderTryOutcome(tryPanel, data) {
     clearTryStatus(tryPanel);
-    if (!data.ok) {
-      // ถูกนโยบายบล็อก เช่น 169.254.169.254 — แสดงเหตุผลตรงจุด (D3.5)
-      tryPanel.appendChild(
-        el("p", "try-status-blocked", "ถูกปฏิเสธ (" + data.reason + "): " + data.error)
-      );
+    // แยกผล HTTP สำเร็จ/ไม่สำเร็จ/ระบบบล็อกก่อนยิง/เชื่อมต่อไม่ได้ให้ชัดเจน (A2) —
+    // ok:true ของ backend หมายถึง "ได้ HTTP response แล้ว" เท่านั้น ไม่ใช่ 2xx เสมอไป
+    var outcome = describeTryOutcome(data);
+    tryPanel.appendChild(el("p", outcome.cssClass, outcome.label));
+    if (outcome.note) {
+      tryPanel.appendChild(el("p", "try-status-note", outcome.note));
+    }
+    if (outcome.kind === "blocked" || outcome.kind === "connection_failed") {
+      // ok:false ไม่มี request/response จริงให้แสดงต่อ (CONTRACTS.md §POST /tools/try)
       return;
     }
     var response = data.response || {};
-    tryPanel.appendChild(
-      el(
-        "p",
-        "try-status-ok",
-        "สำเร็จ · HTTP " + response.statusCode + " · " + response.elapsedMs + " ms"
-      )
-    );
     // แสดงผลครบตามสเปก D3.5: method + final URL + query + request body + response
     // (headers ไม่ส่งกลับมาจาก API เลย — fail-safe กัน credential หลุดขึ้นจอ)
     var request = data.request || {};

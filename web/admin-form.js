@@ -250,3 +250,79 @@ export function buildTryPayload(options = {}) {
 
   return payload;
 }
+
+// เหตุผลจาก POST /tools/try ที่หมายถึง "ระบบบล็อกก่อนส่งคำขอ" (นโยบาย/validation) —
+// ทุกตัวไม่เคยมี HTTP response จริงจากปลายทาง ต่างจาก "request_failed" ซึ่งพยายาม
+// เชื่อมต่อแล้วแต่ล้มเหลว (DNS/refused/timeout — httpx.RequestError ทุกชนิด)
+const TRY_CONNECTION_FAILED_REASON = "request_failed";
+
+function classifyHttpStatus(statusCode) {
+  if (typeof statusCode !== "number" || Number.isNaN(statusCode)) return "unknown";
+  if (statusCode >= 200 && statusCode < 300) return "success";
+  if (statusCode >= 400 && statusCode < 500) return "client_error";
+  if (statusCode >= 500 && statusCode < 600) return "server_error";
+  return "unknown";
+}
+
+function httpErrorHint(statusCode) {
+  if (statusCode === 401 || statusCode === 403) {
+    return "ตรวจสิทธิ์หรือ credential ที่ตั้งค่าไว้กับปลายทางนี้";
+  }
+  if (statusCode === 404) {
+    return "ตรวจ endpoint/resource ปลายทาง — URL หรือ path อาจไม่ถูกต้อง";
+  }
+  if (statusCode === 429) {
+    return "ปลายทางจำกัดอัตราการเรียก (rate limit) — ลองใหม่ภายหลัง";
+  }
+  if (statusCode >= 500) {
+    return "ปลายทางมีปัญหาฝั่งเซิร์ฟเวอร์";
+  }
+  return "ปลายทางปฏิเสธคำขอ";
+}
+
+// ตีความผล /tools/try เป็นสถานะที่ผู้ดูแลแยกได้ 4 แบบ (A2):
+// HTTP สำเร็จ (2xx) / HTTP ไม่สำเร็จแต่ปลายทางตอบแล้ว (4xx/5xx) /
+// ระบบบล็อกก่อนส่งคำขอ (นโยบาย/validation) / เชื่อมต่อปลายทางไม่ได้
+// คืนค่าล้วน ๆ ไม่แตะ DOM — เพื่อให้เทสได้โดยไม่ต้องมี browser/jsdom
+export function describeTryOutcome(data) {
+  if (!data || data.ok !== true) {
+    const reason = (data && data.reason) || "unknown";
+    const message = (data && data.error) || "";
+    if (reason === TRY_CONNECTION_FAILED_REASON) {
+      return {
+        kind: "connection_failed",
+        cssClass: "try-status-blocked",
+        label: "เชื่อมต่อปลายทางไม่ได้ (" + reason + "): " + message,
+      };
+    }
+    return {
+      kind: "blocked",
+      cssClass: "try-status-blocked",
+      // "บล็อก" ในที่นี้คือระบบเอง (นโยบาย/validation) ไม่ใช่ปลายทางตอบมาแล้ว
+      label: "ระบบบล็อกก่อนส่งคำขอ (" + reason + "): " + message,
+    };
+  }
+
+  const response = data.response || {};
+  const statusCode = response.statusCode;
+  const elapsedMs = response.elapsedMs;
+  const category = classifyHttpStatus(statusCode);
+
+  if (category === "success") {
+    return {
+      kind: "success",
+      cssClass: "try-status-ok",
+      label: "HTTP สำเร็จ · " + statusCode + " · " + elapsedMs + " ms",
+      note:
+        "HTTP สำเร็จบอกแค่ว่าระบบเชื่อมต่อปลายทางได้ — ยังไม่พิสูจน์ว่า AI จะเรียกใช้ tool นี้ได้ครบทุกกรณี",
+    };
+  }
+
+  const hint = category === "unknown" ? "" : httpErrorHint(statusCode);
+  return {
+    kind: "http_error",
+    cssClass: "try-status-warn",
+    label:
+      "HTTP ไม่สำเร็จ · " + statusCode + " · " + elapsedMs + " ms" + (hint ? " — " + hint : ""),
+  };
+}

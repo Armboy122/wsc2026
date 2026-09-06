@@ -264,6 +264,55 @@ def test_try_redacts_secret_before_truncating_text(monkeypatch: pytest.MonkeyPat
     assert "[REDACTED]" in text
 
 
+# --------------------------------------- ok:true ครอบคลุมทุก status code (A2) --
+#
+# พิสูจน์ก่อนแก้ (A2): backend คืน ok:true ทันทีที่ได้ HTTP response จริง โดยไม่ดู
+# status code เลย (ดู app/core/tool_admin.py::_try_operation_raw บรรทัดคืนผลตอนท้าย)
+# เทสกลุ่มนี้ยืนยันว่า statusCode จริงถูกส่งกลับให้ frontend แยก 2xx/4xx/5xx เอง (web/admin.js)
+
+
+def test_try_reports_401_status_code_with_ok_true(monkeypatch: pytest.MonkeyPatch) -> None:
+    """upstream ตอบ 401: ยังเป็น ok:true (HTTP สำเร็จ) แต่ statusCode ต้องเป็น 401 จริง"""
+    client = _make_client(
+        monkeypatch,
+        transport=httpx.MockTransport(
+            lambda request: httpx.Response(401, json={"error": "unauthorized"})
+        ),
+    )
+    body = _try(client, {"httpMethod": "GET", "urlTemplate": "http://127.0.0.1:9999/secure"})
+    assert body["ok"] is True, body
+    assert body["response"]["statusCode"] == 401
+    assert body["response"]["body"] == {"error": "unauthorized"}
+
+
+def test_try_reports_500_status_code_with_ok_true(monkeypatch: pytest.MonkeyPatch) -> None:
+    """upstream ตอบ 500: ยังเป็น ok:true แต่ statusCode ต้องเป็น 500 จริง"""
+    client = _make_client(
+        monkeypatch,
+        transport=httpx.MockTransport(
+            lambda request: httpx.Response(500, json={"error": "boom"})
+        ),
+    )
+    body = _try(client, {"httpMethod": "GET", "urlTemplate": "http://127.0.0.1:9999/broken"})
+    assert body["ok"] is True, body
+    assert body["response"]["statusCode"] == 500
+
+
+def test_try_handles_204_empty_body_without_parse_failure(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """204/body ว่างต้องไม่ทำให้ try_operation ล้ม — isJson=False, body/text เป็นค่าว่างที่ปลอดภัย"""
+    client = _make_client(
+        monkeypatch,
+        transport=httpx.MockTransport(lambda request: httpx.Response(204)),
+    )
+    body = _try(client, {"httpMethod": "DELETE", "urlTemplate": "http://127.0.0.1:9999/items/1"})
+    assert body["ok"] is True, body
+    assert body["response"]["statusCode"] == 204
+    assert body["response"]["isJson"] is False
+    assert body["response"]["body"] is None
+
+
 # --------------------------------------------------- SSRF policy ยังบล็อกเสมอ --
 
 
