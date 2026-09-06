@@ -677,9 +677,8 @@ def test_admin_form_has_auth_header_fields_with_default_values() -> None:
     assert "tool.authHeaderName" in js
     # ไม่พิมพ์ชื่อ env var ซ้ำ = ส่งเฉพาะ header/scheme เพื่อ preserve secret_ref
     assert "payload.authHeaderName = authHeader;" in js
-    # ปุ่มลองยิงดู: ส่ง header/scheme เฉพาะเมื่อกรอก env var
-    assert "authHeaderName: authEnv ? authHeader : null," in js
-    assert "authScheme: authEnv ? authScheme : null," in js
+    # ปุ่มลองยิงดู: สร้าง payload ผ่าน buildTryPayload ที่รองรับการ preserve/replace/remove
+    assert "buildTryPayload" in js
 
 
 # --------------------------------------------------------------------------

@@ -236,7 +236,9 @@ async def try_tool_operation(
         url_template=body.url_template,
         input=body.input,
         input_schema=body.input_schema,
+        tool_slug=body.tool_slug,
         auth_env_var=body.auth_env_var,
+        auth_env_var_provided="auth_env_var" in body.model_fields_set,
         auth_header_name=body.auth_header_name,
         auth_scheme=body.auth_scheme,
     )

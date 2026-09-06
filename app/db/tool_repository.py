@@ -55,6 +55,40 @@ async def get_tool_definition(db: Database, slug: str) -> dict[str, Any] | None:
     return _definition_from_rows(tool_row, operation_rows, auth_row=auth_row)
 
 
+async def get_tool_auth(db: Database, slug: str) -> dict[str, Any] | None:
+    """คืนข้อมูล auth ของ declarative tool หนึ่งตัวสำหรับใช้งานฝั่งเซิร์ฟเวอร์ (เฉพาะ source: db)
+
+    คืน None เมื่อไม่พบ tool
+    หากพบ tool:
+    - hasAuth: True เมื่อมีแถวใน tool_auth, False เมื่อไม่มี
+    - secretRef: ชื่อ env var (เฉพาะเมื่อ hasAuth=True)
+    - headerName: ชื่อ HTTP header (เฉพาะเมื่อ hasAuth=True)
+    - scheme: scheme ของ auth (เฉพาะเมื่อ hasAuth=True)
+    """
+    tool_row = await db.fetch_one(
+        "SELECT id FROM tool WHERE source = 'db' AND slug = ?", (slug,)
+    )
+    if tool_row is None:
+        return None
+    auth_row = await db.fetch_one(
+        "SELECT secret_ref, header_name, scheme FROM tool_auth WHERE tool_id = ? LIMIT 1",
+        (tool_row["id"],),
+    )
+    if auth_row is None:
+        return {
+            "hasAuth": False,
+            "secretRef": None,
+            "headerName": None,
+            "scheme": None,
+        }
+    return {
+        "hasAuth": True,
+        "secretRef": auth_row["secret_ref"],
+        "headerName": auth_row["header_name"],
+        "scheme": auth_row["scheme"],
+    }
+
+
 async def save_tool(
     db: Database,
     shape: ToolShape,

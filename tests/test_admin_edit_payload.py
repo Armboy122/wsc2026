@@ -142,3 +142,75 @@ def test_new_submit_operation_is_available_to_prepare_cards() -> None:
     refresh = source.index('querySelectorAll(".operation-card").forEach(syncSubmitField)', add)
     assert refresh < source.index('});', add)
     assert "if ($('[data-op=\"mode\"]', other).value === \"submit\")" in source
+
+
+def test_build_try_payload_scenarios() -> None:
+    # 1. New tool without credential
+    new_no_auth = run_node(
+        "console.log(JSON.stringify(form.buildTryPayload({"
+        "httpMethod: 'GET', urlTemplate: 'https://api.test', input: { q: 'hi' }"
+        "})));"
+    )
+    assert "authEnvVar" not in new_no_auth
+    assert "toolSlug" not in new_no_auth
+    assert new_no_auth["httpMethod"] == "GET"
+    assert new_no_auth["urlTemplate"] == "https://api.test"
+    assert new_no_auth["input"] == {"q": "hi"}
+
+    # 2. New tool with credential
+    new_with_auth = run_node(
+        "console.log(JSON.stringify(form.buildTryPayload({"
+        "httpMethod: 'POST', urlTemplate: 'https://api.test', authEnv: 'API_KEY', "
+        "authHeader: 'X-API-Key', authScheme: ''"
+        "})));"
+    )
+    assert new_with_auth["authEnvVar"] == "API_KEY"
+    assert new_with_auth["authHeaderName"] == "X-API-Key"
+    assert new_with_auth["authScheme"] == ""
+    assert "toolSlug" not in new_with_auth
+
+    # 3. Existing tool, preserve credential
+    edit_preserve = run_node(
+        "console.log(JSON.stringify(form.buildTryPayload({"
+        "httpMethod: 'GET', urlTemplate: 'https://api.test', toolSlug: 'oms_tool', "
+        "hasSavedAuth: true, authHeader: 'X-API-Key', authScheme: ''"
+        "})));"
+    )
+    assert edit_preserve["toolSlug"] == "oms_tool"
+    assert "authEnvVar" not in edit_preserve
+    assert edit_preserve["authHeaderName"] == "X-API-Key"
+    assert edit_preserve["authScheme"] == ""
+
+    # 4. Existing tool, replace credential
+    edit_replace = run_node(
+        "console.log(JSON.stringify(form.buildTryPayload({"
+        "httpMethod: 'GET', urlTemplate: 'https://api.test', toolSlug: 'oms_tool', "
+        "hasSavedAuth: true, authEnv: 'NEW_VAR', authHeader: 'Authorization', authScheme: 'Bearer'"
+        "})));"
+    )
+    assert edit_replace["toolSlug"] == "oms_tool"
+    assert edit_replace["authEnvVar"] == "NEW_VAR"
+    assert edit_replace["authHeaderName"] == "Authorization"
+    assert edit_replace["authScheme"] == "Bearer"
+
+    # 5. Existing tool, remove credential
+    edit_remove = run_node(
+        "console.log(JSON.stringify(form.buildTryPayload({"
+        "httpMethod: 'GET', urlTemplate: 'https://api.test', toolSlug: 'oms_tool', "
+        "hasSavedAuth: true, removeAuth: true"
+        "})));"
+    )
+    assert edit_remove["toolSlug"] == "oms_tool"
+    assert edit_remove["authEnvVar"] is None
+
+    # 6. Existing tool, change header/scheme only
+    edit_header_only = run_node(
+        "console.log(JSON.stringify(form.buildTryPayload({"
+        "httpMethod: 'GET', urlTemplate: 'https://api.test', toolSlug: 'oms_tool', "
+        "hasSavedAuth: true, authHeader: 'X-Custom', authScheme: 'Token'"
+        "})));"
+    )
+    assert edit_header_only["toolSlug"] == "oms_tool"
+    assert "authEnvVar" not in edit_header_only
+    assert edit_header_only["authHeaderName"] == "X-Custom"
+    assert edit_header_only["authScheme"] == "Token"

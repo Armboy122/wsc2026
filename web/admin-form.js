@@ -201,3 +201,52 @@ export function buildToolPayload(values, baseline) {
   );
   return payload;
 }
+
+export function buildTryPayload(options = {}) {
+  const {
+    httpMethod = "GET",
+    urlTemplate = "",
+    input = {},
+    inputSchema = null,
+    toolSlug = null,
+    authEnv = "",
+    authHeader = "Authorization",
+    authScheme = "Bearer",
+    removeAuth = false,
+    hasSavedAuth = false,
+  } = options;
+
+  const payload = {
+    httpMethod: String(httpMethod || "GET").trim(),
+    urlTemplate: String(urlTemplate || "").trim(),
+    input: input || {},
+  };
+  if (inputSchema) {
+    payload.inputSchema = clone(inputSchema);
+  }
+  if (toolSlug) {
+    payload.toolSlug = String(toolSlug).trim();
+  }
+
+  const trimmedAuthEnv = String(authEnv || "").trim();
+  const trimmedHeader = String(authHeader || "").trim() || "Authorization";
+  const trimmedScheme =
+    authScheme !== null && authScheme !== undefined ? String(authScheme).trim() : "Bearer";
+
+  if (removeAuth) {
+    // เลือกลบ credential -> ลองโดยไม่ส่ง auth
+    payload.authEnvVar = null;
+  } else if (trimmedAuthEnv) {
+    // ระบุชื่อ env var ใหม่ -> ใช้ credential ใหม่สำหรับการลอง
+    payload.authEnvVar = trimmedAuthEnv;
+    payload.authHeaderName = trimmedHeader;
+    payload.authScheme = trimmedScheme;
+  } else if (toolSlug && hasSavedAuth) {
+    // แก้ tool เดิม ไม่เปลี่ยน credential (หรือแก้เฉพาะ header/scheme)
+    // ละ authEnvVar ไว้เพื่อให้ server preserve secret_ref แต่ส่ง header/scheme ตามฟอร์ม
+    payload.authHeaderName = trimmedHeader;
+    payload.authScheme = trimmedScheme;
+  }
+
+  return payload;
+}

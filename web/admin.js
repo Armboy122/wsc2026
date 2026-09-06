@@ -1,6 +1,7 @@
 import {
   buildOperationPayload,
   buildToolPayload,
+  buildTryPayload,
   detectMetadataLoss,
   validateToolPayload,
 } from "./admin-form.js";
@@ -789,10 +790,6 @@ import {
       }
     });
 
-    // ส่วนกรอกค่า + ปุ่มยิง — สร้างครั้งเดียวต่อการกด
-    var authEnv = views.toolAuthEnv.value.trim();
-    var authHeader = views.toolAuthHeader.value.trim() || "Authorization";
-    var authScheme = views.toolAuthScheme.value.trim();
     var fire = async function () {
       clearTryStatus(tryPanel);
       var collected = collectTryInput(tryPanel);
@@ -800,18 +797,30 @@ import {
         renderTryError(tryPanel, "invalid_input", collected.error);
         return;
       }
+      var authEnv = views.toolAuthEnv.value.trim();
+      var authHeader = views.toolAuthHeader.value.trim() || "Authorization";
+      var authScheme = views.toolAuthScheme.value.trim();
+      var removeAuth = views.toolRemoveAuth.checked;
+      var currentSchema = buildSchemaFromRows(
+        $('[data-op="fields"]', card),
+        JSON.parse(card.dataset.baselineSchema || "{}")
+      );
+      var payload = buildTryPayload({
+        httpMethod: $('[data-op="httpMethod"]', card).value,
+        urlTemplate: $('[data-op="urlTemplate"]', card).value.trim(),
+        input: collected.input,
+        inputSchema: currentSchema,
+        toolSlug: editingSlug,
+        authEnv: authEnv,
+        authHeader: authHeader,
+        authScheme: authScheme,
+        removeAuth: removeAuth,
+        hasSavedAuth: !!(editingBaseline && editingBaseline.hasAuth),
+      });
       var result = await api("/tools/try", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          httpMethod: $('[data-op="httpMethod"]', card).value,
-          urlTemplate: $('[data-op="urlTemplate"]', card).value.trim(),
-          input: collected.input,
-          inputSchema: schema,
-          authEnvVar: authEnv || null,
-          authHeaderName: authEnv ? authHeader : null,
-          authScheme: authEnv ? authScheme : null,
-        }),
+        body: JSON.stringify(payload),
       });
       if (result.status === 401) return;
       if (!result.ok) {

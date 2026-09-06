@@ -275,8 +275,10 @@ class ToolAdminService:
         http_method: str,
         url_template: str,
         input: dict[str, Any],
-        input_schema: dict[str, Any] | None,
-        auth_env_var: str | None,
+        input_schema: dict[str, Any] | None = None,
+        tool_slug: str | None = None,
+        auth_env_var: str | None = None,
+        auth_env_var_provided: bool | None = None,
         auth_header_name: str | None = None,
         auth_scheme: str | None = None,
     ) -> dict[str, Any]:
@@ -286,8 +288,16 @@ class ToolAdminService:
         เทียบ blocklist → ยิง → เพดาน timeout/ขนาด response ผลรวมถึงตัวเหตุผลการบล็อก
         (เช่น ``169.254.169.254``) แสดงให้ admin เห็นพร้อมเหตุผล
 
+        A1: รองรับการใช้ credential ที่บันทึกไว้ใน DB สำหรับ tool เดิม:
+        - tool_slug ระบุ + auth_env_var ไม่ส่ง = preserve credential เดิมฝั่ง server
+        - tool_slug ระบุ + auth_env_var เป็น string = replace ด้วยตัวแปรใหม่สำหรับการลอง
+        - tool_slug ระบุ + auth_env_var เป็น None (ส่งมาจริง) = remove credential (ลองโดยไม่ส่ง auth)
+        - เปลี่ยน header/scheme แต่คง credential = ใช้ค่าที่แก้ในฟอร์มคู่กับ secret เดิม
+        - unknown tool_slug = คืน not_found ปลอดภัย ไม่ fallback
+        - การลองยิงไม่ persist การแก้ลง DB
+
         D3.5 (hardening): ก่อนคืนผลทุกเส้นทาง (response สำเร็จหรือ error) ค่าจริงของ secret
-        ที่อ่านจาก ``authEnvVar`` จะถูกแทนที่ด้วย ``[REDACTED]`` ทุกตำแหน่งที่พบ — รวม
+        ที่อ่านจาก effective auth_env_var จะถูกแทนที่ด้วย ``[REDACTED]`` ทุกตำแหน่งที่พบ — รวม
         object/list/string ซ้อนกันและรูปแบบ ``Bearer <secret>`` — เพราะปลายทางอาจ echo
         Authorization header กลับมาใน body ทำให้ secret ปรากฏในหน้า admin ได้
 
@@ -295,16 +305,68 @@ class ToolAdminService:
         พร้อม flag ``textTruncated``) — **truncate หลัง redact เสมอ** เพราะถ้าตัดก่อน
         secret ที่อยู่คร่อมจุดตัดจะเหลือเฉพาะบางส่วนจน redaction จับไม่เจอ
         """
+        if auth_env_var_provided is None:
+            auth_env_var_provided = auth_env_var is not None
+
+        effective_auth_env_var: str | None = None
+        effective_header_name: str | None = auth_header_name
+        effective_scheme: str | None = auth_scheme
+
+        if tool_slug is not None:
+            saved_auth = await tool_repository.get_tool_auth(self._db, tool_slug)
+            if saved_auth is None:
+                return _try_error("not_found", "ไม่พบ tool ที่ร้องขอ")
+            if auth_env_var_provided and auth_env_var is None:
+                # เลือกลบ credential -> ลองโดยไม่ส่ง auth
+                effective_auth_env_var = None
+                effective_header_name = None
+                effective_scheme = None
+            elif auth_env_var:
+                # ระบุชื่อ env var ใหม่ -> ใช้ credential ใหม่สำหรับการลอง
+                effective_auth_env_var = auth_env_var
+                effective_header_name = auth_header_name if auth_header_name else "Authorization"
+                effective_scheme = auth_scheme if auth_scheme is not None else "Bearer"
+            elif saved_auth["hasAuth"]:
+                # ไม่เปลี่ยน credential -> ใช้ credential เดิมฝั่ง server
+                effective_auth_env_var = saved_auth["secretRef"]
+                effective_header_name = (
+                    auth_header_name
+                    if auth_header_name
+                    else (saved_auth["headerName"] or "Authorization")
+                )
+                effective_scheme = (
+                    auth_scheme
+                    if auth_scheme is not None
+                    else (
+                        saved_auth["scheme"]
+                        if saved_auth["scheme"] is not None
+                        else "Bearer"
+                    )
+                )
+            else:
+                effective_auth_env_var = None
+                effective_header_name = None
+                effective_scheme = None
+        else:
+            if auth_env_var:
+                effective_auth_env_var = auth_env_var
+                effective_header_name = auth_header_name if auth_header_name else "Authorization"
+                effective_scheme = auth_scheme if auth_scheme is not None else "Bearer"
+            else:
+                effective_auth_env_var = None
+                effective_header_name = None
+                effective_scheme = None
+
         secret_variants = _secret_variants(
-            auth_env_var,
-            scheme=auth_scheme if auth_scheme is not None else "Bearer",
+            effective_auth_env_var,
+            scheme=effective_scheme if effective_scheme is not None else "Bearer",
         )
         # P1: ตรวจรูปแบบ header/scheme ที่นี่ (ขั้นนอก) เพื่อคืน ok:false แทน HTTP 500
-        if auth_env_var:
+        if effective_auth_env_var:
             try:
                 _validate_auth_header(
-                    auth_header_name if auth_header_name else "Authorization",
-                    auth_scheme if auth_scheme is not None else "Bearer",
+                    effective_header_name if effective_header_name else "Authorization",
+                    effective_scheme if effective_scheme is not None else "Bearer",
                 )
             except DeclarativeValidationError as error:
                 return _try_error("invalid_input", str(error))
@@ -313,9 +375,9 @@ class ToolAdminService:
             url_template=url_template,
             input=input,
             input_schema=input_schema,
-            auth_env_var=auth_env_var,
-            auth_header_name=auth_header_name,
-            auth_scheme=auth_scheme,
+            auth_env_var=effective_auth_env_var,
+            auth_header_name=effective_header_name,
+            auth_scheme=effective_scheme,
         )
         if secret_variants:
             result = _redact_secrets(result, secret_variants)

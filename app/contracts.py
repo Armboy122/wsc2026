@@ -84,6 +84,7 @@ class AdminToolEnabledInput(AdminModel):
 
 
 class AdminTryOperationInput(AdminModel):
+    tool_slug: str | None = Field(default=None, min_length=1, max_length=64)
     http_method: str
     url_template: str = Field(min_length=1, max_length=2048)
     input: dict[str, Any] = Field(default_factory=dict)
