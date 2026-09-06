@@ -310,6 +310,40 @@ def test_try_saved_auth_redacts_echoed_secret(
     assert data["response"]["body"]["message"] == "Hello [REDACTED]"
 
 
+def test_try_saved_auth_redacts_secret_used_as_response_object_key(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A secret echoed as a JSON property name must be removed by the admin route too."""
+    monkeypatch.setenv("OMS_API_KEY", _SAVED_SECRET)
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        return httpx.Response(
+            200,
+            json={_SAVED_SECRET: "value", f"prefix-{_SAVED_SECRET}": "embedded-value"},
+        )
+
+    client, db, _ = _make_client(monkeypatch, transport=httpx.MockTransport(handler))
+    _seed_db_tool(db, "oms_tool", secret_ref="OMS_API_KEY", header_name="X-API-Key", scheme="")
+
+    response = client.post(
+        "/api/v1/admin/tools/try",
+        json={
+            "toolSlug": "oms_tool",
+            "httpMethod": "GET",
+            "urlTemplate": "http://127.0.0.1:9999/outage",
+        },
+    )
+
+    assert response.status_code == 200
+    data = response.json()
+    assert data["ok"] is True, data
+    assert _SAVED_SECRET not in response.text
+    assert data["response"]["body"] == {
+        "[REDACTED]": "value",
+        "prefix-[REDACTED]": "embedded-value",
+    }
+
+
 def test_try_without_admin_session_is_rejected(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:

@@ -133,8 +133,19 @@ def test_redirect_and_size_limit_reasons_still_shown_correctly() -> None:
     too_large = describe(
         {"ok": False, "reason": "response_too_large", "error": "response ใหญ่เกินเพดาน"}
     )
-    assert redirect["kind"] == "blocked" and "redirect_blocked" in redirect["label"]
-    assert too_large["kind"] == "blocked" and "response_too_large" in too_large["label"]
+    assert redirect["kind"] == "after_send_failed"
+    assert "redirect_blocked" in redirect["label"]
+    assert "หลังเริ่มส่ง" in redirect["label"]
+    assert "side effect" in redirect["note"]
+    assert too_large["kind"] == "after_send_failed"
+    assert "response_too_large" in too_large["label"]
+    assert "หลังเริ่มส่ง" in too_large["label"]
+
+
+def test_unknown_failure_is_not_mislabeled_as_a_policy_block() -> None:
+    outcome = describe({"ok": False, "reason": "missing_secret", "error": "ไม่พบ credential"})
+    assert outcome["kind"] == "pre_send_error"
+    assert "ระบบบล็อกก่อนส่งคำขอ" not in outcome["label"]
 
 
 # --------------------------------------------------- ต่อสาย admin.js ใช้ผลนี้จริง --
@@ -152,3 +163,10 @@ def test_admin_js_clears_new_status_classes_between_fires() -> None:
     js = ADMIN_JS.read_text()
     assert "try-status-warn" in js
     assert "try-status-note" in js
+
+
+def test_try_fire_button_cannot_submit_tool_form() -> None:
+    """The dynamically-created production button must stay a non-submit control."""
+    js = ADMIN_JS.read_text()
+    assert 'fireBtn.type = "button"' in js
+    assert "event.preventDefault()" in js

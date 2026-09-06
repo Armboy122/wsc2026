@@ -832,7 +832,11 @@ import {
     };
 
     var fireBtn = el("button", "btn btn-primary btn-sm try-fire-btn", "ยิงจริง");
-    fireBtn.addEventListener("click", fire);
+    fireBtn.type = "button";
+    fireBtn.addEventListener("click", function (event) {
+      event.preventDefault();
+      fire();
+    });
     tryPanel.appendChild(fireBtn);
   }
 
@@ -862,7 +866,7 @@ import {
     if (outcome.note) {
       tryPanel.appendChild(el("p", "try-status-note", outcome.note));
     }
-    if (outcome.kind === "blocked" || outcome.kind === "connection_failed") {
+    if (outcome.kind !== "success" && outcome.kind !== "http_error") {
       // ok:false ไม่มี request/response จริงให้แสดงต่อ (CONTRACTS.md §POST /tools/try)
       return;
     }

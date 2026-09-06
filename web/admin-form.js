@@ -251,10 +251,22 @@ export function buildTryPayload(options = {}) {
   return payload;
 }
 
-// เหตุผลจาก POST /tools/try ที่หมายถึง "ระบบบล็อกก่อนส่งคำขอ" (นโยบาย/validation) —
-// ทุกตัวไม่เคยมี HTTP response จริงจากปลายทาง ต่างจาก "request_failed" ซึ่งพยายาม
-// เชื่อมต่อแล้วแต่ล้มเหลว (DNS/refused/timeout — httpx.RequestError ทุกชนิด)
+// เหตุผลจาก POST /tools/try ที่บอกได้ว่าคำขอหยุดในช่วงใด — ต้องแยกเหตุผลที่ระบบ
+// บล็อกก่อนส่งออกจากความล้มเหลวที่เกิดหลังเริ่มส่ง เพราะ POST อาจมี side effect แล้ว
 const TRY_CONNECTION_FAILED_REASON = "request_failed";
+const TRY_AFTER_SEND_REASONS = new Set(["redirect_blocked", "response_too_large"]);
+const TRY_PRE_SEND_POLICY_REASONS = new Set([
+  "invalid_input",
+  "invalid_schema",
+  "invalid_url",
+  "credentials_in_url",
+  "not_https",
+  "domain_not_in_allowlist",
+  "internal_ip",
+  "dns_resolution_failed",
+  "policy_rejected",
+  "not_found",
+]);
 
 function classifyHttpStatus(statusCode) {
   if (typeof statusCode !== "number" || Number.isNaN(statusCode)) return "unknown";
@@ -280,9 +292,9 @@ function httpErrorHint(statusCode) {
   return "ปลายทางปฏิเสธคำขอ";
 }
 
-// ตีความผล /tools/try เป็นสถานะที่ผู้ดูแลแยกได้ 4 แบบ (A2):
+// ตีความผล /tools/try เป็นสถานะที่ผู้ดูแลแยกช่วงความล้มเหลวได้:
 // HTTP สำเร็จ (2xx) / HTTP ไม่สำเร็จแต่ปลายทางตอบแล้ว (4xx/5xx) /
-// ระบบบล็อกก่อนส่งคำขอ (นโยบาย/validation) / เชื่อมต่อปลายทางไม่ได้
+// ระบบบล็อกก่อนส่งคำขอ / ล้มเหลวหลังเริ่มส่ง / เชื่อมต่อไม่ได้ / ข้อผิดพลาดอื่น
 // คืนค่าล้วน ๆ ไม่แตะ DOM — เพื่อให้เทสได้โดยไม่ต้องมี browser/jsdom
 export function describeTryOutcome(data) {
   if (!data || data.ok !== true) {
@@ -293,6 +305,23 @@ export function describeTryOutcome(data) {
         kind: "connection_failed",
         cssClass: "try-status-blocked",
         label: "เชื่อมต่อปลายทางไม่ได้ (" + reason + "): " + message,
+        note:
+          "ระบบพยายามเชื่อมต่อแล้ว จึงยืนยันไม่ได้ว่าปลายทางยังไม่ได้รับคำขอ โดยเฉพาะกรณี timeout",
+      };
+    }
+    if (TRY_AFTER_SEND_REASONS.has(reason)) {
+      return {
+        kind: "after_send_failed",
+        cssClass: "try-status-warn",
+        label: "คำขอล้มเหลวหลังเริ่มส่งคำขอแล้ว (" + reason + "): " + message,
+        note: "ปลายทางอาจได้รับคำขอหรือเกิด side effect แล้ว กรุณาตรวจสอบปลายทางก่อนลองซ้ำ",
+      };
+    }
+    if (!TRY_PRE_SEND_POLICY_REASONS.has(reason)) {
+      return {
+        kind: "pre_send_error",
+        cssClass: "try-status-blocked",
+        label: "เริ่มส่งคำขอไม่ได้ (" + reason + "): " + message,
       };
     }
     return {

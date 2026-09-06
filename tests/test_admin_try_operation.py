@@ -313,6 +313,57 @@ def test_try_handles_204_empty_body_without_parse_failure(
     assert body["response"]["body"] is None
 
 
+def test_try_redirect_failure_reports_request_was_started(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A redirect is returned by the upstream after the request has reached it."""
+    captured: list[httpx.Request] = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        captured.append(request)
+        return httpx.Response(302, headers={"location": "http://127.0.0.1:9999/other"})
+
+    body = _try(
+        _make_client(monkeypatch, transport=httpx.MockTransport(handler)),
+        {
+            "httpMethod": "POST",
+            "urlTemplate": "http://127.0.0.1:9999/side-effect",
+            "input": {"value": "x"},
+        },
+    )
+
+    assert len(captured) == 1
+    assert body == {
+        "ok": False,
+        "reason": "redirect_blocked",
+        "error": "ปลายทางพยายาม redirect — ระบบไม่ตามอัตโนมัติ กรุณาแก้ URL ให้ตรงปลายทางจริง",
+    }
+
+
+def test_try_response_size_failure_reports_request_was_started(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """The response-size guard trips while downloading a response to a sent request."""
+    captured: list[httpx.Request] = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        captured.append(request)
+        return httpx.Response(200, content=b"x" * 2_000_000)
+
+    body = _try(
+        _make_client(monkeypatch, transport=httpx.MockTransport(handler)),
+        {
+            "httpMethod": "POST",
+            "urlTemplate": "http://127.0.0.1:9999/side-effect",
+            "input": {"value": "x"},
+        },
+    )
+
+    assert len(captured) == 1
+    assert body["ok"] is False
+    assert body["reason"] == "response_too_large"
+
+
 # --------------------------------------------------- SSRF policy ยังบล็อกเสมอ --
 
 

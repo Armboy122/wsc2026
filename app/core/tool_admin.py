@@ -553,20 +553,29 @@ def _secret_variants(auth_env_var: str | None, *, scheme: str = "Bearer") -> tup
 
 
 def _redact_secrets(value: Any, secrets: tuple[str, ...]) -> Any:
-    """แทนที่ค่า secret ทุกตำแหน่งในโครงสร้างข้อมูล (object/list/string ซ้อนกัน) ด้วย [REDACTED]"""
+    """แทนที่ secret ทั้งในค่าและชื่อ key ของโครงสร้างข้อมูลด้วย [REDACTED]"""
     if not secrets:
         return value
     if isinstance(value, dict):
-        return {key: _redact_secrets(item, secrets) for key, item in value.items()}
+        return {
+            _redact_secret_text(key, secrets) if isinstance(key, str) else key: _redact_secrets(
+                item, secrets
+            )
+            for key, item in value.items()
+        }
     if isinstance(value, list):
         return [_redact_secrets(item, secrets) for item in value]
     if isinstance(value, str):
-        redacted = value
-        # แทนที่รูปแบบที่ยาวที่สุดก่อน (เช่น "Bearer <secret>") กันการแยกส่วนที่ไม่จำเป็น
-        for variant in sorted(set(secrets), key=len, reverse=True):
-            redacted = redacted.replace(variant, _REDACTED)
-        return redacted
+        return _redact_secret_text(value, secrets)
     return value
+
+
+def _redact_secret_text(value: str, secrets: tuple[str, ...]) -> str:
+    """แทนที่ secret ในข้อความ โดยให้รูปแบบที่ยาวกว่าถูกแทนที่ก่อนเสมอ"""
+    redacted = value
+    for variant in sorted(set(secrets), key=len, reverse=True):
+        redacted = redacted.replace(variant, _REDACTED)
+    return redacted
 
 
 def _code_shapes_from_registry(
