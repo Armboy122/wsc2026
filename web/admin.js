@@ -83,6 +83,7 @@ import {
     envBadge: $("#env-badge"),
     toolsList: $("#tools-list"),
     toolsTable: $("#tools-table"),
+    toolSaveSuccess: $("#tool-save-success"),
     newToolBtn: $("#new-tool-btn"),
     toolForm: $("#tool-form"),
     toolFormTitle: $("#tool-form-title"),
@@ -646,16 +647,25 @@ import {
     views.operationsContainer.querySelectorAll(".operation-card").forEach(syncSubmitField);
   });
 
-  function backToList() {
+  function backToList(savedTool) {
     views.toolForm.hidden = true;
     views.toolsList.hidden = false;
     editingSlug = null;
     editingBaseline = null;
+    if (savedTool) {
+      var state = savedTool.enabled ? "เปิดใช้งานอยู่" : "ปิดใช้งานอยู่";
+      views.toolSaveSuccess.textContent =
+        "บันทึก “" + (savedTool.displayName || savedTool.slug) + "” สำเร็จ — ขณะนี้" + state
+        + ". ขั้นถัดไป: ไปที่หน้าแชตแล้วลองถามเพื่อยืนยันการเรียกใช้งานจริง";
+      views.toolSaveSuccess.hidden = false;
+    } else {
+      views.toolSaveSuccess.hidden = true;
+    }
     refreshTools();
   }
 
-  views.backToListBtn.addEventListener("click", backToList);
-  $("#cancel-tool-btn").addEventListener("click", backToList);
+  views.backToListBtn.addEventListener("click", function () { backToList(); });
+  $("#cancel-tool-btn").addEventListener("click", function () { backToList(); });
 
   views.toolFormElement.addEventListener("submit", async function (event) {
     event.preventDefault();
@@ -710,7 +720,7 @@ import {
       body: JSON.stringify(payload),
     });
     if (result.ok) {
-      backToList();
+      backToList(result.data);
     } else if (result.status !== 401) {
       // error บอกชัดว่าผิดตรงไหน (D3.4) — ข้อความไทยจาก validator จุดเดียวกับ loader
       views.toolFormError.textContent = errorText(result);

@@ -279,6 +279,7 @@ h5 { font-size: 0.9rem; margin: 0.75rem 0 0.35rem; color: var(--text-600); }
 .check-field input { width: 1.1rem; height: 1.1rem; accent-color: var(--violet-600); }
 
 .char-count { font-weight: 400; color: var(--text-400); font-size: 0.8rem; }
+.field-help { color: var(--text-600); font-size: 0.825rem; line-height: 1.45; }
 
 .error-note {
   background: var(--red-bg);
@@ -396,7 +397,7 @@ h5 { font-size: 0.9rem; margin: 0.75rem 0 0.35rem; color: var(--text-600); }
 
 .field-row {
   display: grid;
-  grid-template-columns: minmax(8rem, 1.2fr) minmax(7rem, 0.9fr) auto minmax(10rem, 1.6fr) auto;
+  grid-template-columns: minmax(8rem, 1.2fr) minmax(7rem, 0.9fr) auto auto minmax(10rem, 1.6fr) auto;
   gap: 0.6rem;
   align-items: end;
   padding: 0.35rem 0;

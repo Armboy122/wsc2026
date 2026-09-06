@@ -111,3 +111,55 @@ Full suite หลังรวมการแก้และเอกสาร: `
 จากหน้า admin แล้วตรวจ trace ของแต่ละเทิร์น
 
 งานเดิมรวมถึง P11 และ `docs/v2/PROMPTS-PLUGIN.md` ไม่ได้ถูกแตะหรือรวมเข้าการเปลี่ยนแปลงนี้
+
+## A4 — ลดศัพท์ในหน้า admin โดยคง flow A3 เดิม
+
+### จุดติดขัดก่อนปรับ
+
+1. คำอธิบายบอกเพียงว่า AI ใช้เลือก tool แต่ไม่มีรูปประโยคที่ผู้สาธิตนำไปกรอกได้ และไม่มีคำเตือนเรื่องข้อมูลลับ
+2. ฟอร์ม field/URL ไม่บอกในจุดกรอกว่าชื่อต้องตรงกับ API และ executor วางค่าใน URL/query/JSON body อย่างไร
+3. หลังบันทึก ฟอร์มกลับหน้ารายการเงียบ ๆ ผู้สาธิตจึงไม่เห็นสถานะ enable และไม่รู้ว่าควรไปพิสูจน์การเรียกใช้ต่อที่หน้าแชต
+4. คำอธิบาย Python plugin และ credential ยังไม่สรุป behavior ที่ผู้ใช้เห็นจาก A1 ให้ครบในจุดเดียว
+
+### สิ่งที่เปลี่ยน (เฉพาะหน้าเดิม)
+
+- `web/admin.html` เพิ่มคำแนะนำใน Description, credential, URL และ input field ตาม executor จริง:
+  `{fieldName}` ถูกแทนใน URL และไม่ส่งซ้ำ; field ที่เหลือไป query สำหรับ `GET`/`DELETE`
+  หรือ JSON body สำหรับ `POST`/`PUT`/`PATCH`. ย้ำว่าชื่อ field ต้องตรง upstream และระบบไม่แปลงชื่อ
+- Credential ระบุว่าให้กรอกชื่อ environment variable เท่านั้น, ไม่ใช่ค่า API key; การแก้ tool เดิม
+  ที่ไม่กรอกชื่อใหม่คง credential ตาม A1 และ UI ไม่แสดงชื่อหรือค่า credential
+- หลัง save หน้า list แสดงข้อความที่สร้างจาก response จริงว่า save สำเร็จและ tool เปิด/ปิดอยู่
+  พร้อมบอกให้ไปลองถามในหน้าแชตเพื่อยืนยันการเรียกใช้จริง โดยไม่อ้างว่า AI เรียกสำเร็จแล้ว
+- ข้อความ Python plugin ระบุว่าแก้ definition จากโค้ดและ deploy แต่บางตัวเปิด/ปิดได้ตามสิทธิ์ที่
+  ระบบรายงานอยู่แล้ว; เหตุผล `selfDisabledReason` ของ runtime ยังคงแสดงจากข้อมูลจริง
+- `web/admin.css` เพิ่ม style คำแนะนำและแก้ grid field row ให้มีคอลัมน์ครบ จึงไม่ดันปุ่ม/ข้อความ
+  ออกนอกกรอบที่ความกว้างเดโม
+- `web/README.md` เพิ่มคู่มือ admin เฉพาะ flow นี้ โดยไม่เปลี่ยนคำอธิบาย voice เดิม
+
+### ตรวจซ้ำหลังปรับ (2026-09-06)
+
+ใช้ instance แยก `http://127.0.0.1:8112`, `APP_ENV=development`, SQLite ที่
+`/tmp/pea-a4-demo.db` และ state key ชั่วคราวนอก repository; ไม่แตะ `data/pea.db` หรือ credential จริง.
+
+- เปิด `/admin.html` ด้วย Chrome headless ที่ viewport กว้าง 1280px, login, เปิดฟอร์มจริง,
+  กรอก `cat_fact_tool` ผ่าน form builder, เพิ่ม `max_length` ชนิด integer, แล้ว save ผ่าน UI.
+  หน้ารายการแสดง `บันทึก “ข้อเท็จจริงเกี่ยวกับแมว” สำเร็จ — ขณะนี้เปิดใช้งานอยู่` และคำแนะนำ
+  ให้ทดสอบในหน้าแชต; ตรวจ DOM ที่แสดงจริงแล้วไม่มี element overflow ใน viewport ดังกล่าว.
+- เปิด tool ที่บันทึกจากหน้า admin และกด `ลองยิงดู` ผ่าน UI ด้วย `max_length=60`: executor ยิง
+  `GET https://catfact.ninja/fact?max_length=60` ได้ HTTP 200 และ response มี `length=25` ในรอบนั้น.
+- ส่งคำถาม A3 ผ่าน web session ของ instance เดียวกันหลัง save: ได้ `cat_fact_tool.get_random_fact`
+  `status=success`, `simulation=true` และ result `{"fact":"Cats have supersonic hearing","length":28}`.
+  นี่เป็นการพิสูจน์ call จริงแยกจากข้อความหลัง save; fact เป็นข้อมูลสุ่มจึงเปลี่ยนได้.
+
+คำสั่งตรวจ:
+
+```text
+node --check web/admin.js && node --check web/admin-form.js
+.venv/bin/python -m pytest -q tests/test_admin_edit_payload.py tests/test_admin_tools.py tests/test_admin_form_field_types.py
+```
+
+ผล: `46 passed, 1 warning`. การตรวจ Chrome ข้างต้นเป็น visual/browser validation จริง; ไม่มีการอ้าง
+ผล screenshot artifact หรือการตรวจ HTML อย่างเดียว. ยังไม่ได้ตรวจการแสดงผลบนจอจริงนอก Chrome
+headless หรือ viewport มือถือในการเปลี่ยนแปลง A4 นี้.
+
+งานเดิม P11, voice และ `docs/v2/PROMPTS-PLUGIN.md` ไม่ได้ถูกแตะหรือรวมใน A4.

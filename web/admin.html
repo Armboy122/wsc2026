@@ -65,8 +65,9 @@
           </div>
           <p class="muted">
             tool จากฐานข้อมูลแก้ไขจากหน้านี้ได้ทันที (ไม่ต้อง deploy) ส่วน tool จากโค้ด (Python)
-            แสดงรายการเดียวกันเพื่อให้เห็นภาพรวม แต่ต้องแก้ที่โค้ดแล้ว deploy
+            แก้ definition ที่โค้ดแล้ว deploy; บางตัวเปิด/ปิดได้จากปุ่มในรายการตามสถานะที่ระบบอนุญาต
           </p>
+          <div id="tool-save-success" class="success-note" role="status" hidden></div>
           <div id="tools-table" class="stack"></div>
         </div>
 
@@ -89,13 +90,15 @@
                 </label>
               </div>
               <label class="field">
-                <span>คำอธิบาย (ใช้โดย AI ในการเลือก tool) <span id="tool-desc-count" class="char-count"></span></span>
+                <span>คำอธิบาย (AI ใช้เลือก tool) <span id="tool-desc-count" class="char-count"></span></span>
                 <textarea id="tool-description" rows="2" maxlength="1000"></textarea>
+                <span class="field-help">อธิบายว่า AI ใช้เมื่อไร เช่น “ใช้เมื่อผู้ใช้ถามข้อเท็จจริงเกี่ยวกับแมว ต้องระบุความยาวสูงสุดเป็น <span class="mono">max_length</span>” ห้ามใส่ API key, token, รหัสผ่าน หรือข้อมูลลับ</span>
               </label>
               <div class="grid-2">
                 <div class="field credential-field">
                   <span>Credential</span>
-                  <span id="tool-auth-status" class="hint-note" hidden>มี credential ตั้งค่าไว้</span>
+                  <span class="field-help">กรอกเฉพาะชื่อ environment variable ไม่ใช่ค่า API key; tool เดิมจะใช้ credential ที่บันทึกไว้ตาม A1 หากไม่กรอกชื่อใหม่</span>
+                  <span id="tool-auth-status" class="hint-note" hidden>มี credential ตั้งค่าไว้ (ระบบไม่แสดงชื่อหรือค่า credential)</span>
                   <label class="check-field" id="tool-remove-auth-wrap" hidden>
                     <input type="checkbox" id="tool-remove-auth" />
                     <span>ลบ credential ที่ตั้งไว้</span>
@@ -225,13 +228,17 @@
         </label>
       </div>
       <label class="field">
-        <span>URL template <em class="muted">ใช้ {ชื่อฟิลด์} แทนค่าใน path/query เช่น https://api.example.com/items/{id}</em></span>
+        <span>URL template</span>
         <input type="text" data-op="urlTemplate" maxlength="2048" required />
+        <span class="field-help">ใช้ <span class="mono">{fieldName}</span> แทนค่าใน URL เช่น <span class="mono">https://api.example.com/items/{id}</span>; field ที่ใช้แล้วจะไม่ส่งซ้ำ. Field ที่เหลือเป็น query สำหรับ GET/DELETE และเป็น JSON body สำหรับ POST/PUT/PATCH</span>
       </label>
 
       <div class="schema-builder">
         <div class="row-between">
-          <h5>ฟิลด์ข้อมูลนำเข้า (inputSchema)</h5>
+          <div>
+            <h5>ฟิลด์ข้อมูลนำเข้า (inputSchema)</h5>
+            <p class="field-help">ชื่อ field ต้องตรงกับ query parameter หรือ body key ของ API ปลายทาง ระบบไม่แปลงชื่อให้</p>
+          </div>
           <button type="button" data-op-action="add-field" class="btn btn-secondary btn-sm">+ เพิ่มฟิลด์</button>
         </div>
         <div data-op="schema-warning" class="hint-note" hidden></div>
@@ -247,11 +254,11 @@
   <template id="field-row-template">
     <div class="field-row">
       <label class="field">
-        <span>ชื่อ</span>
+        <span>ชื่อ field <em class="muted">ต้องตรง API ปลายทาง</em></span>
         <input type="text" data-field="name" maxlength="64" />
       </label>
       <label class="field">
-        <span>ชนิด</span>
+        <span>ชนิดข้อมูล</span>
         <select data-field="type">
           <option value="string">string</option>
           <option value="integer">integer</option>
@@ -271,7 +278,7 @@
       </label>
       <label class="check-field">
         <input type="checkbox" data-field="required" />
-        <span>จำเป็น</span>
+        <span>จำเป็น (required)</span>
       </label>
       <label class="check-field">
         <input type="checkbox" data-field="nullable" />
