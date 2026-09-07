@@ -79,6 +79,12 @@ MVP จึงต้องลดความซับซ้อนหน้าบ�
 
 พฤติกรรม deterministic ที่สำคัญต้องตรวจด้วย automated tests/evaluation cases และแยกจากการประเมินคุณภาพภาษาของโมเดล
 
+### G6 — Tariff critical path (additive MVP scope)
+
+รองรับคำถามภาษาไทยที่ระบุจำนวนหน่วยด้วย `billCalculation` แบบ typed ผ่าน `knowledge_tool.search` โดยต้องขอเดือน/ปีและยืนยันบ้านอยู่อาศัยอัตราปกติ `1.1.2` เมื่อข้อมูลไม่ครบ ห้ามอนุมาน subtype จากคำว่า “บ้าน”, “ปกติ” หรือจำนวนหน่วย และหัวข้อใหม่ต้องไม่สืบทอดข้อมูลค่าไฟค้างอยู่
+
+ขอบเขตหลักฐานที่รองรับคือเอกสาร tariff ที่โหลดจริงและตรวจ hash แล้ว: กันยายน 2569/2026 สำหรับ subtype `1.1.2` คืนประมาณการรวม VAT 7% (ตัวอย่าง 966 หน่วย = 4,365.47 บาท); ตุลาคม–ธันวาคมคืนได้เพียงยอดก่อน VAT 4,079.88 บาทสำหรับ 966 หน่วย; TOU, subtype อื่น และช่วงนอกหลักฐานต้องแจ้ง unavailable โดยไม่เดายอด การแสดงผลต้องมาจาก `billOutcome` ที่ typed และ citation ที่ backend คืนเท่านั้น
+
 ## 6. Non-goals
 
 MVP นี้ไม่ครอบคลุม:
@@ -100,7 +106,7 @@ MVP นี้ไม่ครอบคลุม:
 Contract เป้าหมายกำหนด Main Agent หนึ่งตัวและ tool ที่ลงทะเบียนแบบ typed สองรายการ:
 
 | Capability | Tool | MVP behavior | Data status |
-|---|---|---|---|
+| --- | --- | --- | --- |
 | ความรู้ PEA | `knowledge_tool` | เลือกเอกสารและตอบจากข้อความเต็มพร้อม citation | เอกสารจริงที่ต้องผ่านการอนุมัติ |
 | ไฟฟ้าขัดข้อง | `oms_tool` | ตรวจ CA และเตรียม/ส่งรายงานผ่าน external REST ของ gateway OMS จริง (endpoint เป็น source of truth) | ToolResult simulation=true |
 
@@ -114,7 +120,7 @@ Sabuy และ VOC ไม่ลงทะเบียนใน runtime catalogue
 ขอบเขตความสามารถใหม่:
 
 | รายการ | ค่าใน MVP |
-|---|---|
+| --- | --- |
 | ช่องทางขนส่ง | Gemini Live API (เสียง + การถอดเสียง) ผ่าน WebSocket `/ws/live` เดียวต่อเซสชันเบราว์เซอร์ |
 | ตัวแทนธุรกิจ | Main Agent ตัวเดิมเท่านั้น (`app/agent/main_agent.py`) — Voice Bridge เป็นตัวกลางบาง ๆ ไม่ใช่ตัวแทนแยก |
 | ขอบเขตความสามารถ | Knowledge และ OMS เท่านั้น (ตรงกับ runtime catalogue ที่เปิดใช้) |
@@ -257,7 +263,7 @@ Sabuy และ VOC ไม่ลงทะเบียนใน runtime catalogue
 เกณฑ์ต่อไปนี้ใช้เป็น product acceptance ไม่ใช่ production SLA:
 
 | Metric | MVP target |
-|---|---|
+| --- | --- |
 | Contract compliance | ชุดทดสอบ route/schema ที่เกี่ยวข้องผ่านทั้งหมด |
 | Citation validity | citation ที่คืนต้องอ้างไฟล์ที่เลือกและ snippet ตรวจพบได้ทั้งหมด |
 | Unsupported/no-evidence safety | ไม่สร้างคำตอบหรือ tool call ทดแทนเมื่อไม่มีหลักฐาน/ความสามารถ |
@@ -369,7 +375,7 @@ Known gaps ณ baseline นี้:
 ## 17. Risks and Mitigations
 
 | Risk | Mitigation |
-|---|---|
+| --- | --- |
 | Hallucinated knowledge | Full-document grounding, citation validation, no-evidence fallback |
 | Wrong tool/action | Fixed catalogue, typed schemas, allowlist, fail-closed validation |
 | Accidental or duplicate write | Prepare/confirm/submit state machine and idempotency |

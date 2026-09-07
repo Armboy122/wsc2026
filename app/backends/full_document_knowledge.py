@@ -8,6 +8,7 @@ Search, embeddings, chunking, or an index.
 from __future__ import annotations
 
 import asyncio
+import hashlib
 import json
 import os
 import re
@@ -31,6 +32,8 @@ DEFAULT_TIMEOUT_SECONDS = 60.0
 DEFAULT_READINESS_TIMEOUT_SECONDS = 5.0
 DEFAULT_SOURCE_ROOT = Path(__file__).resolve().parents[2] / "knowledge" / "source"
 DEFAULT_HARD_CONTEXT_CHARS = 1_000_000
+BILL_SOURCE_ID = "PEA_residential_normal_1_1_2_SEP_DEC_2569.md"
+BILL_SOURCE_SHA256 = "24f32caffa1167cad5060af6a8c535d3fba2738ef9e3c7b6feebbcd8f1477b1e"
 MAX_ANSWER_CONTEXT_CHARS = 4000
 MAX_CONCISE_ANSWER_CHARS = 1000
 MAX_CONCISE_ANSWER_UNITS = 3
@@ -197,6 +200,51 @@ class FullDocumentKnowledgeBackend:
             raise KnowledgeBackendError(ToolErrorCode.UNAVAILABLE, USER_SAFE_UNAVAILABLE) from exc
         except Exception as exc:
             raise KnowledgeBackendError(ToolErrorCode.UNAVAILABLE, USER_SAFE_UNAVAILABLE) from exc
+
+    async def bill_evidence(self, max_results: int) -> GroundedEvidence:
+        """Load and verify the fixed tariff evidence without invoking a provider."""
+        try:
+            return await asyncio.to_thread(self._bill_evidence_sync, max_results)
+        except (OSError, UnicodeError, ValueError, zipfile.BadZipFile, ElementTree.ParseError):
+            return GroundedEvidence("", 0, ())
+
+    def _bill_evidence_sync(self, max_results: int) -> GroundedEvidence:
+        if max_results < 1:
+            return GroundedEvidence("", 0, ())
+        catalog = self._catalog()
+        document = catalog.get(BILL_SOURCE_ID)
+        if document is None or len((document.source_id,)) > max_results:
+            return GroundedEvidence("", 0, ())
+        text = self._full_text(document)
+        if len(text) > self._hard_context_chars:
+            return GroundedEvidence("", 0, ())
+        if hashlib.sha256(text.encode("utf-8")).hexdigest() != BILL_SOURCE_SHA256:
+            return GroundedEvidence("", 0, ())
+
+        supporting_snippets = (
+            ("ประเภทที่ 1 บ้านอยู่อาศัย สำหรับการใช้ไฟฟ้ากับบ้านที่อยู่อาศัย", 3),
+            ("1.1.2 ใช้พลังงานไฟฟ้าเกิน 150 หน่วยต่อเดือน 24.62", 3),
+            ("200 หน่วยแรก (หน่วยที่ 0 – 200) 3.0000\n200 หน่วยต่อไป (หน่วยที่ 201 – 400) 4.1584\nเกิน 400 หน่วยขึ้นไป (หน่วยที่ 401 เป็นต้นไป) 4.3583", 3),
+            ("ค่า Ft\nหน่วยละ\n0.1623 บาท\nหรือ 16.23 สตางค์ (ยังไม่รวมภาษีมูลค่าเพิ่ม)", 1),
+            ("มาตรา ๔ ให้ลดอัตราภาษีมูลค่าเพิ่มตามมาตรา ๘๐ แห่งประมวลรัษฎากร และคงจัดเก็บในอัตราร้อยละหกจุดสาม สำหรับการขายสินค้า การให้บริการ หรือการนําเข้าทุกกรณี ซึ่งความรับผิดในการเสียภาษีมูลค่าเพิ่มเกิดขึ้นตั้งแต่วันที่ ๑ ตุลาคม พ.ศ. ๒๕๖๘ ถึงวันที่ ๓๐ กันยายน พ.ศ. ๒๕๖๙", 2),
+            ("ลดอัตราภาษีมูลค่าเพิ่มเป็นการชั่วคราวจากร้อยละ 10 เหลือร้อยละ 6.3 เมื่อรวมกับภาษีท้องถิ่นอีกร้อยละ 0.7 จะเท่ากับร้อยละ 7", 1),
+        )
+        citations: list[Citation] = []
+        for snippet, page in supporting_snippets:
+            if snippet not in text:
+                return GroundedEvidence("", 0, ())
+            citations.append(Citation(
+                source_id=document.source_id,
+                title=document.title,
+                uri="knowledge://source/" + quote(document.source_id, safe="/"),
+                snippet=snippet,
+                page=page,
+            ))
+        return GroundedEvidence(
+            "\n".join(snippet for snippet, _ in supporting_snippets),
+            1,
+            tuple(citations),
+        )
 
     def _make_client(self) -> Any:
         if not self._api_key:

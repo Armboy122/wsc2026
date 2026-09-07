@@ -7,6 +7,7 @@ from uuid import uuid4
 
 from app import contracts
 from app.backends.full_document_knowledge import GroundedEvidence, KnowledgeBackendError
+from decimal import Decimal
 from app.tools.knowledge_tool import KnowledgeTool
 
 EMPTY_EVIDENCE = GroundedEvidence("", 0, ())
@@ -24,6 +25,21 @@ EVIDENCE = GroundedEvidence(
         ),
     ),
 )
+
+
+class BillBackend:
+    def __init__(self, evidence: GroundedEvidence) -> None:
+        self.evidence = evidence
+        self.bill_calls = 0
+        self.search_calls = 0
+
+    async def bill_evidence(self, max_results: int) -> GroundedEvidence:
+        self.bill_calls += 1
+        return self.evidence
+
+    async def search(self, query: str, max_results: int) -> GroundedEvidence:
+        self.search_calls += 1
+        raise AssertionError("bill path must not use generic search")
 
 
 class FakeBackend:
@@ -55,6 +71,65 @@ def make_call(query: str = "when is my bill due", max_results: int | None = 3) -
 
 def run(tool: KnowledgeTool, call: contracts.ToolCall) -> contracts.ToolResult:
     return asyncio.run(tool.execute(call, None))
+
+
+def bill_call(**values: object) -> contracts.ToolCall:
+    return contracts.ToolCall(
+        call_id=uuid4(),
+        name=contracts.ToolName.KNOWLEDGE,
+        action=contracts.ToolAction.KNOWLEDGE_SEARCH,
+        input={"query": "คำนวณค่าไฟ", "maxResults": 1, "billCalculation": values},
+    )
+
+
+def test_bill_path_uses_verified_evidence_before_calculation_and_never_searches() -> None:
+    backend = BillBackend(EVIDENCE)
+    result = run(
+        KnowledgeTool(backend=backend),
+        bill_call(usage=Decimal("966"), billingMonth=9, billingYear=2569, tariffSubtype="1.1.2"),
+    )
+
+    assert result.status is contracts.ToolResultStatus.SUCCESS
+    assert result.data["billOutcome"]["status"] == "calculated"
+    assert result.data["billOutcome"]["finalTotal"] == "4365.471172"
+    assert result.data["billOutcome"]["displayTotal"] == "4365.47"
+    assert result.citations == EVIDENCE.citations
+    assert backend.bill_calls == 1
+    assert backend.search_calls == 0
+
+
+def test_bill_clarification_does_not_call_any_backend() -> None:
+    backend = BillBackend(EVIDENCE)
+    result = run(KnowledgeTool(backend=backend), bill_call(usage=Decimal("966")))
+
+    assert result.data["billOutcome"]["status"] == "clarification"
+    assert "finalTotal" not in result.data["billOutcome"]
+    assert backend.bill_calls == 0
+    assert backend.search_calls == 0
+
+
+def test_bill_unavailable_period_does_not_call_backend() -> None:
+    backend = BillBackend(EVIDENCE)
+    result = run(
+        KnowledgeTool(backend=backend),
+        bill_call(usage=Decimal("966"), billingMonth=8, billingYear=2569, tariffSubtype="1.1.2"),
+    )
+
+    assert result.data["billOutcome"]["status"] == "unavailable"
+    assert "finalTotal" not in result.data["billOutcome"]
+    assert backend.bill_calls == 0
+    assert backend.search_calls == 0
+
+
+def test_bill_missing_evidence_fails_closed_without_total() -> None:
+    backend = BillBackend(EMPTY_EVIDENCE)
+    result = run(
+        KnowledgeTool(backend=backend),
+        bill_call(usage=Decimal("966"), billingMonth=9, billingYear=2569, tariffSubtype="1.1.2"),
+    )
+
+    assert result.data["billOutcome"]["status"] == "unavailable"
+    assert "finalTotal" not in result.data["billOutcome"]
 
 
 def test_success_shape_matches_frozen_contract() -> None:

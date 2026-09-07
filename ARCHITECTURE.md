@@ -26,6 +26,12 @@ app/plugins/
     intake.py/flow.py    guided flow ที่ derive ลำดับคำถามจาก catalog (เฉพาะ voc)
 ```
 
+### เส้นทางประมาณการค่าไฟแบบกำหนดผล
+
+`knowledge_tool.search` มี input เสริม `billCalculation` และคืน `billOutcome` ที่ผ่าน Pydantic contracts เดิม โดย `DemoLLMAdapter` รองรับเฉพาะ routing ที่กำหนดผลสำหรับคำถามภาษาไทย: เก็บจำนวนหน่วยจากคำขอเดิม, ขอเดือน/ปีและการยืนยัน subtype `1.1.2`, แล้วส่งค่าที่ผู้ใช้ระบุให้ `KnowledgeTool` คำนวณต่อ การแก้เดือนหรือ subtype ในข้อความรอบปัจจุบันมี precedence และหัวข้ออื่น (เช่น ไฟดับ) จะไม่สืบทอดบริบทค่าไฟ
+
+การคำนวณรองรับหลักฐาน tariff ที่ตรวจ hash ตรงกับเอกสาร approved เท่านั้น: กันยายน 2569/2026 ให้ยอดรวม VAT 7%; ตุลาคม–ธันวาคมให้เฉพาะยอดก่อน VAT; TOU และช่วงอื่นคืน `unavailable` โดยไม่เดายอด Main Agent จัดรูปแบบจาก `BillOutcome` ที่ตรวจสอบแล้ว แม้ clarification ไม่มี citation และไม่ยอมรับยอดที่ planner พิมพ์เอง
+
 การแบ่งความรับผิดชอบที่ต้องรักษาไว้:
 
 | ส่วน | หน้าที่ | ไม่ใช่หน้าที่ |
@@ -285,7 +291,7 @@ prepare_* -> pending_confirmation -> confirm endpoint -> submit_* -> submitted |
 ## ความเป็นเจ้าของไฟล์สำหรับผู้ปฏิบัติงานแบบขนาน
 
 | ผู้รับผิดชอบ | ไฟล์/ไดเรกทอรีที่รับผิดชอบแต่เพียงผู้เดียว | สัญญาที่ขึ้นต่อกัน |
-|---|---|---|
+| --- | --- | --- |
 | หัวหน้าทีม/การผสานระบบ | `ARCHITECTURE.md`, `CONTRACTS.md`, `app/contracts.py`, `app/main.py`, `tests/test_contracts.py` | เป็นเจ้าของ frozen contract และการเชื่อม route; อนุมัติการเปลี่ยนแปลง contract ทั้งหมด |
 | ผู้ปฏิบัติงาน A — เอเจนต์ | `app/agent/`, `app/llm/` | import เฉพาะ `app.contracts`; เรียกเฉพาะ interface `ToolRegistry` |
 | ผู้ปฏิบัติงาน B — ฐานความรู้ | `app/tools/knowledge_tool.py`, `app/backends/full_document_knowledge.py`, `knowledge/` | ใช้ document-level routing และ full-file context เท่านั้น; ห้ามเพิ่ม vector DB, chunk retrieval หรือเปลี่ยน public contract |

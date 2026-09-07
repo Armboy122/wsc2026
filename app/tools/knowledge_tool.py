@@ -15,14 +15,16 @@
 
 from __future__ import annotations
 
+import inspect
 import logging
 from dataclasses import dataclass
-from typing import Any, Protocol
+from typing import Any, Protocol, cast
 from uuid import UUID
 
 from pydantic import ValidationError
 
 from app import contracts
+from app.backends.electricity_bill import calculate_residential_bill
 from app.backends.full_document_knowledge import (
     FullDocumentKnowledgeBackend,
     GroundedEvidence,
@@ -86,12 +88,14 @@ class KnowledgeTool:
                 call, contracts.ToolErrorCode.INVALID_INPUT, USER_SAFE_INVALID_INPUT
             )
         try:
-            payload = contracts.validate_tool_input(call)
+            payload = cast(contracts.KnowledgeSearchInput, contracts.validate_tool_input(call))
         except ValidationError:
             return self._error(
                 call, contracts.ToolErrorCode.INVALID_INPUT, USER_SAFE_INVALID_INPUT
             )
         try:
+            if payload.bill_calculation is not None:
+                return await self._execute_bill_calculation(call, payload)
             evidence = await self._backend.search(payload.query, payload.max_results)
         except KnowledgeBackendError as exc:
             return self._error(call, exc.code, exc.message)
@@ -100,17 +104,105 @@ class KnowledgeTool:
             return self._error(call, contracts.ToolErrorCode.INTERNAL, USER_SAFE_INTERNAL)
         return self._success(call, evidence)
 
-    def _success(self, call: contracts.ToolCall, evidence: GroundedEvidence) -> contracts.ToolResult:
+    async def _execute_bill_calculation(
+        self, call: contracts.ToolCall, payload: contracts.KnowledgeSearchInput
+    ) -> contracts.ToolResult:
+        request = payload.bill_calculation
+        assert request is not None
+        missing = (
+            request.usage is None
+            or request.billing_month is None
+            or request.billing_year is None
+            or request.tariff_subtype is None
+        )
+        if missing:
+            return self._success(
+                call,
+                GroundedEvidence("", 0, ()),
+                contracts.BillOutcome(
+                    status="clarification",
+                    reason="Please provide usage, billing month, year, and confirm residential normal 1.1.2",
+                ),
+            )
+        assert request.billing_month is not None
+        assert request.billing_year is not None
+        assert request.tariff_subtype is not None
+        if (
+            request.tariff_subtype != "1.1.2"
+            or request.billing_year not in (2026, 2569)
+            or request.billing_month < 9
+        ):
+            return self._success(
+                call,
+                GroundedEvidence("", 0, ()),
+                contracts.BillOutcome(status="unavailable", reason="Tariff period is not verified"),
+            )
+
+        evidence_method = getattr(self._backend, "bill_evidence", None)
+        if not callable(evidence_method):
+            return self._success(
+                call,
+                GroundedEvidence("", 0, ()),
+                contracts.BillOutcome(status="unavailable", reason="Tariff evidence is unavailable"),
+            )
+        maybe_evidence = evidence_method(payload.max_results)
+        evidence = cast(
+            GroundedEvidence,
+            await maybe_evidence if inspect.isawaitable(maybe_evidence) else maybe_evidence,
+        )
+        if not evidence.answer_context or not evidence.citations:
+            return self._success(
+                call,
+                GroundedEvidence("", 0, ()),
+                contracts.BillOutcome(status="unavailable", reason="Tariff evidence is unavailable"),
+            )
+        assert request.usage is not None
+        assert request.billing_month is not None
+        assert request.billing_year is not None
+        assert request.tariff_subtype is not None
+        try:
+            result = calculate_residential_bill(
+                usage=request.usage,
+                month=request.billing_month,
+                year=request.billing_year,
+                subtype=request.tariff_subtype,
+            )
+            outcome = contracts.BillOutcome(
+                status=cast(Any, result.status),
+                reason=result.reason,
+                usage=result.usage,
+                billing_month=request.billing_month,
+                billing_year=request.billing_year,
+                tariff_subtype=request.tariff_subtype,
+                energy=result.energy,
+                service=result.service,
+                ft=result.ft,
+                subtotal_before_vat=result.subtotal_before_vat,
+                display_total=result.display_total,
+                vat=result.vat,
+                final_total=result.final_total,
+            )
+        except ValueError as exc:
+            outcome = contracts.BillOutcome(status="unavailable", reason=str(exc))
+        return self._success(call, evidence, outcome)
+
+    def _success(
+        self,
+        call: contracts.ToolCall,
+        evidence: GroundedEvidence,
+        bill_outcome: contracts.BillOutcome | None = None,
+    ) -> contracts.ToolResult:
         output = contracts.KnowledgeSearchOutput(
             answer_context=evidence.answer_context,
             result_count=evidence.result_count,
+            bill_outcome=bill_outcome,
         )
         return contracts.ToolResult(
             call_id=call.call_id,
             name=call.name,
             action=call.action,
             status=contracts.ToolResultStatus.SUCCESS,
-            data=output.model_dump(by_alias=True, mode="json"),
+            data=output.model_dump(by_alias=True, mode="json", exclude_none=True),
             citations=evidence.citations,
             simulation=False,
         )

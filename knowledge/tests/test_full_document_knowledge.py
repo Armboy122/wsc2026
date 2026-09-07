@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import asyncio
 import json
+import shutil
 import time
 import zipfile
 from pathlib import Path
@@ -68,6 +69,45 @@ def backend(tmp_path: Path, responses: list[str], **kwargs):
         api_key="test-key", source_root=tmp_path, client_factory=lambda _: client, **kwargs
     )
     return instance, client
+
+
+def test_bill_evidence_loads_exact_allowlisted_source_without_provider_call() -> None:
+    source_root = Path(__file__).resolve().parents[1] / "source"
+    provider_calls: list[str] = []
+    service = FullDocumentKnowledgeBackend(
+        source_root=source_root,
+        client_factory=lambda _: provider_calls.append("called"),
+    )
+
+    evidence = asyncio.run(service.bill_evidence(1))
+
+    assert evidence.result_count == 1
+    assert evidence.citations
+    assert all(citation.uri.startswith("knowledge://source/") for citation in evidence.citations)
+    snippets = {citation.snippet for citation in evidence.citations}
+    assert "ประเภทที่ 1 บ้านอยู่อาศัย สำหรับการใช้ไฟฟ้ากับบ้านที่อยู่อาศัย" in snippets
+    assert "1.1.2 ใช้พลังงานไฟฟ้าเกิน 150 หน่วยต่อเดือน 24.62" in snippets
+    assert "200 หน่วยแรก (หน่วยที่ 0 – 200) 3.0000\n200 หน่วยต่อไป (หน่วยที่ 201 – 400) 4.1584\nเกิน 400 หน่วยขึ้นไป (หน่วยที่ 401 เป็นต้นไป) 4.3583" in snippets
+    assert "ค่า Ft\nหน่วยละ\n0.1623 บาท\nหรือ 16.23 สตางค์ (ยังไม่รวมภาษีมูลค่าเพิ่ม)" in snippets
+    assert any("อัตราร้อยละหกจุดสาม" in snippet and "๓๐ กันยายน พ.ศ. ๒๕๖๙" in snippet for snippet in snippets)
+    assert "ลดอัตราภาษีมูลค่าเพิ่มเป็นการชั่วคราวจากร้อยละ 10 เหลือร้อยละ 6.3 เมื่อรวมกับภาษีท้องถิ่นอีกร้อยละ 0.7 จะเท่ากับร้อยละ 7" in snippets
+    assert all(len(citation.snippet) <= 1000 for citation in evidence.citations)
+    assert provider_calls == []
+
+
+def test_tampered_bill_source_fails_closed(tmp_path: Path) -> None:
+    source_root = tmp_path / "source"
+    source_root.mkdir()
+    source = Path(__file__).resolve().parents[1] / "source" / "PEA_residential_normal_1_1_2_SEP_DEC_2569.md"
+    target = source_root / source.name
+    shutil.copyfile(source, target)
+    target.write_text(target.read_text(encoding="utf-8") + "tampered", encoding="utf-8")
+    service = FullDocumentKnowledgeBackend(source_root=source_root)
+
+    evidence = asyncio.run(service.bill_evidence(1))
+
+    assert evidence.answer_context == ""
+    assert evidence.citations == ()
 
 
 def test_committed_tou_tariff_document_is_catalogued_with_verifiable_rates() -> None:

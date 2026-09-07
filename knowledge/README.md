@@ -10,7 +10,7 @@
 ## นโยบายแหล่งข้อมูลที่เชื่อถือได้
 
 - แหล่งข้อมูล runtime มีได้เฉพาะเอกสาร Markdown (`.md`, UTF-8) ที่ผ่านการอนุมัติภายใต้ `knowledge/source/`
-- corpus ปัจจุบันประกอบด้วย Markdown ที่ผู้ใช้อนุมัติ 44 ไฟล์ รวม Approved Q&A 11 ไฟล์ใต้ `knowledge/source/qa/`
+- corpus ปัจจุบันประกอบด้วย Markdown ที่ผู้ใช้อนุมัติ 45 ไฟล์ (นับไฟล์ใน `knowledge/source/` ที่ไม่ใช่ README) รวม Approved Q&A 11 ไฟล์ใต้ `knowledge/source/qa/`
 - ชื่อไฟล์ต้องสั้น ชัด และสื่อหัวข้อหลักของเอกสาร เพราะ Document Router เห็น `filename` และ `title` ก่อนเลือกอ่านข้อความฉบับเต็ม; ใช้คำนำหน้า `PEA_` สำหรับเอกสารบริการ/ประกาศ และ `qa_` สำหรับ Approved Q&A
 - Q&A ควรแยกหนึ่งหัวข้อต่อหนึ่งไฟล์ โดยใช้คำถามหลักเป็น heading แรก เพื่อให้ Router จับคู่คำถามที่มีความหมายใกล้เคียงได้จาก catalog
 - `knowledge/source/README.md`, `knowledge/source/qa/README.md`, metadata และไฟล์ซ่อนทุกชนิดไม่ใช่เอกสารความรู้
@@ -104,7 +104,7 @@ citation ทุกตัวต้องผ่านกฎต่อไปนี�
 
 ## Context budget
 
-- ห้ามส่งทั้ง 38 ไฟล์ทุกคำถาม
+- ห้ามส่งทั้ง 45 ไฟล์ทุกคำถาม
 - ห้ามตัดท้ายไฟล์ที่เลือกเพื่อให้พอดี context window
 - หากหลายไฟล์ที่จำเป็นรวมกันเกิน context budget ให้ขอให้ผู้ใช้จำกัดหัวข้อ หรือคืน typed failure
 - สามารถใช้ in-memory extraction cache หรือ provider context cache ต่อชุดไฟล์ได้ แต่ต้องไม่เปลี่ยน
@@ -113,7 +113,7 @@ citation ทุกตัวต้องผ่านกฎต่อไปนี�
 ## การกำหนดค่าเป้าหมาย
 
 | ตัวแปร | ความหมาย |
-|---|---|
+| --- | --- |
 | `KNOWLEDGE_PROVIDER` | `gemini` (ค่าเริ่มต้น) |
 | `GEMINI_API_KEY` | คีย์ Google AI Studio; ห้ามบันทึกใน repository หรือ trace |
 | `GEMINI_LONG_CONTEXT_MODEL` | โมเดล Google สำหรับ Document Router และ full-file answer; ค่าเริ่มต้นคือ `gemini-3.5-flash` |

@@ -50,15 +50,29 @@ class DemoLLMAdapter:
             request.knowledge_context,
             self._behaviors,
         )
-        return self._plan(message, request.correlation_id, self._behaviors)
+        bill_assumption_stated = _prior_bill_assumption_stated(request.messages, user_index)
+        return self._plan(
+            message,
+            request.correlation_id,
+            self._behaviors,
+            bill_assumption_stated=bill_assumption_stated,
+        )
 
     def _plan(
         self,
         message: str,
         correlation_id: UUID,
         planners: tuple[DemoBehavior, ...],
+        *,
+        bill_assumption_stated: bool = False,
     ) -> LLMResponse:
         text = message.casefold()
+        if bill_plan := _bill_demo_plan(
+            message,
+            correlation_id,
+            bill_assumption_stated=bill_assumption_stated,
+        ):
+            return _planned_response(correlation_id, [bill_plan])
         if _is_greeting(text):
             return _direct_response("greeting")
         if _is_thanks(text):
@@ -152,7 +166,11 @@ def _planning_message(
 ) -> str:
     current_message = messages[user_index].content
     user_messages = [current_message]
-    cursor = user_index - 1
+    # Do not carry a bill clarification into an unrelated topic such as an outage.
+    if not _bill_followup_message(current_message) and not _operational_followup_message(current_message):
+        cursor = -1
+    else:
+        cursor = user_index - 1
     while cursor >= 1:
         assistant = messages[cursor]
         if assistant.role != "assistant" or not any(marker in assistant.content for marker in _CLARIFICATION_MARKERS):
@@ -178,6 +196,107 @@ def _planning_message(
             f"คำถามก่อนหน้าเพื่อระบุหัวข้อเท่านั้น: {previous_context}"
         )
     return current_message
+
+
+def _operational_followup_message(message: str) -> bool:
+    text = " ".join(message.casefold().split())
+    return any(
+        marker in text
+        for marker in (
+            "outage", "power failure", "ไฟดับ", "ไฟฟ้าขัดข้อง", "แจ้งเหตุ",
+            "description:", "รายละเอียดเหตุ:", "location:", "สถานที่:",
+            "contactphone:", "เบอร์โทร:", "ca:", "หมายเลขผู้ใช้ไฟ",
+        )
+    )
+
+
+def _prior_bill_assumption_stated(messages: tuple[LLMMessage, ...], user_index: int) -> bool:
+    """Allow a bare confirmation only after our clarification named 1.1.2."""
+    return any(
+        message.role == "assistant"
+        and "1.1.2" in message.content
+        and "ประเภท" in message.content
+        for message in messages[:user_index]
+    )
+
+
+def _bill_demo_plan(
+    message: str,
+    correlation_id: UUID,
+    *,
+    bill_assumption_stated: bool,
+) -> DemoToolCall | None:
+    if not _bill_followup_message(message):
+        return None
+    usage = _last_usage(message)
+    month, year = _last_billing_period(message)
+    subtype = _last_tariff_subtype(message)
+    if subtype is None and bill_assumption_stated and _explicit_bill_confirmation(message):
+        subtype = "1.1.2"
+    input_data = {
+        "query": _safe_query(message),
+        "maxResults": 3,
+        "billCalculation": {
+            "usage": usage,
+            "billingMonth": month,
+            "billingYear": year,
+            "tariffSubtype": subtype,
+        },
+    }
+    # Keep nulls in the typed request so the tool, not the demo planner, asks for missing data.
+    return DemoToolCall(
+        _first_marker_position(message, ("ค่าไฟ", "ใช้ไฟ", "หน่วย", "กันยายน", "ตุลาคม", "พฤศจิกายน", "ธันวาคม", "1.1.2")),
+        ToolName.KNOWLEDGE,
+        ToolAction.KNOWLEDGE_SEARCH,
+        input_data,
+    )
+
+
+def _bill_followup_message(message: str) -> bool:
+    text = " ".join(message.casefold().split())
+    if any(term in text for term in ("ไฟดับ", "ไฟฟ้าขัดข้อง", "ร้องเรียน", "outage", "power failure")):
+        return False
+    return (
+        any(term in text for term in ("ค่าไฟ", "หน่วย", "ต้องจ่าย", "ค่าใช้ไฟฟ้า"))
+        or bool(re.search(r"(?:กันยายน|ตุลาคม|พฤศจิกายน|ธันวาคม|มกราคม|กุมภาพันธ์|มีนาคม|เมษายน|พฤษภาคม|มิถุนายน|กรกฎาคม|สิงหาคม)\s*25?\d{2}", text))
+        or bool(re.search(r"\b1\.1\.[12]\b|\b(?:tou|to u)\b", text, re.IGNORECASE))
+        or any(term in text for term in ("ยืนยัน", "ประเภทบ้าน", "อัตราปกติ"))
+    )
+
+
+def _last_usage(message: str) -> str | None:
+    matches = re.findall(r"(?<![\d.])(-?[0-9]+(?:[.,][0-9]+)?)(?:\s*)หน่วย\b", message, re.IGNORECASE)
+    return matches[-1].replace(",", "") if matches else None
+
+
+_MONTHS = {
+    "มกราคม": 1, "กุมภาพันธ์": 2, "มีนาคม": 3, "เมษายน": 4,
+    "พฤษภาคม": 5, "มิถุนายน": 6, "กรกฎาคม": 7, "สิงหาคม": 8,
+    "กันยายน": 9, "ตุลาคม": 10, "พฤศจิกายน": 11, "ธันวาคม": 12,
+}
+
+
+def _last_billing_period(message: str) -> tuple[int | None, int | None]:
+    matches: list[tuple[int, int, int]] = []
+    for month_name, month in _MONTHS.items():
+        for match in re.finditer(rf"{re.escape(month_name)}\s*(25\d{{2}}|20\d{{2}})", message):
+            matches.append((match.start(), month, int(match.group(1))))
+    for match in re.finditer(r"(?:^|\D)(0?[1-9]|1[0-2])\s*[/\-]\s*(25\d{2}|20\d{2})", message):
+        matches.append((match.start(), int(match.group(1)), int(match.group(2))))
+    if not matches:
+        return None, None
+    _, month, year = max(matches)
+    return month, year
+
+
+def _last_tariff_subtype(message: str) -> str | None:
+    matches = list(re.finditer(r"\b1\.1\.[0-9]+\b|\b(?:tou|to u)\b", message, re.IGNORECASE))
+    return matches[-1].group(0).replace(" ", "").upper() if matches else None
+
+
+def _explicit_bill_confirmation(message: str) -> bool:
+    text = " ".join(message.casefold().split())
+    return any(term in text for term in ("ยืนยัน", "ตกลง", "ใช่", "ตามที่แจ้ง", "ตามที่ระบุ"))
 
 
 def _can_reuse_knowledge_context(message: str, planners: tuple[DemoBehavior, ...]) -> bool:

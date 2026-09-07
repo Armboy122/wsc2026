@@ -6,3 +6,13 @@ __pycache__/
 *.py[cod]
 .DS_Store
 .agent-teams
+
+/.agents/skills/
+/.claude/skills/
+/.pi/
+/agent/skills/
+/data/skills/
+/skills-lock.json
+/data/pea.db
+/data/pea.db-shm
+/data/pea.db-wal

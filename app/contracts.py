@@ -312,9 +312,17 @@ class HealthResponse(FrozenModel):
 
 
 # สัญญาข้อมูลนำเข้าและผลลัพธ์เฉพาะแต่ละการกระทำ
+class BillCalculationInput(FrozenModel):
+    usage: Decimal | None = Field(default=None, ge=0, le=1000000)
+    billing_month: int | None = Field(default=None, ge=1, le=12, serialization_alias="billingMonth")
+    billing_year: int | None = Field(default=None, ge=2026, le=2569, serialization_alias="billingYear")
+    tariff_subtype: str | None = Field(default=None, max_length=16, serialization_alias="tariffSubtype")
+
+
 class KnowledgeSearchInput(FrozenModel):
     query: str = Field(min_length=1, max_length=1000)
     max_results: int = Field(default=3, ge=1, le=5, serialization_alias="maxResults")
+    bill_calculation: BillCalculationInput | None = Field(default=None, serialization_alias="billCalculation")
 
 
 class SabuyAccountSummaryInput(FrozenModel):
@@ -455,9 +463,49 @@ class SubmitPreparedActionInput(FrozenModel):
     idempotency_key: str = Field(min_length=1, max_length=128, serialization_alias="idempotencyKey")
 
 
+class BillOutcome(FrozenModel):
+    status: Literal["calculated", "clarification", "unavailable", "partial"]
+    reason: str | None = Field(default=None, max_length=500)
+    usage: Decimal | None = None
+    billing_month: int | None = Field(default=None, serialization_alias="billingMonth")
+    billing_year: int | None = Field(default=None, serialization_alias="billingYear")
+    tariff_subtype: str | None = Field(default=None, serialization_alias="tariffSubtype")
+    energy: Decimal | None = None
+    service: Decimal | None = None
+    ft: Decimal | None = None
+    subtotal_before_vat: Decimal | None = Field(default=None, serialization_alias="subtotalBeforeVat")
+    display_total: Decimal | None = Field(default=None, serialization_alias="displayTotal")
+    vat: Decimal | None = None
+    final_total: Decimal | None = Field(default=None, serialization_alias="finalTotal")
+
+    @model_validator(mode="after")
+    def validate_bill_state(self) -> "BillOutcome":
+        numeric_fields = (
+            self.usage,
+            self.energy,
+            self.service,
+            self.ft,
+            self.subtotal_before_vat,
+            self.display_total,
+            self.vat,
+            self.final_total,
+        )
+        if self.status == "calculated" and any(value is None for value in numeric_fields):
+            raise ValueError("calculated outcome requires complete bill fields")
+        if self.status == "partial":
+            if any(value is None for value in numeric_fields[:6]):
+                raise ValueError("partial outcome requires complete pre-VAT fields")
+            if self.vat is not None or self.final_total is not None:
+                raise ValueError("partial outcome cannot contain VAT or final total")
+        if self.status in {"clarification", "unavailable"} and self.final_total is not None:
+            raise ValueError("non-calculated outcome cannot contain final total")
+        return self
+
+
 class KnowledgeSearchOutput(FrozenModel):
     answer_context: str = Field(max_length=4000, serialization_alias="answerContext")
     result_count: int = Field(ge=0, le=5, serialization_alias="resultCount")
+    bill_outcome: BillOutcome | None = Field(default=None, serialization_alias="billOutcome")
 
 
 class PaymentStatus(str, Enum):

@@ -151,7 +151,7 @@ trace และ redaction ทั้งหมดไม่เปลี่ยนแ
 ### Event JSON จากเซิร์ฟเวอร์
 
 | `type` | ความหมาย |
-|---|---|
+| --- | --- |
 | `session.ready` | Gemini session เชื่อมต่อพร้อมแล้ว |
 | `transcript.user` | ถอดเสียงผู้ใช้ (fields: `role=user`, `text`, `final`) |
 | `transcript.assistant` | ถอดเสียงผู้ช่วย (fields: `role=assistant`, `text`, `final`) |
@@ -175,7 +175,7 @@ trace และ redaction ทั้งหมดไม่เปลี่ยนแ
 ที่ bridge เลือกให้เอง:
 
 | ฟังก์ชัน | พารามิเตอร์ | พฤติกรรม |
-|---|---|---|
+| --- | --- | --- |
 | `pea_agent_chat` | `message` (required) | ส่งข้อความไปยัง `MainAgent.handle_chat` |
 | `pea_confirm_pending_action` | `confirmationNote` (optional) | ยืนยันรายการปัจจุบัน → `submit_*` หนึ่งครั้ง → ล้างสถานะสิ้นสุด |
 | `pea_reject_pending_action` | `reason` (required) | ปฏิเสธรายการปัจจุบัน → สถานะสิ้นสุด → ล้างสถานะ |
@@ -207,7 +207,7 @@ trace และ redaction ทั้งหมดไม่เปลี่ยนแ
 ### Event ที่รองรับ
 
 | event ของ LINE | พฤติกรรม |
-|---|---|
+| --- | --- |
 | `message` (type=text) | ส่งข้อความไปยัง `MainAgent.handle_chat` ผ่าน bridge |
 | `message` (ไม่ใช่ text) | ตอบว่ารับได้เฉพาะข้อความพิมพ์ |
 | `postback` (`action=confirm`) | ยืนยันรายการปัจจุบันของผู้ใช้ → `submit_*` หนึ่งครั้ง → ล้างสถานะสิ้นสุด |
@@ -233,7 +233,7 @@ trace และ redaction ทั้งหมดไม่เปลี่ยนแ
 ### `Citation`
 
 | ฟิลด์ | ชนิด | กฎ |
-|---|---|---|
+| --- | --- | --- |
 | `sourceId` | string | พาธสัมพัทธ์หรือรหัสคงที่ของไฟล์ที่ Document Router เลือกจาก `knowledge/source/` |
 | `title` | string | ชื่อไฟล์หรือชื่อเอกสารจริงที่ไม่ว่าง |
 | `uri` | string | logical URI ที่ไม่เปิดเผย absolute path เช่น `knowledge://source/<encoded-relative-path>` และต้องไม่ว่าง |
@@ -243,7 +243,7 @@ trace และ redaction ทั้งหมดไม่เปลี่ยนแ
 ### `ToolCall`
 
 | ฟิลด์ | ชนิด | กฎ |
-|---|---|---|
+| --- | --- | --- |
 | `callId` | UUID | สร้างโดย agent/runtime |
 | `name` | enum | enum คงค่า compatibility ไว้ แต่ runtime catalogue เปิดรับเฉพาะ `knowledge_tool` และ `oms_tool`; `voc_tool` ไม่ลงทะเบียน |
 | `action` | enum | หนึ่งใน action ที่อยู่ในตารางด้านล่าง |
@@ -254,7 +254,7 @@ Tool จะปฏิเสธการเรียกที่ `name` ไม่�
 ### `ToolResult`
 
 | ฟิลด์ | ชนิด | กฎ |
-|---|---|---|
+| --- | --- | --- |
 | `callId` | UUID | เท่ากับ call ต้นทาง |
 | `name` | `ToolName` | เท่ากับ call ต้นทาง |
 | `action` | `ToolAction` | เท่ากับ call ต้นทาง |
@@ -269,7 +269,7 @@ Tool จะปฏิเสธการเรียกที่ `name` ไม่�
 ### `PendingAction`
 
 | ฟิลด์ | ชนิด | กฎ |
-|---|---|---|
+| --- | --- | --- |
 | `pendingActionId` | UUID | สร้างโดย server |
 | `conversationId` | UUID | conversation ที่เป็นเจ้าของ |
 | `toolName` | runtime ปัจจุบันใช้ `oms_tool` เท่านั้น; ค่า Sabuy/VOC คงในโมเดล compatibility แบบ dormant | knowledge ไม่สามารถเขียนได้ |
@@ -285,7 +285,7 @@ Tool จะปฏิเสธการเรียกที่ `name` ไม่�
 ### `TraceEvent`
 
 | ฟิลด์ | ชนิด | กฎ |
-|---|---|---|
+| --- | --- | --- |
 | `eventId` | UUID | สร้างโดยระบบ |
 | `traceId` | UUID | trace ของคำขอ |
 | `sequence` | positive integer | เพิ่มขึ้นอย่างเคร่งครัดในแต่ละ trace |
@@ -319,7 +319,7 @@ Tool จะปฏิเสธการเรียกที่ `name` ไม่�
 สัญญา Sabuy คงไว้เพื่อ compatibility เท่านั้น ไม่เปิดให้ผู้ใช้และไม่อยู่ใน runtime registry
 
 | การดำเนินการ | ข้อมูลนำเข้า | ข้อมูลเมื่อสำเร็จ |
-|---|---|---|
+| --- | --- | --- |
 | `get_account_summary` | `{ "accountRef": string(1..64) }` | `{ "accountRef": string, "customerDisplayName": string, "outstandingBalanceThb": decimal-string, "dueDate": date/null, "paymentStatus": "current"\|"overdue"\|"paid" }` |
 | `prepare_payment` | `{ "accountRef": string(1..64), "amountThb": decimal-string > 0, "paymentMethod": "demo_card"\|"demo_bank", "idempotencyKey": string(1..128) }` | `{ "accountRef": string, "amountThb": decimal-string, "paymentMethod": enum, "summary": string }` |
 | `submit_payment` | สำหรับใช้ภายในเท่านั้น: `{ "pendingActionId": UUID, "idempotencyKey": string }` | `{ "receiptId": string, "accountRef": string, "amountThb": decimal-string, "status": "accepted" }` |
@@ -337,7 +337,7 @@ Main Agent เรียกใช้ `submit_payment` ได้หลังกา
 จึงเปลี่ยนบทสนทนาได้โดยไม่ต้องแก้โค้ด และ planner ต้องไม่เรียก `prepare_case` เอง
 
 | การดำเนินการ | ข้อมูลนำเข้า | ข้อมูลเมื่อสำเร็จ |
-|---|---|---|
+| --- | --- | --- |
 | `list_categories` | `{}` | `{ "categories": [{ "code": "billing"\|"service"\|"safety"\|"other", "label": string }] }` |
 | `prepare_case` | `{ "category": enum, "subject": string(1..140), "detail": string(1..2000), "contactName": string(1..100), "contactPhone": string(1..32), "location": string(1..500), "contactChannel": "phone"\|"email"\|"none", "idempotencyKey": string(1..128) }` | `{ "category": enum, "subject": string, "summary": string }` |
 | `submit_case` | สำหรับใช้ภายในเท่านั้น: `{ "pendingActionId": UUID, "idempotencyKey": string }` | `{ "caseId": string, "vocId": string, "trackingKey": string, "status": "submitted", "category": enum }` |
@@ -352,7 +352,7 @@ Main Agent เรียกใช้ `submit_payment` ได้หลังกา
 **ระบบเบื้องหลัง:** Agent-side `httpx` connector ไปยัง gateway OMS จริง (endpoint เป็น source of truth); ผลลัพธ์ operational ทุกตัวประกาศ `simulation: true`
 
 | การดำเนินการ | ข้อมูลนำเข้า | ข้อมูลเมื่อสำเร็จ |
-|---|---|---|
+| --- | --- | --- |
 | `get_outage_by_ca` | `{ "caNumber": string(12 ASCII digits) }` | `caNumber`, `customerFound: true`, `network`, `activeEvent` หรือ `null` (ภายในมี `location` เป็น `GeoPoint` หรือ `null`), `recommendedAction` |
 | `prepare_outage_with_ca` | `{ "caNumber": string(12 ASCII digits), "description": string, "contactPhone": string/null, "locationNote": string/null, "idempotencyKey": string }` | `{ "summary": string }` (local draft only) |
 | `submit_outage_with_ca` | internal `{ "pendingActionId": UUID, "idempotencyKey": string }` | exact 201: `eventId`, `caNumber`, `level: METER`, `status`, `message`, `location` (`GeoPoint` หรือ `null`) |
@@ -380,6 +380,19 @@ oms_tool.submit_outage_with_ca             SubmitPreparedActionInput/OmsCreateOu
 oms_tool.prepare_anonymous_outage          OmsPrepareAnonymousOutageInput/OmsPrepareOutageOutput
 oms_tool.submit_anonymous_outage           SubmitPreparedActionInput/OmsCreateAnonymousOutageOutput
 ```
+
+### ส่วนเสริม `billCalculation` และ `billOutcome`
+
+`knowledge_tool.search` รับ `billCalculation` แบบ optional เพื่อขอประมาณการค่าไฟจากข้อมูลที่ผู้ใช้ระบุและหลักฐานที่ backend โหลดจริงเท่านั้น ฟิลด์ที่ยอมรับคือ `usage` (Decimal, 0–1,000,000), `billingMonth` (1–12), `billingYear` (2569 หรือ 2026) และ `tariffSubtype` โดยทุกฟิลด์ต้องผ่าน `BillCalculationInput` และ alias camelCase เดิม ห้าม planner เติมเดือน ปี หรือ subtype จากคำว่า “บ้าน”, “ปกติ” หรือประวัติสนทนาเอง
+
+ผลลัพธ์ `KnowledgeSearchOutput.billOutcome` เป็น `null` สำหรับการค้นหาความรู้ทั่วไป หรือเป็นสถานะ typed ดังนี้:
+
+- `clarification`: ข้อมูลไม่ครบ; ไม่มีการคำนวณหรือยอดที่เดาเอง
+- `calculated`: รองรับเฉพาะบ้านอยู่อาศัยอัตราปกติ `1.1.2` ในเดือนกันยายน 2569/2026 และมี `energy`, `service`, `ft`, `subtotalBeforeVat`, `vat`, `finalTotal` (966 หน่วยมี `displayTotal = 4365.47` รวม VAT 7%)
+- `partial`: เดือนตุลาคม–ธันวาคม 2569/2026 มีเฉพาะยอดก่อน VAT; ห้ามแสดงยอดชำระสุดท้าย
+- `unavailable`: TOU/subtype อื่น ช่วงเวลานอกหลักฐาน หรือ evidence ที่ไม่พร้อม; ไม่มี `finalTotal`
+
+ยอด calculated/partial ใช้ได้ต่อเมื่อ citation มาจากเอกสาร tariff ที่ backend ตรวจ hash ตรงกับ source ที่อนุมัติแล้วเท่านั้น; clarification และ unavailable ไม่สร้าง citation ยอดเงิน และ Main Agent ต้อง render จาก `billOutcome` ไม่ใช่ข้อความ planner
 
 ## สิ่งที่ไม่ใช่เป้าหมายอย่างชัดเจน
 

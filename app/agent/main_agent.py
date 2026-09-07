@@ -5,6 +5,7 @@ from __future__ import annotations
 import asyncio
 import json
 import re
+from decimal import Decimal, ROUND_HALF_UP
 from datetime import UTC, datetime
 from typing import Any
 from uuid import UUID, uuid4
@@ -586,9 +587,23 @@ def _safe_direct_message(
         if (message := response_policies.direct_message(direct_response, followup, allow_grounded_followup)) is not None:
             return message
         return _CAPABILITY_MESSAGE
+    # A planner's prose never authorizes an amount. Bill arithmetic must arrive
+    # through the typed knowledge result, even after a grounded prior turn.
+    if _looks_like_bill_request(user_message):
+        return _CAPABILITY_MESSAGE
     if allow_grounded_followup and 0 < len(followup) <= _MAX_FOLLOWUP_LENGTH:
         return followup
     return _CAPABILITY_MESSAGE
+
+
+def _looks_like_bill_request(message: str) -> bool:
+    text = " ".join(message.casefold().split())
+    if any(term in text for term in ("ไฟดับ", "ไฟฟ้าขัดข้อง", "ร้องเรียน", "outage", "power failure")):
+        return False
+    return (
+        any(term in text for term in ("ค่าไฟ", "ค่าใช้ไฟฟ้า", "ใช้ไฟ"))
+        and ("หน่วย" in text or "ต้องจ่าย" in text or "คำนวณ" in text)
+    ) or bool(re.search(r"\b1\.1\.[0-9]+\b|(?:กันยายน|ตุลาคม|พฤศจิกายน|ธันวาคม)\s*25\d{2}", text))
 
 
 def _redact_prepared_input(data: dict[str, Any]) -> dict[str, Any]:
@@ -808,6 +823,14 @@ def _result_facts(
                 facts.append(fact)
             continue
         data = result.data or {}
+        # BillOutcome is authoritative typed output: never expose planner wording or
+        # JSON as the answer, and never manufacture a total for partial/unavailable.
+        bill = data.get("billOutcome") if result.name is ToolName.KNOWLEDGE else None
+        if isinstance(bill, dict):
+            fact = _bill_fact(bill, bool(result.citations))
+            if fact not in facts:
+                facts.append(fact)
+            continue
         if result.name is ToolName.KNOWLEDGE and isinstance(data.get("answerContext"), str):
             fact = (
                 _knowledge_fact(data["answerContext"], user_message)
@@ -824,6 +847,32 @@ def _result_facts(
         else:
             facts.append(json.dumps(data, default=str, sort_keys=True))
     return facts
+
+
+def _bill_fact(bill: dict[str, object], grounded: bool) -> str:
+    """Render verified bill fields deterministically; citations are required for totals."""
+    status = bill.get("status")
+    if status == "clarification":
+        return "กรุณาระบุจำนวนหน่วย เดือนและปีที่เรียกเก็บ และยืนยันประเภทบ้านอยู่อาศัยอัตราปกติ 1.1.2 ครับ"
+    if status == "unavailable":
+        return f"ยังไม่สามารถคำนวณค่าไฟได้ครับ เหตุผล: {bill.get('reason') or 'ยังไม่มีข้อมูลอัตราที่ตรวจสอบแล้ว'}"
+    if not grounded:
+        return "ยังไม่สามารถคำนวณค่าไฟได้ครับ เนื่องจากไม่พบแหล่งอัตราที่ตรวจสอบแล้ว"
+
+    def money(key: str) -> str:
+        value = bill.get(key)
+        if value is None:
+            return "-"
+        return f"{Decimal(str(value)).quantize(Decimal('0.01'), rounding=ROUND_HALF_UP):,.2f}"
+
+    period = ""
+    if bill.get("billingMonth") is not None and bill.get("billingYear") is not None:
+        period = f" เดือน {bill['billingMonth']}/{bill['billingYear']}"
+    prefix = f"ค่าไฟประมาณการสำหรับ {bill.get('usage')} หน่วย{period} ประเภท 1.1.2"
+    breakdown = f"พลังงาน {money('energy')} บาท, ค่าบริการ {money('service')} บาท, ค่า Ft {money('ft')} บาท, ก่อน VAT {money('subtotalBeforeVat')} บาท"
+    if status == "partial":
+        return f"{prefix}: {breakdown} ยังไม่รวม VAT และยอดสุทธิ เนื่องจากข้อมูลช่วงนี้ยังไม่รองรับการคำนวณ VAT ครับ"
+    return f"{prefix}: {breakdown}, VAT {money('vat')} บาท รวมทั้งสิ้น {money('finalTotal')} บาท"
 
 
 def _knowledge_fact(answer_context: str, user_message: str) -> str:
