@@ -33,3 +33,31 @@ htmlcov/
 .vscode/
 .idea/
 *.swp
+
+# Environment files (keep the committed template visible)
+.env.*
+!.env.example
+
+# Local runtime and logs
+.pi/
+logs/
+*.log
+*.log.*
+*.pid
+.run/
+.runtime/
+.state/
+
+# SQLite databases and sidecars
+*.sqlite
+*.sqlite3
+*.sqlite-*
+*.sqlite3-*
+*.db-*
+
+# Private keys and local credential artifacts
+*.key
+*.pem
+*.p12
+*.pfx
+*.jks

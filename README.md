@@ -27,7 +27,7 @@ cp .env.example .env
 #    ลงในบรรทัด GEMINI_API_KEY=...
 
 # 5) รันเซิร์ฟเวอร์
-uv run uvicorn app.main:app --reload --host 127.0.0.1 --port 8000
+./.start
 
 # 6) เปิดเว็บในเบราว์เซอร์
 open http://127.0.0.1:8000
@@ -47,7 +47,7 @@ open http://127.0.0.1:8000
 ## สิ่งที่ต้องเตรียมก่อน (Prerequisites)
 
 | ของที่ต้องมี | รายละเอียด |
-|---|---|
+| --- | --- |
 | **Python 3.11 ขึ้นไป** | ตรวจด้วย `python3 --version` |
 | **[uv](https://docs.astral.sh/uv/)** | ตัวจัดการ dependency + virtualenv ติดตั้งด้วย `curl -LsSf https://astral.sh/uv/install.sh \| sh` แล้วเปิด Terminal ใหม่ |
 | **GEMINI_API_KEY** | คีย์ฟรีจาก [Google AI Studio](https://aistudio.google.com/apikey) — จำเป็นสำหรับแชต (provider `gemini`), การค้นหาความรู้ และโหมดเสียง |
@@ -78,10 +78,12 @@ knowledge/source/qa/       คำถาม-คำตอบที่อนุม�
 ### เงื่อนไขที่ Knowledge ต้องมีเพื่อจะตอบได้
 
 - ตั้งค่าใน `.env`:
+
   ```dotenv
   KNOWLEDGE_LLM_PROVIDER=gemini
   GEMINI_API_KEY=your-google-ai-key
   ```
+
 - ตรวจสอบความพร้อมได้ที่ `http://127.0.0.1:8000/health` — ต้องเห็น
   `"knowledge_backend": "ready"` (ถ้าเป็น `unavailable` แปลว่า key/ไฟล์ไม่พร้อม)
 
@@ -96,6 +98,7 @@ knowledge/source/qa/       คำถาม-คำตอบที่อนุม�
 ---
 
 <a id="voice-mode"></a>
+
 ## โหมดเสียง (Voice Mode) — ต้องกด "อนุญาต" (Allow) ก่อน
 
 โหมดเสียงใช้ Gemini Live พูดคุยกับผู้ช่วยแบบเรียลไทม์ (ครอบคลุม Knowledge + OMS)
@@ -152,7 +155,7 @@ uv run pytest -q
 ### Provider ของ LLM
 
 | บทบาท | ตั้งค่าใน `llm-settings.yaml` | รองรับ |
-|---|---|---|
+| --- | --- | --- |
 | Main Agent | `roles.main` | `gemini`, `local` (OpenAI-compatible), `demo` |
 | Judge | `roles.judge` | `gemini`, `local` (OpenAI-compatible), `demo` |
 | Knowledge | `roles.knowledge` | `gemini` เท่านั้น (Full-file Long Context ที่ตรวจสอบแล้ว) |
@@ -192,7 +195,7 @@ roles:
 ### ตัวแปรอื่น ๆ ที่น่าสนใจ
 
 | ตัวแปร | ความหมาย | ค่าเริ่มต้น |
-|---|---|---|
+| --- | --- | --- |
 | `KNOWLEDGE_SOURCE_ROOT` | โฟลเดอร์เอกสารความรู้ | `knowledge/source` |
 | `KNOWLEDGE_BACKEND_NAME` | backend ของความรู้ (ปัจจุบันรองรับค่าเดียว) | `full_document` |
 | `OMS_BASE_URL` / `OMS_API_KEY` | OMS จำลอง (REST) | `http://127.0.0.1:8080/api/v1/oms` / `88888888` |
@@ -217,7 +220,7 @@ roles:
 ### API หลัก
 
 | เส้นทาง | ใช้สำหรับ |
-|---|---|
+| --- | --- |
 | `POST /api/v1/chat` | ส่งข้อความ |
 | `POST /api/v1/actions/{id}/confirm` / `reject` | ยืนยัน / ปฏิเสธรายการที่เตรียมไว้ |
 | `GET /api/v1/traces/{traceId}` | ดู trace |
@@ -232,7 +235,7 @@ roles:
 ระบบแบ่งเครื่องมือเป็นสองชั้น:
 
 | ชั้น | ตัวอย่าง | ประกอบที่ไหน |
-|---|---|---|
+| --- | --- | --- |
 | **Built-in** | `knowledge_tool` | `app/main.py` โดยตรง |
 | **Plugin** | `voc_tool` | `app/plugins/<id>/plugin.yaml` (ค้นพบตอน startup) |
 
@@ -285,7 +288,7 @@ metadata:
 ### หน้าที่ของแต่ละส่วน
 
 | ส่วน | หน้าที่ | **ไม่ใช่** หน้าที่ |
-|---|---|---|
+| --- | --- | --- |
 | `plugin.yaml` | discovery, metadata, ประกาศ operation, ชี้ชื่อ env var | ยิง HTTP, ถือ schema, เก็บ secret |
 | `factory.py` | ประกอบ `PluginRuntime` จาก settings | business logic |
 | `demo.py` / `response.py` | deterministic demo planning และการแสดงผลเฉพาะ plugin | HTTP/write state machine |
@@ -349,7 +352,7 @@ Main Agent **ไม่ปล่อยข้อความอิสระขอ�
 ระบบรองรับการให้บริการผ่านหลายช่องทาง โดยมีชั้น channel กลางจัดการ capability และการแปลงคำตอบ:
 
 | ช่องทาง | Endpoint | การยืนยันตัวตน | ปุ่ม / ขีดจำกัดข้อความ |
-|---|---|---|---|
+| --- | --- | --- | --- |
 | **Web UI** | `POST /api/v1/web/chat` | Opaque Session Cookie | ปุ่มเต็มรูปแบบ / ไม่จำกัดความยาว |
 | **Public API** | `POST /api/v1/chat` | Header `X-API-Key` | Degrade เป็นข้อความ + id / ไม่จำกัดความยาว |
 | **LINE Messaging API** | `POST /webhook/line` | Header `X-Line-Signature` (HMAC) | Template & Quick Reply / ตัดข้อความที่ 1900 อักขระ |
@@ -363,7 +366,7 @@ Main Agent **ไม่ปล่อยข้อความอิสระขอ�
 ## การแก้ปัญหา (Troubleshooting)
 
 | อาการ | วิธีแก้ |
-|---|---|
+| --- | --- |
 | `command not found: uv` | ติดตั้ง uv ก่อน: `curl -LsSf https://astral.sh/uv/install.sh \| sh` แล้วเปิด Terminal ใหม่ |
 | รัน `uv sync` ไม่ผ่าน | ตรวจว่า Python ≥ 3.11 และอินเทอร์เน็ตปกติ |
 | "โหมดเสียงยังไม่ได้ตั้งค่า" | ตั้ง `GEMINI_API_KEY` ใน `.env` แล้ว restart เซิร์ฟเวอร์ |
@@ -374,6 +377,102 @@ Main Agent **ไม่ปล่อยข้อความอิสระขอ�
 | โหมดเสียงหลุดกลางคัน | ตรวจ network และ API key — WebSocket ใหม่จะสร้าง Gemini session และการสนทนาใหม่เสมอ |
 | Knowledge ตอบว่าไม่มีหลักฐาน | ตรวจไฟล์ใน `knowledge/source/`, `GEMINI_API_KEY`, และ restart หลังเพิ่มไฟล์ |
 | `/health` แสดง `knowledge_backend: unavailable` | ตั้งค่า Knowledge provider/key ให้ถูกต้อง (ดูส่วนความรู้) |
+
+---
+
+## รันด้วย Docker (local demo เท่านั้น)
+
+> **หมายเหตุ:** แพ็กเกจนี้สำหรับสาธิตบนเครื่องส่วนตัวเท่านั้น — **ไม่ใช่** การตั้งค่า
+> production (ดู "ข้อจำกัด" ด้านล่าง) ห้าม push อิมเมจที่มี knowledge ในตัวขึ้น
+> public registry โดยไม่ได้รับอนุมัติจากเจ้าของข้อมูล
+
+### 1) เตรียม `.env` ของคอนเทนเนอร์ (ไม่ overwrite ของเดิม)
+
+คอนเทนเนอร์อ่านค่าจาก `.env` ที่ root ของโปรเจกต์ ถ้ายังไม่มีไฟล์ ให้สร้างจาก
+`.env.example` โดยคำสั่งนี้ **ไม่เขียนทับ** ไฟล์เดิม:
+
+```bash
+[ -f .env ] || cp .env.example .env
+```
+
+### 2) สร้าง `PEA_STATE_KEY` ครั้งเดียว (ใช้อิมเมจที่ build แล้ว)
+
+ระบบต้องมี `PEA_STATE_KEY` (ใช้เข้ารหัส trace/ข้อมูลที่อ่อนไหวในไฟล์ DB)
+ค่านี้ต้องคงที่ตลอดอายุของ volume — เปลี่ยน key = ข้อมูลเดิมอ่านไม่ได้
+
+สร้างคีย์ด้วยอิมเมจที่ build แล้ว (ไม่ต้องพึ่ง compose เพื่อเลี่ยงปัญหา
+"ต้องมี .env ก่อนถึงจะรัน compose ได้"):
+
+```bash
+docker build -t pea-one-agent:local .
+docker run --rm --entrypoint python pea-one-agent:local \
+  -c "import os, base64; print(base64.urlsafe_b64encode(os.urandom(32)).decode())"
+```
+
+แล้ววางค่าที่ได้ลง `.env` ในบรรทัด `PEA_STATE_KEY=...`
+
+### 3) ตั้งค่า OMS URL ก่อน start ครั้งแรก (สำคัญ — bootstrap เก็บค่านี้ลง DB)
+
+OMS/VOC เป็นเกตเวย์ภายนอก: `simulation=true` หมายถึงผลลัพธ์ถูกทำเครื่องหมายว่าจำลอง
+แต่ระบบ**ยังคงยิง HTTP จริง**ไปที่ `OMS_BASE_URL` ที่ตั้งไว้ ในคอนเทนเนอร์
+`127.0.0.1` คือตัวคอนเทนเนอร์เอง ต้องใช้ชื่อ host ของเครื่อง host แทน:
+
+```dotenv
+OMS_BASE_URL=http://host.docker.internal:8080/api/v1/oms
+```
+
+- macOS/Windows (Docker Desktop/OrbStack): `host.docker.internal` มีให้ใช้แล้ว
+- Linux: `compose.yaml` ของโปรเจกต์เพิ่ม `extra_hosts: host.docker.internal:host-gateway`
+  ให้แล้ว ซึ่งแมปชื่อนี้ไปยัง gateway ของเครือข่าย Docker บน host
+
+ตั้งค่านี้**ก่อน `docker compose up` ครั้งแรก** เพราะ bootstrap ครั้งแรกจะบันทึก
+base URL ของ OMS ลงในฐานข้อมูลและไม่แก้ค่าเดิมทับในครั้งถัด ๆ ไป ถ้าตั้งผิดตั้งแต่ต้น
+ให้ลบ volume (ดูคำเตือนในข้อ 6) แล้วเริ่มใหม่
+
+ไม่ต้องติดต่อเกตเวย์ใด ๆ เพื่อทดสอบแพ็กเกจ — ถ้าไม่มีเกตเวย์ที่ URL นั้น
+เครื่องมือ OMS จะรายงานข้อผิดพลาดการเรียกใช้เมื่อถูกเรียกเท่านั้น (ตัวเซิร์ฟเวอร์ยังเริ่มได้ปกติ)
+
+### 4) เริ่ม / ดู log / หยุด / rebuild
+
+```bash
+docker compose up -d          # เริ่มเซอร์วิส (publish ที่ 127.0.0.1:8000 เท่านั้น)
+docker compose logs -f        # ดู log
+docker compose stop           # หยุด (ข้อมูลคงอยู่)
+docker compose up -d --build  # แก้โค้ด/dependencies แล้ว rebuild และเริ่มใหม่
+```
+
+เปิดเว็บที่ `http://127.0.0.1:8000` — port ถูก publish ที่ 127.0.0.1 เท่านั้น
+ไม่เปิดสู่เครือข่ายภายนอก
+
+### 5) ข้อมูลคงอยู่ (persistence) และคำเตือนเรื่องการลบ
+
+สถานะทั้งหมด (SQLite `pea.db` + WAL) อยู่ใน named volume `pea-state`
+ที่ mount ที่ `/var/lib/pea` ในคอนเทนเนอร์ รันด้วย non-root user (uid 10001)
+ข้อมูลรอดจากการ `docker compose down` (ไม่มี `-v`)
+
+> ⚠️ **`docker compose down -v` จะลบ volume ถาวร** — ฐานข้อมูลทั้งหมดหายถาวร
+> และถ้า `PEA_STATE_KEY` ใน `.env` ถูกลบ/เปลี่ยน ข้อมูลเข้ารหัสไว้ใน volume เดิม
+> จะอ่านไม่ได้แม้จะมีไฟล์เหลืออยู่ ถือว่า key + volume เป็นคู่ที่ต้องเก็บร่วมกัน
+
+### 6) ทดสอบเร็วโดยไม่ต้องมี API key (smoke แบบ demo)
+
+ถ้ายังไม่มี `GEMINI_API_KEY` ให้ตั้ง `MAIN_LLM_PROVIDER=demo` ใน `.env`
+เพื่อทดสอบว่าระบบขึ้นและตอบแชตได้ด้วย provider จำลอง (ไม่ติดต่อ Gemini)
+ส่วน Knowledge และโหมดเสียง (Gemini Live) จะแสดงเป็น `degraded`/ยังไม่พร้อม
+**ความพร้อมจริงของ Gemini knowledge/voice ยังไม่ผ่านการตรวจสอบ จนกว่าจะรันด้วย key จริง**
+โหมดเสียงต้องใช้ไมโครโฟนของเครื่อง — เบราว์เซอร์อนุญาตที่ origin `http://127.0.0.1:8000`
+(localhost เป็น secure context จึงใช้ mic ได้)
+
+### 7) (ตัวเลือก) mount `llm-settings.yaml` แบบ read-only
+
+อยากสลับ provider/model โดยไม่ rebuild ให้เพิ่ม mount นี้ใน `compose.yaml`
+(ภายใต้ `volumes:` ของ service):
+
+```yaml
+      - ./llm-settings.yaml:/app/llm-settings.yaml:ro
+```
+
+แก้ไฟล์แล้ว `docker compose restart` — ค่า secret ทั้งหมดยังอ่านจาก environment เท่านั้น
 
 ---
 

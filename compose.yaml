@@ -1,0 +1,32 @@
+# PEA One Agent — local demo composition (single service).
+# Demo packaging only: NOT production-ready (see PRD.md release status).
+services:
+  pea-agent:
+    build: .
+    image: pea-one-agent:local
+    ports:
+      # Localhost-only exposure for the demo UI.
+      - "127.0.0.1:8000:8000"
+    env_file:
+      # Operator-managed runtime settings (never committed; see README).
+      - .env
+    environment:
+      APP_ENV: development
+      # Fixed DB location inside the writable non-root-owned named volume.
+      DB_PATH: /var/lib/pea/pea.db
+    extra_hosts:
+      # Lets OMS_BASE_URL reach a gateway on the Docker host (Linux included:
+      # on macOS/Windows Desktop this name exists already; host-gateway maps it
+      # to the host bridge on Linux).
+      - "host.docker.internal:host-gateway"
+    volumes:
+      # SQLite state + WAL live here; survives container recreation.
+      # `docker compose down -v` DESTROYS it (and encrypted data becomes
+      # unreadable if PEA_STATE_KEY is lost — see README).
+      - pea-state:/var/lib/pea
+    # Optional: tweak LLM roles without rebuilding (uncomment to enable).
+    # volumes is merged, so also remove the comment marker on the line below:
+    #   - ./llm-settings.yaml:/app/llm-settings.yaml:ro
+
+volumes:
+  pea-state:

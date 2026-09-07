@@ -1,0 +1,12 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+REPO_DIR="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd -P)"
+cd "$REPO_DIR"
+
+if ! command -v uv >/dev/null 2>&1; then
+  echo "Error: uv is not installed. Install it first: curl -LsSf https://astral.sh/uv/install.sh | sh" >&2
+  exit 127
+fi
+
+exec uv run uvicorn app.main:app --reload --host 127.0.0.1 --port 8000 "$@"
