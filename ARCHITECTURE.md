@@ -61,15 +61,15 @@ LLM ไม่เคยเห็น YAML ดิบ: loader อ่าน manifest 
 `ToolDefinition` catalogue สั้น ๆ ซึ่ง **ตัด operation ที่ `exposure: internal` ออกทั้งหมด**
 ทำให้ `submit_*` ไม่ถูกโฆษณาให้โมเดลเลือกเอง และ write state machine
 (`prepare_* → explicit confirm endpoint → submit_*`) ยังบังคับใช้เหมือนเดิม
-VOC offline demo รองรับการอ่าน category/สถานะเท่านั้น; การเตรียมเคสไม่ผ่านการวางแผนของโมเดลเลย
-แต่ใช้ guided flow ที่อ่าน catalog จาก gateway แล้วถามทีละขั้น จึงได้ `externalPayload` ที่มี taxonomy,
-location และ consent จากคำตอบจริงของผู้ใช้ ไม่มีรหัสใดถูกเดาขึ้น
-ขั้น taxonomy เป็น closed enum (กดปุ่มเท่านั้น) ส่วน location เป็น free text เพราะ
-catalog สาธิตมีพื้นที่ให้เลือกไม่ครบทุกจังหวัด ระบบจึงส่ง `locationText` ให้ VOC map เอง
-แทนการบังคับเลือก และหมายเลขผู้ใช้ไฟ (CA) ถามเฉพาะ journey ที่รองรับและข้ามได้เสมอ
-flow ใช้ LLM ได้ผ่าน `attach_llm` เพื่อสองอย่างเท่านั้น: เติมคำตอบที่ผู้ใช้บอกมาแล้ว
-ในข้อความเปิดเรื่อง และจับคู่คำพูดกับตัวเลือกในโหมดเสียง โดยเลือกได้เฉพาะ value
-ที่อยู่ใน catalog รอบนั้น ห้ามเติม consent และ CA แทนผู้ใช้เด็ดขาด
+VOC ใช้ guided flow ที่อ่าน catalog จาก gateway แล้วคุยกับผู้ใช้แบบสนทนา จึงได้
+`externalPayload` ที่มี taxonomy, location และ consent จากคำตอบจริงของผู้ใช้ ไม่มีรหัสใดถูกเดาขึ้น
+ข้อความเล่าเหตุการณ์เป็น free text (เก็บ detail ไม่เกิน 2,000 และสร้าง subject ไม่เกิน 140)
+ส่วน taxonomy เป็นตัวเลือกจาก catalog แต่รับคำตอบด้วยข้อความหรือเสียงได้ ไม่บังคับรูปแบบการ์ด
+location เป็น free text และจับคู่รหัสพื้นที่แบบกำหนดผลได้เท่าที่ชื่อพื้นที่ระบุชัดเจนเท่านั้น
+(การสกัด CA จากข้อความเปิดเรื่องต้องมีป้ายกำกับพร้อมเลข ASCII 12 หลัก; เมื่อถึงคำถาม CA โดยตรง ผู้ใช้ตอบเลข ASCII 12 หลักได้โดยไม่ต้องพิมพ์ป้ายซ้ำ และ consent ต้องเป็นการตอบของผู้ใช้)
+flow ใช้ LLM ผ่าน `attach_llm` เพื่อสกัดข้อเท็จจริงจากหนึ่งข้อความ โดยตรวจ span/evidence
+และลำดับชั้น catalog ก่อนเก็บ ค่าแก้ไขเดิมต้องมีถ้อยคำแก้ไขจากผู้ใช้จริง โมเดลไม่สามารถเติม
+consent, CA หรือรหัสพื้นที่แทนผู้ใช้ได้
 
 ความปลอดภัยของ loader: manifest เป็น trusted config ที่ commit ใน repo เท่านั้น,
 `runtime.factory` ต้องอยู่ใต้ `app.plugins.` เท่านั้น, ไม่มี `eval`/`exec`,
@@ -285,7 +285,7 @@ prepare_* -> pending_confirmation -> confirm endpoint -> submit_* -> submitted |
 ## ความเป็นเจ้าของไฟล์สำหรับผู้ปฏิบัติงานแบบขนาน
 
 | ผู้รับผิดชอบ | ไฟล์/ไดเรกทอรีที่รับผิดชอบแต่เพียงผู้เดียว | สัญญาที่ขึ้นต่อกัน |
-|---|---|---|
+| --- | --- | --- |
 | หัวหน้าทีม/การผสานระบบ | `ARCHITECTURE.md`, `CONTRACTS.md`, `app/contracts.py`, `app/main.py`, `tests/test_contracts.py` | เป็นเจ้าของ frozen contract และการเชื่อม route; อนุมัติการเปลี่ยนแปลง contract ทั้งหมด |
 | ผู้ปฏิบัติงาน A — เอเจนต์ | `app/agent/`, `app/llm/` | import เฉพาะ `app.contracts`; เรียกเฉพาะ interface `ToolRegistry` |
 | ผู้ปฏิบัติงาน B — ฐานความรู้ | `app/tools/knowledge_tool.py`, `app/backends/full_document_knowledge.py`, `knowledge/` | ใช้ document-level routing และ full-file context เท่านั้น; ห้ามเพิ่ม vector DB, chunk retrieval หรือเปลี่ยน public contract |

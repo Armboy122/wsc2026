@@ -147,7 +147,7 @@ terminal `failed` เพื่อไม่ให้เหลือสถาน�
 ส่ง/ปฏิเสธ/ล้มเหลวแล้ว endpoint นี้ใช้สำหรับ
 สภาพแวดล้อมสาธิตที่มีการจัดการเท่านั้น
 
-หมายเหตุสัญญา dormant: isolated VOC component เดิมอาจรักษาเคสที่ submit แล้วเพื่อทดสอบการติดตาม แต่ runtime ปัจจุบันไม่ลงทะเบียน VOC และ public reset จึงไม่มี active VOC state
+VOC runtime ใช้ guided conversation แยกจาก planner เพื่อเก็บคำตอบตาม catalog และรักษา write state machine เดิม; การส่งจริงยังต้องผ่าน explicit confirm และ reset จะล้าง session ที่ยัง active
 
 ### `GET /health`
 
@@ -182,7 +182,7 @@ trace และ redaction ทั้งหมดไม่เปลี่ยนแ
 ### Event JSON จากเซิร์ฟเวอร์
 
 | `type` | ความหมาย |
-|---|---|
+| --- | --- |
 | `session.ready` | Gemini session เชื่อมต่อพร้อมแล้ว |
 | `transcript.user` | ถอดเสียงผู้ใช้ (fields: `role=user`, `text`, `final`) |
 | `transcript.assistant` | ถอดเสียงผู้ช่วย (fields: `role=assistant`, `text`, `final`) |
@@ -206,7 +206,7 @@ trace และ redaction ทั้งหมดไม่เปลี่ยนแ
 ที่ bridge เลือกให้เอง:
 
 | ฟังก์ชัน | พารามิเตอร์ | พฤติกรรม |
-|---|---|---|
+| --- | --- | --- |
 | `pea_agent_chat` | `message` (required) | ส่งข้อความไปยัง `MainAgent.handle_chat` |
 | `pea_confirm_pending_action` | `confirmationNote` (optional) | ยืนยันรายการปัจจุบัน → `submit_*` หนึ่งครั้ง → ล้างสถานะสิ้นสุด |
 | `pea_reject_pending_action` | `reason` (required) | ปฏิเสธรายการปัจจุบัน → สถานะสิ้นสุด → ล้างสถานะ |
@@ -238,7 +238,7 @@ trace และ redaction ทั้งหมดไม่เปลี่ยนแ
 ### Event ที่รองรับ
 
 | event ของ LINE | พฤติกรรม |
-|---|---|
+| --- | --- |
 | `message` (type=text) | ส่งข้อความไปยัง `MainAgent.handle_chat` ผ่าน bridge |
 | `message` (ไม่ใช่ text) | ตอบว่ารับได้เฉพาะข้อความพิมพ์ |
 | `postback` (`action=confirm`) | ยืนยันรายการปัจจุบันของผู้ใช้ → `submit_*` หนึ่งครั้ง → ล้างสถานะสิ้นสุด |
@@ -276,7 +276,7 @@ trace และ redaction ทั้งหมดไม่เปลี่ยนแ
 ### Update ที่รองรับ
 
 | update ของ Telegram | พฤติกรรม |
-|---|---|
+| --- | --- |
 | `message` (text) | ส่งข้อความไปยัง `MainAgent.handle_chat` ผ่าน bridge (รองรับคำสั่ง `/start`) |
 | `message` (ไม่ใช่ text) | ตอบกลับแจ้งเตือนว่ารองรับเฉพาะข้อความพิมพ์ |
 | `message.migrate_to_chat_id` | ย้ายสถานะบทสนทนาและ pending action ไปยัง id ใหม่เมื่อกลุ่มอัปเกรดเป็น supergroup |
@@ -318,7 +318,7 @@ trace และ redaction ทั้งหมดไม่เปลี่ยนแ
 ### จุดเชื่อมต่อ
 
 | เส้นทาง | คำขอ/การตอบ | หมายเหตุ |
-|---|---|---|
+| --- | --- | --- |
 | `POST /api/v1/admin/login` | `{ "password": "..." }` → `200 {"authenticated": true}` + Set-Cookie | ผิด = `401`, admin ปิด = `503`, body ผิดรูป = `422` |
 | `POST /api/v1/admin/logout` | → `200 {"authenticated": false}` + ลบ cookie | ไม่บังคับ auth — ทำลาย session ของผู้เรียกเอง |
 | `GET /api/v1/admin/session` | → `200 {"authenticated": true}` | ต้องมี session cookie ที่ถูกต้อง ไม่งั้น `401`/`503` |
@@ -328,7 +328,7 @@ trace และ redaction ทั้งหมดไม่เปลี่ยนแ
 Admin ปิดใช้งานโดยสมบูรณ์เมื่อไม่ตั้ง `ADMIN_PASSWORD` (endpoint ที่ต้อง auth ตอบ `503`) ไม่มีค่าเริ่มต้นหรือรหัสผ่านตัวอย่าง ระบบใช้ session cookie `pea_admin_session` แบบ opaque ใน RAM (HttpOnly, SameSite=Lax) และ login สำเร็จ/ล้มเหลวไม่เปิดเผยรหัสผ่านใน log
 
 | เส้นทาง | คำขอ | การตอบกลับจริง |
-|---|---|---|
+| --- | --- | --- |
 | `POST /login` | `{password: string(1..256)}` | `200 {authenticated:true}` + cookie; รหัสผิด `401`; ไม่ตั้งค่า `503`; body ผิด `422` |
 | `GET /session` | cookie | `200 {authenticated:true}`; ไม่มี/ผิด `401` หรือ admin ปิด `503` |
 | `POST /logout` | ไม่ต้อง auth | `200 {authenticated:false}` + ลบ cookie |
@@ -348,7 +348,7 @@ Admin ปิดใช้งานโดยสมบูรณ์เมื่อ�
 ### `Citation`
 
 | ฟิลด์ | ชนิด | กฎ |
-|---|---|---|
+| --- | --- | --- |
 | `sourceId` | string | พาธสัมพัทธ์หรือรหัสคงที่ของไฟล์ที่ Document Router เลือกจาก `knowledge/source/` |
 | `title` | string | ชื่อไฟล์หรือชื่อเอกสารจริงที่ไม่ว่าง |
 | `uri` | string | logical URI ที่ไม่เปิดเผย absolute path เช่น `knowledge://source/<encoded-relative-path>` และต้องไม่ว่าง |
@@ -358,9 +358,9 @@ Admin ปิดใช้งานโดยสมบูรณ์เมื่อ�
 ### `ToolCall`
 
 | ฟิลด์ | ชนิด | กฎ |
-|---|---|---|
+| --- | --- | --- |
 | `callId` | UUID | สร้างโดย agent/runtime |
-| `name` | enum | enum คงค่า compatibility ไว้ แต่ runtime catalogue เปิดรับเฉพาะ `knowledge_tool` และ `oms_tool`; `voc_tool` ไม่ลงทะเบียน |
+| `name` | enum | enum คงค่า compatibility ไว้; runtime catalogue รวม `knowledge_tool`, `oms_tool` และ `voc_tool` เมื่อปลั๊กอินเปิดใช้งาน |
 | `action` | enum | หนึ่งใน action ที่อยู่ในตารางด้านล่าง |
 | `input` | object | schema ที่ตรึงไว้และเฉพาะเจาะจงตาม action |
 
@@ -369,7 +369,7 @@ Tool จะปฏิเสธการเรียกที่ `name` ไม่�
 ### `ToolResult`
 
 | ฟิลด์ | ชนิด | กฎ |
-|---|---|---|
+| --- | --- | --- |
 | `callId` | UUID | เท่ากับ call ต้นทาง |
 | `name` | `ToolName` | เท่ากับ call ต้นทาง |
 | `action` | `ToolAction` | เท่ากับ call ต้นทาง |
@@ -384,7 +384,7 @@ Tool จะปฏิเสธการเรียกที่ `name` ไม่�
 ### `PendingAction`
 
 | ฟิลด์ | ชนิด | กฎ |
-|---|---|---|
+| --- | --- | --- |
 | `pendingActionId` | UUID | สร้างโดย server |
 | `conversationId` | UUID | conversation ที่เป็นเจ้าของ |
 | `toolSlug` | runtime slug ของ tool (เช่น `oms_tool`); รับ `toolName` เดิมเป็น compatibility input | knowledge ไม่สามารถเขียนได้ |
@@ -404,7 +404,7 @@ Tool จะปฏิเสธการเรียกที่ `name` ไม่�
 ### `TraceEvent`
 
 | ฟิลด์ | ชนิด | กฎ |
-|---|---|---|
+| --- | --- | --- |
 | `eventId` | UUID | สร้างโดยระบบ |
 | `traceId` | UUID | trace ของคำขอ |
 | `sequence` | positive integer | เพิ่มขึ้นอย่างเคร่งครัดในแต่ละ trace |
@@ -439,7 +439,7 @@ Tool จะปฏิเสธการเรียกที่ `name` ไม่�
 สัญญา Sabuy คงไว้เพื่อ compatibility เท่านั้น ไม่เปิดให้ผู้ใช้และไม่อยู่ใน runtime registry
 
 | การดำเนินการ | ข้อมูลนำเข้า | ข้อมูลเมื่อสำเร็จ |
-|---|---|---|
+| --- | --- | --- |
 | `get_account_summary` | `{ "accountRef": string(1..64) }` | `{ "accountRef": string, "customerDisplayName": string, "outstandingBalanceThb": decimal-string, "dueDate": date/null, "paymentStatus": "current"\|"overdue"\|"paid" }` |
 | `prepare_payment` | `{ "accountRef": string(1..64), "amountThb": decimal-string > 0, "paymentMethod": "demo_card"\|"demo_bank", "idempotencyKey": string(1..128) }` | `{ "accountRef": string, "amountThb": decimal-string, "paymentMethod": enum, "summary": string }` |
 | `submit_payment` | สำหรับใช้ภายในเท่านั้น: `{ "pendingActionId": UUID, "idempotencyKey": string }` | `{ "receiptId": string, "accountRef": string, "amountThb": decimal-string, "status": "accepted" }` |
@@ -450,14 +450,16 @@ Main Agent เรียกใช้ `submit_payment` ได้หลังกา
 
 **ระบบเบื้องหลัง:** Agent-side `httpx` connector ไปยัง gateway VOC (endpoint เป็น source of truth) โดย output ทุกรายการประกาศ `simulation: true`; `SimulatedVocBackend` ยังใช้ได้เมื่อสร้าง tool โดยไม่ระบุ `base_url`
 
-**การเปิดเรื่องใหม่ขับด้วย catalog ไม่ผ่านโมเดล:** `externalPayload` ต้องมีรหัส taxonomy, พื้นที่ และ consent
-ที่โมเดลสร้างเองไม่ได้ ระบบจึงใช้ guided flow อ่าน `GET /catalog` แล้วถามทีละขั้นด้วย `choicePrompt`
-จำนวนและลำดับคำถามมาจาก flag ของ journey เอง (`requiresFrequency`, `requiresSeverity`,
-`requiresSubIssue`, `requiresIncidentLocation`, `reporterMode`) การเพิ่ม journey หรือ issue ใน catalog
-จึงเปลี่ยนบทสนทนาได้โดยไม่ต้องแก้โค้ด และ planner ต้องไม่เรียก `prepare_case` เอง
+**การเปิดเรื่องใหม่ขับด้วย guided conversation และ catalog:** `externalPayload` ต้องมีรหัส taxonomy,
+พื้นที่ และ consent ที่ยืนยันได้ ระบบอ่าน `GET /catalog` แล้วถามเท่าที่จำเป็นผ่าน `choicePrompt`
+แต่ผู้ใช้ตอบด้วยข้อความหรือเสียงได้ ไม่จำเป็นต้องกดการ์ด ลำดับคำถามมาจาก flag ของ journey เอง
+(`requiresFrequency`, `requiresSeverity`, `requiresSubIssue`, `requiresIncidentLocation`, `reporterMode`)
+ข้อความเหตุการณ์เก็บเป็น `detail` ไม่เกิน 2,000 อักขระ และสร้าง `subject` จากต้นข้อความไม่เกิน 140
+อักขระ รหัส taxonomy ต้องอยู่ใน catalog; โมเดลสกัดได้เพียงค่าที่มี evidence เป็น span ของข้อความ
+และไม่สามารถเติม consent, CA หรือรหัสพื้นที่ได้
 
 | การดำเนินการ | ข้อมูลนำเข้า | ข้อมูลเมื่อสำเร็จ |
-|---|---|---|
+| --- | --- | --- |
 | `list_categories` | `{}` | `{ "categories": [{ "code": "billing"\|"service"\|"safety"\|"other", "label": string }] }` |
 | `prepare_case` | `{ "category": enum, "subject": string(1..140), "detail": string(1..2000), "contactName": string(1..100), "contactPhone": string(1..32), "location": string(1..500), "contactChannel": "phone"\|"email"\|"none", "idempotencyKey": string(1..128) }` | `{ "category": enum, "subject": string, "summary": string }` |
 | `submit_case` | สำหรับใช้ภายในเท่านั้น: `{ "pendingActionId": UUID, "idempotencyKey": string }` | `{ "caseId": string, "vocId": string, "trackingKey": string, "status": "submitted", "category": enum }` |
@@ -466,13 +468,15 @@ Main Agent เรียกใช้ `submit_payment` ได้หลังกา
 เมื่อเชื่อม gateway `prepare_case` ต้องมี `externalPayload` (`VocExternalCasePayload`) ที่ประกอบจากคำตอบจริงของผู้ใช้
 ครบทั้ง `journeyCode`, `classification`, `incident`, `consent` และ `frequencyCode`/`severityLevel`/`reporter`
 ตามที่ journey นั้นกำหนด การส่งยังคงผ่าน `prepare_case → confirm → submit_case` เช่นเดิม
+การสกัด CA จากข้อความเปิดเรื่องหรือข้อความอื่นต้องมีป้าย CA พร้อมตัวเลข ASCII 12 หลักเท่านั้น; เมื่อถึงคำถาม CA โดยตรง ผู้ใช้ตอบตัวเลข ASCII 12 หลักได้โดยไม่ต้องพิมพ์ป้ายซ้ำ และ location จะเติมรหัสระดับล่าง
+ต่อเมื่อผู้ใช้ระบุชื่อระดับนั้นชัดเจน ไม่อนุมานอำเภอจากจังหวัดอย่างเดียว
 
 ### 4. `oms_tool`
 
 **ระบบเบื้องหลัง:** Agent-side `httpx` connector ไปยัง gateway OMS จริง (endpoint เป็น source of truth); ผลลัพธ์ operational ทุกตัวประกาศ `simulation: true`
 
 | การดำเนินการ | ข้อมูลนำเข้า | ข้อมูลเมื่อสำเร็จ |
-|---|---|---|
+| --- | --- | --- |
 | `get_outage_by_ca` | `{ "caNumber": string(12 ASCII digits) }` | `caNumber`, `customerFound: true`, `network`, `activeEvent` หรือ `null` (ภายในมี `location` เป็น `GeoPoint` หรือ `null`), `recommendedAction` |
 | `prepare_outage_with_ca` | `{ "caNumber": string(12 ASCII digits), "description": string, "contactPhone": string/null, "locationNote": string/null, "idempotencyKey": string }` | `{ "summary": string }` (local draft only) |
 | `submit_outage_with_ca` | internal `{ "pendingActionId": UUID, "idempotencyKey": string }` | exact 201: `eventId`, `caNumber`, `level: METER`, `status`, `message`, `location` (`GeoPoint` หรือ `null`) |

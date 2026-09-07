@@ -68,6 +68,17 @@ _UNRESOLVED_AREA_CODE = "UNSPECIFIED"
 
 # CA บนใบแจ้งค่าไฟเป็นตัวเลข 12 หลักตามสัญญาของ OMS
 _CA_PATTERN = re.compile(r"^[0-9]{12}$")
+_CA_LABEL_PATTERN = re.compile(
+    r"(?:\bca\b|\bc\.a\.(?=\s|:|-)|หมายเลข\s*(?:ผู้ใช้ไฟ|ca)|เลข\s*(?:ผู้ใช้ไฟ|ca))"
+    r"\s*(?:หมายเลข|เลขที่|คือ|:|-)?\s*([0-9]{12})(?![0-9])",
+    re.IGNORECASE,
+)
+
+
+def extract_explicit_ca_number(text: str) -> str | None:
+    """Return an ASCII 12-digit CA only when the user labels it as CA."""
+    match = _CA_LABEL_PATTERN.search(text)
+    return match.group(1) if match is not None else None
 
 
 class IntakeError(RuntimeError):
@@ -119,6 +130,10 @@ class VocIntakeFlow:
     def journeys(self) -> list[dict[str, Any]]:
         """ประเภทเรื่องทั้งหมดที่ catalog ประกาศ"""
         return [item for item in self._catalog.get("journeys", []) if isinstance(item, dict)]
+
+    def catalog_for_prefill(self) -> dict[str, Any]:
+        """Catalog allowlist exposed to the bounded structured extractor."""
+        return self._catalog
 
     def _journey(self, code: str) -> dict[str, Any]:
         for item in self.journeys():
@@ -185,6 +200,19 @@ class VocIntakeFlow:
 
         journey_code = answers[STEP_JOURNEY]
         journey = self._journey(journey_code)
+
+        # Complaint narratives are collected before catalog choices.  Subject is
+        # only a bounded derivative; never discard the full detail the user gave.
+        if journey_code == "SERVICE_ISSUE":
+            if STEP_DETAIL not in answers:
+                if STEP_SUBJECT in answers:
+                    return self.resolve(state.with_answer(STEP_DETAIL, answers[STEP_SUBJECT]))
+                return state, _text_prompt(
+                    STEP_DETAIL,
+                    "ช่วยเล่าเหตุการณ์ที่เกิดขึ้นก่อนสักหน่อยได้ไหมครับ",
+                )
+            if STEP_SUBJECT not in answers:
+                return self.resolve(state.with_answer(STEP_SUBJECT, answers[STEP_DETAIL][:140]))
 
         if STEP_REQUEST_TYPE not in answers:
             options = self._request_types(journey_code)
@@ -330,36 +358,120 @@ class VocIntakeFlow:
         return state, None
 
     def _resolve_area(self, state: VocIntakeState, location_text: str) -> VocIntakeState:
-        """เติมรหัสพื้นที่จากข้อความ โดยเลือกได้เฉพาะแถวที่มีอยู่จริงใน catalog"""
-        matched = self._match_service_area(location_text)
-        if matched is None:
-            # ส่ง locationText ให้ VOC map เอง ดีกว่าปฏิเสธผู้ใช้ที่อยู่นอกข้อมูลตัวอย่าง
-            return (
-                state.with_answer(STEP_PROVINCE, _UNRESOLVED_AREA_CODE)
-                .with_answer(STEP_DISTRICT, _UNRESOLVED_AREA_CODE)
-                .with_answer(STEP_SUBDISTRICT, _UNRESOLVED_AREA_CODE)
-                .with_answer(STEP_OFFICE, _UNRESOLVED_AREA_CODE)
+        """เติมเฉพาะพื้นที่ที่ข้อความระบุ ไม่อนุมานลูกจากจังหวัดอย่างเดียว"""
+        text = " ".join(location_text.casefold().split())
+        areas = self._service_areas()
+        matches = [
+            area for area in areas
+            if any(
+                isinstance(area.get(key), str) and area[key].casefold() in text
+                for key in ("provinceName", "districtName", "subdistrictName")
             )
-        return (
-            state.with_answer(STEP_PROVINCE, matched["provinceCode"])
-            .with_answer(STEP_DISTRICT, matched["districtCode"])
-            .with_answer(STEP_SUBDISTRICT, matched["subdistrictCode"])
-            .with_answer(STEP_OFFICE, matched["peaOfficeCode"])
+        ]
+        result = state
+        if not matches:
+            for step in (STEP_PROVINCE, STEP_DISTRICT, STEP_SUBDISTRICT, STEP_OFFICE):
+                result = result.with_answer(step, _UNRESOLVED_AREA_CODE)
+            return result
+
+        # A level is accepted only when its name is explicit and maps uniquely.
+        # Parent codes may be derived from a uniquely named child, but never
+        # from a province name alone.
+        for step, code_key, name_key in (
+            (STEP_PROVINCE, "provinceCode", "provinceName"),
+            (STEP_DISTRICT, "districtCode", "districtName"),
+            (STEP_SUBDISTRICT, "subdistrictCode", "subdistrictName"),
+        ):
+            codes = {
+                area.get(code_key) for area in matches
+                if isinstance(area.get(name_key), str) and area[name_key].casefold() in text
+            }
+            if len(codes) == 1:
+                result = result.with_answer(step, next(iter(codes)))
+            else:
+                result = result.with_answer(step, _UNRESOLVED_AREA_CODE)
+
+        complete_rows = [
+            area for area in matches
+            if all(
+                isinstance(area.get(key), str) and area[key].casefold() in text
+                for key in ("provinceName", "districtName", "subdistrictName")
+            )
+        ]
+        office = {area.get("peaOfficeCode") for area in complete_rows}
+        result = result.with_answer(
+            STEP_OFFICE, next(iter(office)) if len(office) == 1 else _UNRESOLVED_AREA_CODE
         )
+        return result
 
     def _match_service_area(self, location_text: str) -> dict[str, Any] | None:
-        """จับคู่ข้อความกับ serviceAreas โดยให้แถวที่ตรงละเอียดที่สุดชนะ"""
+        """จับคู่ได้เมื่อชื่อจังหวัด อำเภอ และตำบลปรากฏครบและมีแถวเดียว"""
         text = " ".join(location_text.casefold().split())
-        best: tuple[int, dict[str, Any]] | None = None
-        for area in self._service_areas():
-            score = sum(
-                1
-                for key in ("subdistrictName", "districtName", "provinceName")
-                if isinstance(area.get(key), str) and area[key].casefold() in text
+        matches = [
+            area for area in self._service_areas()
+            if all(
+                isinstance(area.get(key), str) and area[key].casefold() in text
+                for key in ("provinceName", "districtName", "subdistrictName")
             )
-            if score and (best is None or score > best[0]):
-                best = (score, area)
-        return best[1] if best is not None else None
+        ]
+        return matches[0] if len(matches) == 1 else None
+
+    # ------------------------------------------------------------------ answering
+
+    def apply_prefilled(self, state: VocIntakeState, step: str, raw_value: str) -> VocIntakeState:
+        """Apply an extractor value after authoritative catalog validation.
+
+        This method deliberately excludes consent and CA; those values require
+        direct deterministic user actions and are never model output.
+        """
+        if step in {STEP_CONSENT, STEP_CA_NUMBER}:
+            raise IntakeError("ขั้นตอนนี้ต้องรับจากผู้ใช้โดยตรงครับ")
+        value = raw_value.strip()
+        if not value:
+            raise IntakeError("กรุณาระบุข้อมูลครับ")
+        if step in _MAX_TEXT and len(value) > _MAX_TEXT[step]:
+            raise IntakeError(f"ข้อความยาวเกิน {_MAX_TEXT[step]} ตัวอักษรครับ")
+        if step == STEP_JOURNEY:
+            self._journey(value)
+        elif step == STEP_REQUEST_TYPE:
+            self._request_type(state.answers[STEP_JOURNEY], value)
+        elif step == STEP_TOPIC:
+            self._topic(state.answers[STEP_JOURNEY], state.answers[STEP_REQUEST_TYPE], value)
+        elif step == STEP_ISSUE:
+            self._issue(
+                state.answers[STEP_JOURNEY], state.answers[STEP_REQUEST_TYPE],
+                state.answers[STEP_TOPIC], value,
+            )
+        elif step == STEP_SUB_ISSUE:
+            issue = self._issue(
+                state.answers[STEP_JOURNEY], state.answers[STEP_REQUEST_TYPE],
+                state.answers[STEP_TOPIC], state.answers[STEP_ISSUE],
+            )
+            if value not in {
+                item.get("code") for item in issue.get("subIssues", []) if isinstance(item, dict)
+            }:
+                raise IntakeError(f"ไม่พบประเด็นย่อย {value} ใน catalog")
+        elif step == STEP_FREQUENCY:
+            if value not in {
+                item.get("code") for item in self._catalog.get("incidentFrequencies", [])
+                if isinstance(item, dict)
+            }:
+                raise IntakeError(f"ไม่พบความถี่ {value} ใน catalog")
+        elif step == STEP_SEVERITY:
+            if value not in {
+                str(item.get("level")) for item in self._catalog.get("severityLevels", [])
+                if isinstance(item, dict)
+            }:
+                raise IntakeError(f"ไม่พบระดับผลกระทบ {value} ใน catalog")
+        elif step == STEP_PREFIX:
+            if value not in {
+                item.get("code") for item in self._catalog.get("titlePrefixes", [])
+                if isinstance(item, dict)
+            }:
+                raise IntakeError(f"ไม่พบคำนำหน้า {value} ใน catalog")
+        elif step in {STEP_PROVINCE, STEP_DISTRICT, STEP_SUBDISTRICT, STEP_OFFICE}:
+            raise IntakeError("รหัสพื้นที่ต้องมาจากการจับคู่ข้อความสถานที่แบบกำหนดผลได้ครับ")
+        return state.with_answer(step, value)
 
     # ------------------------------------------------------------------ answering
 
@@ -408,11 +520,11 @@ class VocIntakeFlow:
         payload: dict[str, Any] = {
             "journeyCode": journey_code,
             "incident": {
-                "provinceCode": answers[STEP_PROVINCE],
-                "districtCode": answers[STEP_DISTRICT],
-                "subdistrictCode": answers[STEP_SUBDISTRICT],
-                "peaOfficeCode": answers[STEP_OFFICE],
-                "locationText": answers[STEP_LOCATION_TEXT],
+                "provinceCode": answers.get(STEP_PROVINCE, _UNRESOLVED_AREA_CODE),
+                "districtCode": answers.get(STEP_DISTRICT, _UNRESOLVED_AREA_CODE),
+                "subdistrictCode": answers.get(STEP_SUBDISTRICT, _UNRESOLVED_AREA_CODE),
+                "peaOfficeCode": answers.get(STEP_OFFICE, _UNRESOLVED_AREA_CODE),
+                "locationText": answers.get(STEP_LOCATION_TEXT, ""),
             },
             "classification": classification,
             "detail": answers[STEP_DETAIL],
@@ -424,7 +536,9 @@ class VocIntakeFlow:
             },
         }
         ca_number = answers.get(STEP_CA_NUMBER)
-        if ca_number == CA_SKIP:
+        if ca_number == CA_SKIP or not journey.get("supportsCaNumber") or not (
+            isinstance(ca_number, str) and _CA_PATTERN.fullmatch(ca_number)
+        ):
             ca_number = None
         if journey.get("reporterMode") == "REQUIRED":
             first_name, _, last_name = answers[STEP_REPORTER_NAME].partition(" ")
@@ -437,7 +551,6 @@ class VocIntakeFlow:
             if ca_number:
                 payload["reporter"]["caNumber"] = ca_number
         elif ca_number:
-            # journey แบบไม่ระบุตัวตนยังแนบ CA ได้ถ้าผู้ใช้ให้มาเอง
             payload["reporter"] = {"caNumber": ca_number}
         if STEP_FREQUENCY in answers:
             payload["frequencyCode"] = answers[STEP_FREQUENCY]

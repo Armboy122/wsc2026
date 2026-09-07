@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+# pyright: reportMissingImports=false, reportOptionalMemberAccess=false, reportOptionalSubscript=false, reportArgumentType=false
+
 import pytest
 
 from app.contracts import VocExternalCasePayload
@@ -10,7 +12,9 @@ from app.plugins.voc.intake import (
     CONSENT_ACCEPT,
     STEP_CA_NUMBER,
     STEP_CONSENT,
+    STEP_DETAIL,
     STEP_JOURNEY,
+    STEP_SUBJECT,
     STEP_SUB_ISSUE,
     IntakeError,
     VocIntakeFlow,
@@ -139,6 +143,15 @@ def test_optional_reporter_journey_stays_anonymous() -> None:
     assert "reporter" not in payload
 
 
+def test_unsupported_journey_never_attaches_an_explicit_ca() -> None:
+    flow = _flow()
+    state = _walk(flow, "TIP_OFF").with_answer(STEP_CA_NUMBER, "100000000003")
+
+    payload = flow.build_external_payload(state)
+
+    assert "reporter" not in payload
+
+
 def test_required_reporter_journey_collects_identity() -> None:
     flow = _flow()
 
@@ -152,6 +165,7 @@ def test_answer_outside_the_catalog_is_rejected() -> None:
     """ค่าที่ไม่ได้มาจาก catalog ต้องถูกปฏิเสธ ไม่ว่ามาจากทางใด"""
     flow = _flow()
     _, prompt = flow.resolve(VocIntakeState())
+    assert prompt is not None
 
     with pytest.raises(IntakeError):
         flow.apply(VocIntakeState(), prompt, "JOURNEY_THAT_DOES_NOT_EXIST")
@@ -188,10 +202,13 @@ def test_single_option_steps_are_not_asked() -> None:
 
     resolved, prompt = flow.resolve(state)
 
-    # REQUEST_1 เป็น root เดียวของ journey นี้ และมี topic/issue อย่างละหนึ่ง
+    assert prompt is not None and prompt.prompt_id == STEP_DETAIL
+    resolved = flow.apply(resolved, prompt, "พนักงานพูดจาไม่สุภาพ")
+    resolved, prompt = flow.resolve(resolved)
     assert resolved.answers["voc_request_type"] == "REQUEST_1"
     assert resolved.answers["voc_topic"] == "SERVICE"
     assert resolved.answers["voc_issue"] == "SERVICE_DELAY"
+    assert resolved.answers[STEP_SUBJECT] == "พนักงานพูดจาไม่สุภาพ"
     assert prompt is not None and prompt.prompt_id == STEP_SUB_ISSUE
 
 
@@ -234,15 +251,35 @@ def test_location_matching_the_catalog_still_resolves_real_codes() -> None:
     state = VocIntakeState().with_answer(STEP_JOURNEY, "SERVICE_ISSUE")
     state, prompt = flow.resolve(state)
     while prompt is not None and prompt.prompt_id != "voc_location_text":
-        answer = CONSENT_ACCEPT if prompt.prompt_id == STEP_CONSENT else prompt.options[0].value
+        if prompt.options:
+            answer = CONSENT_ACCEPT if prompt.prompt_id == STEP_CONSENT else prompt.options[0].value
+        else:
+            answer = _TEXT_ANSWERS.get(prompt.prompt_id, "ข้อมูลทดสอบ")
         state = flow.apply(state, prompt, answer)
         state, prompt = flow.resolve(state)
 
+    assert prompt is not None
     state = flow.apply(state, prompt, "แถวพระบรมมหาราชวัง เขตพระนคร กรุงเทพมหานคร")
     state, _ = flow.resolve(state)
 
     assert state.answers["voc_province"] == "10"
     assert state.answers["voc_office"] == "PEA-BKK-01"
+
+
+def test_province_only_does_not_infer_district_or_office() -> None:
+    flow = _flow()
+    state = VocIntakeState().with_answer(STEP_JOURNEY, "SERVICE_ISSUE")
+    state, prompt = flow.resolve(state)
+    while prompt is not None and prompt.prompt_id != "voc_location_text":
+        answer = prompt.options[0].value if prompt.options else _TEXT_ANSWERS.get(prompt.prompt_id, "ข้อมูล")
+        state = flow.apply(state, prompt, answer)
+        state, prompt = flow.resolve(state)
+    assert prompt is not None
+    state = flow.apply(state, prompt, "กรุงเทพมหานคร")
+    state, _ = flow.resolve(state)
+    assert state.answers["voc_province"] == "10"
+    assert state.answers["voc_district"] == "UNSPECIFIED"
+    assert state.answers["voc_office"] == "UNSPECIFIED"
 
 
 def test_ca_number_is_optional_and_validated_when_given() -> None:

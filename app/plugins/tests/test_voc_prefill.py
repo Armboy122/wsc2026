@@ -1,14 +1,23 @@
-"""Prefill may only choose among catalog options; anything else must be dropped."""
+"""VOC extraction is bounded, evidence-backed, and fail closed."""
 
 from __future__ import annotations
+
+# pyright: reportMissingImports=false
+
+import json
 
 import pytest
 
 from app.llm.models import LLMResponse
 from app.plugins.tests.test_voc_intake import _catalog
 from app.plugins.voc.intake import (
-    STEP_CONSENT,
+    STEP_CA_NUMBER,
+    STEP_DETAIL,
+    STEP_ISSUE,
     STEP_JOURNEY,
+    STEP_REQUEST_TYPE,
+    STEP_SUBJECT,
+    STEP_TOPIC,
     VocIntakeFlow,
     VocIntakeState,
 )
@@ -18,124 +27,165 @@ pytestmark = pytest.mark.asyncio
 
 
 class ScriptedLLM:
-    """คืนข้อความตามลำดับ และบันทึก prompt ที่ถูกถามไว้ตรวจสอบ"""
-
-    def __init__(self, texts: list[str]) -> None:
-        self._texts = list(texts)
+    def __init__(self, payloads: list[object]) -> None:
+        self._payloads = list(payloads)
         self.requests: list[str] = []
 
     async def complete(self, request):
         self.requests.append(request.messages[0].content)
-        text = self._texts.pop(0) if self._texts else '{"value": null}'
-        return LLMResponse(text=text)
+        payload = self._payloads.pop(0) if self._payloads else {"fields": {}}
+        return LLMResponse(text=payload if isinstance(payload, str) else json.dumps(payload))
 
 
 class BrokenLLM:
     async def complete(self, request):
-        raise RuntimeError("provider ล่ม")
+        raise RuntimeError("provider failure")
 
 
 def _flow() -> VocIntakeFlow:
     return VocIntakeFlow(_catalog(), consent_notice_version="TEST-PDPA-1")
 
 
-async def test_prefill_answers_questions_the_user_already_stated() -> None:
-    """ผู้ใช้บอกอาการมาแล้ว ระบบต้องไม่ถามซ้ำตั้งแต่ข้อแรก"""
-    llm = ScriptedLLM(
-        ['{"value": "SERVICE_ISSUE"}', '{"value": "CONTACT_DELAY"}', '{"value": "IIT01"}', '{"value": null}']
-    )
-    prefiller = VocPrefiller(llm)
+def _envelope(fields: dict) -> str:
+    return json.dumps({
+        "message": json.dumps({"fields": fields}, ensure_ascii=False),
+        "toolCalls": [],
+        "directResponse": None,
+    }, ensure_ascii=False)
 
-    state = await prefiller.prefill(
-        _flow(), VocIntakeState(), "ร้องเรียนบริการ ติดต่อกลับล่าช้ามาก เพิ่งเจอครั้งแรก"
-    )
+
+async def test_one_structured_extraction_retains_multiple_evidence_backed_facts() -> None:
+    detail = "ไปติดต่อสำนักงานแล้วพนักงานพูดไม่สุภาพ"
+    message = f"แจ้งปัญหาด้านบริการ {detail}"
+    llm = ScriptedLLM([_envelope({
+        "journey": {"value": "SERVICE_ISSUE", "evidence": "แจ้งปัญหาด้านบริการ"},
+        "detail": {"value": detail, "evidence": detail},
+        "issue": {"value": "SERVICE_DELAY", "evidence": "พนักงานพูดไม่สุภาพ"},
+        "caNumber": {"value": "100000000003", "evidence": "100000000003"},
+        "consent": {"value": "accept", "evidence": "ร้องเรียนบริการ"},
+    })])
+
+    state = await VocPrefiller(llm).prefill(_flow(), VocIntakeState(), message)
 
     assert state.answers[STEP_JOURNEY] == "SERVICE_ISSUE"
-    assert state.answers["voc_sub_issue"] == "CONTACT_DELAY"
-    assert state.answers["voc_frequency"] == "IIT01"
-    # หยุดทันทีที่โมเดลไม่มั่นใจ แล้วปล่อยให้ถามผู้ใช้ตามปกติ
-    assert "voc_severity" not in state.answers
+    assert state.answers[STEP_DETAIL] == detail
+    assert state.answers[STEP_SUBJECT] == detail[:140]
+    assert "voc_issue" not in state.answers  # parent request/topic were not supplied
+    assert STEP_CA_NUMBER not in state.answers  # model cannot provide CA without a label in user text
+    assert len(llm.requests) == 1
 
 
-async def test_value_outside_the_catalog_is_dropped() -> None:
-    """โมเดลเดารหัสที่ไม่มีใน catalog ต้องถูกทิ้ง ไม่ใช่ถูกบันทึก"""
-    llm = ScriptedLLM(['{"value": "JOURNEY_THAT_DOES_NOT_EXIST"}'])
-    prefiller = VocPrefiller(llm)
+async def test_catalog_evidence_must_be_a_full_unique_label() -> None:
+    catalog = _catalog()
+    catalog["requestTypes"][0]["topics"][0]["issues"].append({
+        "code": "STAFF_CONDUCT",
+        "name": "บริการไม่ดี",
+        "subIssues": [],
+    })
+    flow = VocIntakeFlow(catalog, consent_notice_version="TEST-PDPA-1")
+    state = VocIntakeState({
+        STEP_JOURNEY: "SERVICE_ISSUE",
+        STEP_REQUEST_TYPE: "REQUEST_1",
+        STEP_TOPIC: "SERVICE",
+    })
+    llm = ScriptedLLM([_envelope({
+        "issue": {"value": "SERVICE_DELAY", "evidence": "บริการ"},
+    })])
 
-    state = await prefiller.prefill(_flow(), VocIntakeState(), "อยากร้องเรียนอะไรสักอย่าง")
+    result = await VocPrefiller(llm).prefill(flow, state, "ร้องเรียนบริการไม่ดี")
 
-    assert state.answers == {}
-
-
-async def test_malformed_model_output_is_ignored() -> None:
-    llm = ScriptedLLM(["ไม่ใช่ JSON เลย"])
-    prefiller = VocPrefiller(llm)
-
-    state = await prefiller.prefill(_flow(), VocIntakeState(), "ร้องเรียนบริการ")
-
-    assert state.answers == {}
-
-
-async def test_provider_failure_does_not_break_intake() -> None:
-    """LLM ล่มต้องตกกลับไปถามตามปกติ ไม่ใช่ทำให้แจ้งเรื่องไม่ได้"""
-    prefiller = VocPrefiller(BrokenLLM())
-
-    state = await prefiller.prefill(_flow(), VocIntakeState(), "ร้องเรียนบริการ")
-
-    assert state.answers == {}
+    assert STEP_ISSUE not in result.answers
 
 
-async def test_consent_is_never_prefilled() -> None:
-    """ความยินยอมต้องมาจากการกดของผู้ใช้เท่านั้น ห้ามให้โมเดลตอบแทน"""
-    llm = ScriptedLLM(['{"value": "accept"}'] * 8)
-    prefiller = VocPrefiller(llm)
+async def test_catalog_evidence_accepts_an_exact_unique_label() -> None:
     flow = _flow()
-    # เดินจนเหลือแต่ขั้นยินยอม แล้วให้ prefill พยายามตอบแทน
-    state = VocIntakeState()
-    for _ in range(40):
-        state, prompt = flow.resolve(state)
-        if prompt is None or prompt.prompt_id == STEP_CONSENT:
-            break
-        value = prompt.options[0].value if prompt.options else "ข้อความทดสอบ"
-        state = flow.apply(state, prompt, value)
+    state = VocIntakeState({
+        STEP_JOURNEY: "SERVICE_ISSUE",
+        STEP_REQUEST_TYPE: "REQUEST_1",
+        STEP_TOPIC: "SERVICE",
+    })
+    llm = ScriptedLLM([_envelope({
+        "issue": {"value": "SERVICE_DELAY", "evidence": "บริการล่าช้า"},
+    })])
 
-    result = await prefiller.prefill(flow, state, "ยินยอมทุกอย่างเลยครับ")
+    result = await VocPrefiller(llm).prefill(flow, state, "ร้องเรียนบริการล่าช้า")
 
-    assert STEP_CONSENT not in result.answers
-
-
-async def test_choose_matches_spoken_answers_to_catalog_options() -> None:
-    """โหมดเสียงพูดเป็นคำพูดธรรมชาติ ต้องจับคู่กับตัวเลือกจริงได้"""
-    llm = ScriptedLLM(['{"value": "SERVICE_ISSUE"}'])
-    prefiller = VocPrefiller(llm)
-    _, prompt = _flow().resolve(VocIntakeState())
-
-    value = await prefiller.choose(prompt, "เรื่องพนักงานที่สาขาครับ")
-
-    assert value == "SERVICE_ISSUE"
+    assert result.answers[STEP_ISSUE] == "SERVICE_DELAY"
 
 
-async def test_planner_envelope_response_is_understood() -> None:
-    """Regression: adapter ของ Main Agent บังคับ planner envelope กับทุกคำขอ
+async def test_free_text_value_must_itself_be_a_user_span() -> None:
+    message = "ร้องเรียนบริการ สมชาย"
+    llm = ScriptedLLM([_envelope({
+        "detail": {"value": "พนักงานคืนเงินให้แล้ว", "evidence": "ร้องเรียนบริการ"},
+        "reporterPhone": {"value": "0812345678", "evidence": "สมชาย"},
+    })])
 
-    prefill เคยอ่านเฉพาะ ``{"value": ...}`` จึงทิ้งคำตอบที่ถูกต้องทั้งหมด
-    ทำให้ผู้ใช้ถูกถามซ้ำตั้งแต่ข้อแรกเสมอ
-    """
-    llm = ScriptedLLM(
-        ['{"message": "SERVICE_ISSUE", "toolCalls": [], "directResponse": null}']
-    )
-    prefiller = VocPrefiller(llm)
+    state = await VocPrefiller(llm).prefill(_flow(), VocIntakeState(), message)
 
-    state = await prefiller.prefill(_flow(), VocIntakeState(), "ร้องเรียนเรื่องบริการที่สาขา")
-
-    assert state.answers[STEP_JOURNEY] == "SERVICE_ISSUE"
+    assert STEP_DETAIL not in state.answers
+    assert "voc_reporter_phone" not in state.answers
 
 
-async def test_none_marker_is_treated_as_not_confident() -> None:
-    """โมเดลตอบ NONE แปลว่าไม่มั่นใจ ต้องไม่ถูกมองเป็นค่านอก catalog"""
-    llm = ScriptedLLM(['{"message": "NONE", "toolCalls": [], "directResponse": null}'])
-    prefiller = VocPrefiller(llm)
+async def test_model_correction_flag_cannot_overwrite_known_value() -> None:
+    existing = VocIntakeState({STEP_DETAIL: "รายละเอียดเดิม"})
+    llm = ScriptedLLM([_envelope({
+        "detail": {
+            "value": "รายละเอียดใหม่",
+            "evidence": "รายละเอียดใหม่",
+            "explicitCorrection": True,
+        },
+    })])
 
-    state = await prefiller.prefill(_flow(), VocIntakeState(), "อยากร้องเรียน")
+    state = await VocPrefiller(llm).prefill(_flow(), existing, "รายละเอียดใหม่")
 
-    assert state.answers == {}
+    assert state.answers[STEP_DETAIL] == "รายละเอียดเดิม"
+
+
+async def test_deterministic_user_correction_can_replace_known_value() -> None:
+    existing = VocIntakeState({STEP_DETAIL: "รายละเอียดเดิม"})
+    llm = ScriptedLLM([_envelope({
+        "detail": {
+            "value": "รายละเอียดใหม่",
+            "evidence": "รายละเอียดใหม่",
+            "explicitCorrection": False,
+        },
+    })])
+
+    state = await VocPrefiller(llm).prefill(_flow(), existing, "ขอแก้รายละเอียดเป็น รายละเอียดใหม่")
+
+    assert state.answers[STEP_DETAIL] == "รายละเอียดใหม่"
+
+
+async def test_malformed_and_legacy_outputs_preserve_state_without_retry() -> None:
+    existing = VocIntakeState({STEP_DETAIL: "known"})
+    for response in ("not JSON", '{"value":"SERVICE_ISSUE"}'):
+        llm = ScriptedLLM([response])
+        state = await VocPrefiller(llm).prefill(_flow(), existing, "ร้องเรียนบริการ")
+        assert state == existing
+        assert len(llm.requests) == 1
+
+
+async def test_provider_failure_preserves_state() -> None:
+    existing = VocIntakeState({STEP_DETAIL: "known"})
+    state = await VocPrefiller(BrokenLLM()).prefill(_flow(), existing, "ข้อความใหม่")
+    assert state == existing
+
+
+async def test_area_codes_are_ignored_and_labelled_ca_is_deterministic() -> None:
+    message = "แจ้งปัญหาด้านบริการ CA 100000000003 กรุงเทพมหานคร"
+    llm = ScriptedLLM([_envelope({
+        "journey": {"value": "SERVICE_ISSUE", "evidence": "แจ้งปัญหาด้านบริการ"},
+        "location": {"value": "กรุงเทพมหานคร", "evidence": "กรุงเทพมหานคร"},
+        "province": {"value": "10", "evidence": "กรุงเทพมหานคร"},
+        "district": {"value": "1001", "evidence": "กรุงเทพมหานคร"},
+        "office": {"value": "PEA-BKK-01", "evidence": "กรุงเทพมหานคร"},
+        "caNumber": {"value": "999999999999", "evidence": "CA"},
+    })])
+
+    state = await VocPrefiller(llm).prefill(_flow(), VocIntakeState(), message)
+
+    assert state.answers[STEP_CA_NUMBER] == "100000000003"
+    assert state.answers["voc_location_text"] == "กรุงเทพมหานคร"
+    assert "voc_province" not in state.answers
+    assert "voc_district" not in state.answers
+    assert "voc_office" not in state.answers

@@ -15,11 +15,13 @@ from app.plugins.voc.intake import (
     CONSENT_DECLINE,
     STEP_CONSENT,
     STEP_DETAIL,
+    STEP_CA_NUMBER,
     STEP_JOURNEY,
     STEP_SUBJECT,
     IntakeError,
     VocIntakeFlow,
     VocIntakeState,
+    extract_explicit_ca_number,
 )
 from app.plugins.voc.prefill import VocPrefiller
 
@@ -85,9 +87,38 @@ class VocGuidedFlow:
         # ข้อความเปิดเรื่องมักระบุประเภทมาแล้ว เช่น "ร้องเรียนบริการ" จึงข้ามคำถามแรกให้
         if (journey := self._journey_from_text(flow, message)) is not None:
             state = state.with_answer(STEP_JOURNEY, journey)
+        elif _is_generic_complaint(message) and any(
+            item.get("code") == "SERVICE_ISSUE" for item in flow.journeys()
+        ):
+            state = state.with_answer(STEP_JOURNEY, "SERVICE_ISSUE")
+        state = _retain_explicit_ca(flow, state, message)
+
+        opening_narrative = _extract_opening_narrative(message)
+        if (
+            state.answers.get(STEP_JOURNEY) == "SERVICE_ISSUE"
+            and opening_narrative is not None
+            and len(opening_narrative) > 2000
+        ):
+            prompt = ChoicePrompt(
+                prompt_id=STEP_DETAIL,
+                question="รายละเอียดที่เล่ามายาวเกิน 2,000 อักขระครับ กรุณาย่อรายละเอียดให้สั้นลงแล้วส่งใหม่ครับ",
+                allow_free_text=True,
+            )
+            self._states[conversation_id] = state
+            self._prompts[conversation_id] = prompt
+            return GuidedTurn(message=prompt.question, prompt=prompt)
+
         # ผู้ใช้มักเล่าอาการมาครบในประโยคแรก การถามซ้ำทั้งหมดทำให้รู้สึกเหมือนแบบฟอร์ม
         if self._prefiller is not None:
             state = await self._prefiller.prefill(flow, state, message)
+        # Deterministic fallback ensures a provider failure cannot turn a
+        # meaningful opening into a 140-character subject (or lose it).
+        if state.answers.get(STEP_JOURNEY) == "SERVICE_ISSUE":
+            narrative = _extract_opening_narrative(message)
+            if narrative is not None and STEP_DETAIL not in state.answers:
+                state = state.with_answer(STEP_DETAIL, narrative)
+            if STEP_DETAIL in state.answers and STEP_SUBJECT not in state.answers:
+                state = state.with_answer(STEP_SUBJECT, state.answers[STEP_DETAIL][:140])
         return self._continue(conversation_id, flow, state)
 
     async def advance(
@@ -112,17 +143,35 @@ class VocGuidedFlow:
             # ผู้ใช้กดปุ่มของคำถามเก่า ตอบด้วยคำถามปัจจุบันแทนการรับค่าผิดขั้น
             return GuidedTurn(message=prompt.question, prompt=prompt)
 
+        flow = self._flow()
+        state = _retain_explicit_ca(flow, state, message)
+        # One structured extraction may enrich several facts in this turn.  It
+        # must be persisted even when the current choice remains unresolved;
+        # otherwise the next request silently reverts to stale state.
+        if selected_value is None and message.strip() and self._prefiller is not None:
+            enriched = await self._prefiller.prefill(flow, state, message)
+            resolved_state, resolved_prompt = flow.resolve(enriched)
+            self._states[conversation_id] = resolved_state
+            if resolved_prompt is not None:
+                self._prompts[conversation_id] = resolved_prompt
+            else:
+                self._prompts.pop(conversation_id, None)
+            if resolved_prompt is None:
+                return self._continue(conversation_id, flow, resolved_state)
+            if resolved_prompt.prompt_id != prompt.prompt_id:
+                return GuidedTurn(message=resolved_prompt.question, prompt=resolved_prompt)
+            state, prompt = resolved_state, resolved_prompt
+
         answer = selected_value if selected_value is not None else message
         if prompt.options and selected_value is None:
-            # ปุ่มกดไม่ได้ในโหมดเสียงหรือสายโทรศัพท์ จึงต้องตีความคำพูดของผู้ใช้
+            # ปุ่มกดไม่ได้ในโหมดเสียงหรือสายโทรศัพท์ จึงจับคู่จากข้อความแบบกำหนดผลได้
             matched = _match_option(prompt, message)
-            if matched is None and self._prefiller is not None:
-                matched = await self._prefiller.choose(prompt, message)
             if matched is None:
                 if prompt.allow_free_text:
                     # ขั้นที่พิมพ์ตอบได้ เช่น CA ให้ถือว่าเป็นคำตอบอิสระ ไม่ใช่การเลือกผิด
                     answer = message
                 else:
+                    # Enriched state/prompt was saved above before clarification.
                     return GuidedTurn(
                         message=f"ขออภัยครับ ยังจับคู่กับตัวเลือกไม่ได้\n{prompt.question}",
                         prompt=prompt,
@@ -130,7 +179,6 @@ class VocGuidedFlow:
             else:
                 answer = matched
 
-        flow = self._flow()
         if prompt.prompt_id == STEP_CONSENT and answer == CONSENT_DECLINE:
             self.cancel(conversation_id)
             return GuidedTurn(message=_DECLINED_MESSAGE, finished=True)
@@ -148,6 +196,7 @@ class VocGuidedFlow:
                 return self._continue(conversation_id, flow, state)
             return GuidedTurn(message=f"{error}\n{prompt.question}", prompt=prompt)
         self._retries.pop(conversation_id, None)
+        state = _retain_explicit_ca(flow, state, message)
         return self._continue(conversation_id, flow, state)
 
     def cancel(self, conversation_id: UUID) -> None:
@@ -202,8 +251,11 @@ class VocGuidedFlow:
         )
 
     def _journey_from_text(self, flow: VocIntakeFlow, message: str) -> str | None:
-        """จับคู่ข้อความเปิดเรื่องกับ label ของ journey ใน catalog แบบไม่กำกวมเท่านั้น"""
+        """จับคู่ข้อความเปิดเรื่องกับ label หรือวลีเจตนาที่กำหนดผลได้"""
         text = " ".join(message.casefold().split())
+        if "ร้องเรียนบริการ" in text or "แจ้งปัญหาด้านบริการ" in text:
+            if any(item.get("code") == "SERVICE_ISSUE" for item in flow.journeys()):
+                return "SERVICE_ISSUE"
         matches = {
             item["code"]
             for item in flow.journeys()
@@ -235,10 +287,81 @@ def _wants_cancel(message: str) -> bool:
     return any(term in text for term in _CANCEL_PATTERNS)
 
 
+def _retain_explicit_ca(flow: VocIntakeFlow, state: VocIntakeState, message: str) -> VocIntakeState:
+    journey_code = state.answers.get(STEP_JOURNEY)
+    supports_ca = journey_code is not None and any(
+        item.get("code") == journey_code and item.get("supportsCaNumber") is True
+        for item in flow.journeys()
+    )
+    if STEP_CA_NUMBER in state.answers:
+        # Keep an early fact until journey selection resolves, but remove it
+        # before an anonymous/unsupported journey can carry it to the payload.
+        if journey_code is None or supports_ca:
+            return state
+        return VocIntakeState({key: value for key, value in state.answers.items() if key != STEP_CA_NUMBER})
+    ca_number = extract_explicit_ca_number(message)
+    if ca_number is None:
+        return state
+    # A labelled, validated CA is a user fact even before journey is known.
+    return state.with_answer(STEP_CA_NUMBER, ca_number) if journey_code is None or supports_ca else state
+
+
+def _is_generic_complaint(message: str) -> bool:
+    text = " ".join(message.casefold().split())
+    return "ร้องเรียน" in text and "บริการ" in text and _extract_opening_narrative(message) is None
+
+
+def _extract_opening_narrative(message: str) -> str | None:
+    """Keep meaningful opening text while dropping polite intent-only filler."""
+    original = " ".join(message.split()).strip(" .,:-")
+    if not original:
+        return None
+    lowered = original.casefold()
+    for lead in ("ขอ", "อยาก", "ต้องการ", "ช่วย"):
+        if lowered.startswith(lead):
+            return _extract_opening_narrative(original[len(lead):].lstrip())
+    markers = ("ร้องเรียนบริการ", "แจ้งปัญหาด้านบริการ", "แจ้งเรื่องร้องเรียน", "ร้องเรียน")
+    for marker in markers:
+        index = lowered.find(marker)
+        if index < 0:
+            continue
+        before = original[:index].strip(" .,:-")
+        after = original[index + len(marker):].strip(" .,:-")
+        filler = ("หน่อย", "ครับ", "ค่ะ", "คะ", "นะ", "ที", "ได้ไหม", "ด้วย")
+        after_words = after.split()
+        while after_words and any(after_words[0].casefold().startswith(word) for word in filler):
+            after_words.pop(0)
+        after = " ".join(after_words).strip(" .,:-")
+        # An intent phrase in the middle follows a meaningful narrative; keep
+        # the complete opening rather than truncating it at the intent marker.
+        # "อยากร้องเรียน ..." is intent-only lead-in, while a sentence such
+        # as "พนักงานพูดไม่สุภาพ เลยอยากร้องเรียน ..." contains a narrative.
+        before_intent_only = before.casefold().strip()
+        for lead in ("อยาก", "ต้องการ", "ขอ", "เลย", "ช่วย", "ร้องเรียน", "แจ้งเรื่อง", "แจ้งปัญหา"):
+            before_intent_only = before_intent_only.replace(lead, " ").strip()
+        candidate = after if not before else original
+        if candidate and (not before or before_intent_only):
+            if not all(word.casefold() in filler for word in candidate.split()):
+                return candidate
+        if before and before_intent_only and not all(word.casefold() in filler for word in before.split()):
+            return before
+        return None
+    return None
+
+
 def _match_option(prompt: ChoicePrompt, message: str) -> str | None:
     text = " ".join(message.casefold().split())
     if not text:
         return None
+    # Consent is an explicit response to the current notice.  Never accept a
+    # substring such as "ยินยอมครับ" as consent.
+    if prompt.prompt_id == STEP_CONSENT:
+        exact = {
+            option.value: option
+            for option in prompt.options
+            if option.value.casefold() == text or option.label.casefold() == text
+        }
+        return next(iter(exact), None) if len(exact) == 1 else None
     # ขั้นที่ข้ามได้ ผู้ใช้มักตอบสั้น ๆ ว่า "ไม่มี" ไม่ใช่อ่าน label เต็ม
     if any(option.value == CA_SKIP for option in prompt.options) and any(
         term in text for term in _SKIP_PATTERNS

@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+# pyright: reportMissingImports=false, reportOptionalMemberAccess=false, reportOptionalSubscript=false
+
 from uuid import uuid4
 
 import pytest
@@ -12,7 +14,14 @@ from app.backends import BackendError
 from app.contracts import ToolAction, ToolErrorCode, ToolName
 from app.plugins.tests.test_voc_intake import _catalog
 from app.plugins.voc.flow import _MAX_STEP_RETRIES, VocGuidedFlow
-from app.plugins.voc.intake import CONSENT_DECLINE, STEP_CA_NUMBER, STEP_CONSENT
+from app.plugins.voc.intake import (
+    CONSENT_DECLINE,
+    STEP_CA_NUMBER,
+    STEP_CONSENT,
+    STEP_DETAIL,
+    STEP_LOCATION_TEXT,
+    VocIntakeState,
+)
 
 
 class FakeVocTool:
@@ -40,13 +49,79 @@ async def _answer(flow: VocGuidedFlow, conversation_id, turn, value: str):
 async def test_flow_starts_only_for_case_intent() -> None:
     flow, _ = _flow()
 
-    assert await flow.start(uuid4(), "ร้องเรียนบริการหน่อย") is not None
+    generic = await flow.start(uuid4(), "ร้องเรียนบริการหน่อย")
+    assert generic is not None and generic.prompt is not None
+    assert generic.prompt.prompt_id == STEP_DETAIL
     assert await flow.start(uuid4(), "อัตราค่าไฟคิดยังไง") is None
     # การติดตามเรื่องเป็นคนละงาน ต้องปล่อยให้เส้นทางปกติจัดการ
     assert await flow.start(uuid4(), "ติดตามเรื่องร้องเรียน") is None
     # คำถามขอข้อมูลต้องได้คำตอบ ไม่ใช่ถูกลากเข้าโฟลว์เปิดเรื่อง
     assert await flow.start(uuid4(), "มีประเภทเรื่องร้องเรียนอะไรบ้าง") is None
     assert await flow.start(uuid4(), "ขอดูประเภทเรื่องร้องเรียน") is None
+
+
+async def test_labelled_ca_is_retained_without_model_access() -> None:
+    flow, _ = _flow()
+
+    turn = await flow.start(uuid4(), "ร้องเรียนบริการ CA 100000000003")
+
+    assert turn is not None and turn.prompt is not None
+    conversation_id = next(iter(flow._states))
+    assert flow._states[conversation_id].answers[STEP_CA_NUMBER] == "100000000003"
+
+
+async def test_detailed_narrative_before_intent_is_retained_as_detail() -> None:
+    flow, _ = _flow()
+
+    turn = await flow.start(uuid4(), "พนักงานพูดไม่สุภาพ เลยอยากร้องเรียนบริการ")
+
+    assert turn is not None and turn.prompt is not None
+    assert turn.prompt.prompt_id == "voc_sub_issue"
+
+
+async def test_labelled_ca_survives_journey_selection_and_unsupported_journeys_drop_it() -> None:
+    flow, _ = _flow()
+    ca_message = "ร้องเรียน CA 100000000003"
+
+    supported_id = uuid4()
+    supported = await flow.start(supported_id, ca_message)
+    assert supported is not None and supported.prompt is not None
+    assert supported.prompt.prompt_id == "voc_journey"
+    supported = await flow.advance(
+        supported_id, "SERVICE_ISSUE", supported.prompt.prompt_id, "SERVICE_ISSUE"
+    )
+    assert supported is not None
+    assert flow._states[supported_id].answers[STEP_CA_NUMBER] == "100000000003"
+
+    anonymous_id = uuid4()
+    anonymous = await flow.start(anonymous_id, ca_message)
+    assert anonymous is not None and anonymous.prompt is not None
+    anonymous = await flow.advance(
+        anonymous_id, "TIP_OFF", anonymous.prompt.prompt_id, "TIP_OFF"
+    )
+    assert anonymous is not None
+    assert STEP_CA_NUMBER not in flow._states[anonymous_id].answers
+
+
+async def test_long_opening_requests_shorter_detail_before_storing_or_preparing() -> None:
+    flow, _ = _flow()
+    conversation_id = uuid4()
+    long_opening = "ร้องเรียนบริการ " + ("ก" * 2001)
+
+    turn = await flow.start(conversation_id, long_opening)
+
+    assert turn is not None and turn.prompt is not None
+    assert turn.prompt.prompt_id == STEP_DETAIL
+    assert "2,000" in turn.message
+    assert STEP_DETAIL not in flow._states[conversation_id].answers
+    assert not turn.has_tool_call
+
+    safe_detail = "ก" * 2000
+    continued = await flow.advance(conversation_id, safe_detail, turn.prompt.prompt_id, None)
+
+    assert continued is not None and not continued.has_tool_call
+    assert flow._states[conversation_id].answers[STEP_DETAIL] == safe_detail
+    assert len(flow._states[conversation_id].answers["voc_subject"]) == 140
 
 
 async def test_unambiguous_opening_message_preselects_the_journey() -> None:
@@ -56,7 +131,25 @@ async def test_unambiguous_opening_message_preselects_the_journey() -> None:
     turn = await flow.start(uuid4(), "อยากร้องเรียน แจ้งปัญหาด้านบริการ")
 
     assert turn is not None and turn.prompt is not None
-    assert turn.prompt.prompt_id != "voc_journey"
+    assert turn.prompt.prompt_id == STEP_DETAIL
+
+
+async def test_consent_requires_exact_current_response() -> None:
+    flow, _ = _flow()
+    conversation_id = uuid4()
+    turn = await flow.start(conversation_id, "ร้องเรียนบริการ")
+    for _ in range(40):
+        assert turn is not None
+        if turn.prompt is None or turn.prompt.prompt_id == STEP_CONSENT:
+            break
+        value = turn.prompt.options[0].value if turn.prompt.options else "ข้อมูลทดสอบ"
+        turn = await _answer(flow, conversation_id, turn, value)
+
+    assert turn is not None and turn.prompt is not None
+    assert turn.prompt.prompt_id == STEP_CONSENT
+    not_exact = await flow.advance(conversation_id, "ยินยอมครับ", None, None)
+    assert not_exact is not None and not_exact.prompt is not None
+    assert not_exact.prompt.prompt_id == STEP_CONSENT
 
 
 async def test_answer_for_a_previous_question_is_not_accepted() -> None:
@@ -64,13 +157,36 @@ async def test_answer_for_a_previous_question_is_not_accepted() -> None:
     flow, _ = _flow()
     conversation_id = uuid4()
     first = await flow.start(conversation_id, "ร้องเรียนบริการ")
-    second = await _answer(flow, conversation_id, first, first.prompt.options[0].value)
+    second = await _answer(flow, conversation_id, first, "พนักงานพูดไม่สุภาพ")
 
-    replayed = await flow.advance(conversation_id, "", first.prompt.prompt_id, first.prompt.options[0].value)
+    replayed = await flow.advance(conversation_id, "", first.prompt.prompt_id, "ข้อมูลเก่าที่ไม่ควรรับ")
 
     assert replayed is not None
     assert replayed.prompt is not None
     assert replayed.prompt.prompt_id == second.prompt.prompt_id
+
+
+class _EnrichingPrefiller:
+    async def prefill(self, flow, state, message):
+        return state.with_answer(STEP_LOCATION_TEXT, "กรุงเทพมหานคร")
+
+
+async def test_unresolved_choice_persists_enriched_facts() -> None:
+    flow = VocGuidedFlow(
+        FakeVocTool(), consent_notice_version="TEST-PDPA-1", prefiller=_EnrichingPrefiller()
+    )
+    conversation_id = uuid4()
+    turn = await flow.start(conversation_id, "ร้องเรียนบริการ")
+    assert turn is not None and turn.prompt is not None
+    # The enrichment moves the flow to its location question, but an ambiguous
+    # spoken answer must still leave the extracted location in session state.
+    while turn.prompt.prompt_id != "voc_sub_issue":
+        turn = await flow.advance(conversation_id, "ข้อมูล", turn.prompt.prompt_id, "ข้อมูล")
+        assert turn is not None and turn.prompt is not None
+    clarified = await flow.advance(conversation_id, "ไม่แน่ใจ", None, None)
+    assert clarified is not None and clarified.prompt is not None
+    assert clarified.prompt.prompt_id == "voc_sub_issue"
+    assert flow._states[conversation_id].answers[STEP_LOCATION_TEXT] == "กรุงเทพมหานคร"
 
 
 async def test_value_outside_the_catalog_is_refused() -> None:
@@ -78,10 +194,12 @@ async def test_value_outside_the_catalog_is_refused() -> None:
     conversation_id = uuid4()
     turn = await flow.start(conversation_id, "ร้องเรียนบริการ")
 
-    refused = await _answer(flow, conversation_id, turn, "NOT_A_REAL_CODE")
+    next_turn = await _answer(flow, conversation_id, turn, "ข้อมูลรายละเอียด")
+    assert next_turn is not None and next_turn.prompt is not None
+    refused = await _answer(flow, conversation_id, next_turn, "NOT_A_REAL_CODE")
 
     assert refused is not None and refused.prompt is not None
-    assert refused.prompt.prompt_id == turn.prompt.prompt_id
+    assert refused.prompt.prompt_id == next_turn.prompt.prompt_id
     assert not refused.has_tool_call
 
 

@@ -4,10 +4,10 @@
 
 - เดิน flow จริงตั้งแต่ ``load_plugins`` ตามการประกอบของ production (app/main.py) —
   VocTool จริงคุยกับ gateway ผ่าน HTTP จริง โดย fake อยู่เฉพาะขอบเขต HTTP ของ catalog
-- MainAgent: เริ่ม VOC ได้ ``ChoicePrompt`` และเทิร์นถัดไปด้วย
+- MainAgent: เริ่ม VOC ด้วย narrative free-text ``ChoicePrompt`` และเทิร์นถัดไปด้วย
   ``selectedPromptId``/``selectedValue`` เดิน flow จริงต่อในบทสนทนาเดิม
-- VoiceBridge (has_display=False): guidance ต้องมีตัวเลือกครบทุกข้อ และป้ายที่พูด
-  (label) ต้องเดิน flow เดิมต่อได้บน conversation เดียวกัน
+- VoiceBridge (has_display=False): narrative ไม่อ่านเป็นรายการตัวเลือก ส่วน choice prompt
+  ภายหลังยังมี guidance ครบทุกข้อและรับคำตอบเสียงใน conversation เดิม
 - ToolAdminService: voc_tool ที่โหลดจริงต้องแสดงเป็น code tool ที่แก้ไม่ได้
   พร้อม operation ตาม manifest จริง
 
@@ -18,6 +18,8 @@ bridge กับ fake gateway (app/live/tests/test_bridge.py), และรา�
 """
 
 from __future__ import annotations
+
+# pyright: reportMissingImports=false, reportIncompatibleMethodOverride=false, reportArgumentType=false
 
 import json
 import threading
@@ -36,15 +38,14 @@ from app.core.config import Settings
 from app.core.tool_admin import ToolAdminService
 from app.db import Database
 from app.llm import LLMClient, ScriptedLLMAdapter
+from app.llm.models import LLMResponse
 from app.live.bridge import VoiceBridge
 from app.plugins import load_plugins
 from app.plugins.loader import LoadedPlugin
 from app.tools.knowledge_tool import KnowledgeTool
 
 # ขั้นแรกของ intake ที่ปลั๊กอินถามจริง (app/plugins/voc/intake.py)
-_FIRST_PROMPT_ID = "voc_journey"
-# ตัวเลือก journey มาจาก catalog ของ gateway จริงตามลำดับที่ประกาศ
-_JOURNEY_LABELS = {"แจ้งปัญหาด้านบริการ", "แจ้งเบาะแส"}
+_FIRST_PROMPT_ID = "voc_detail"
 _CASE_OPENING_MESSAGE = "ร้องเรียนบริการหน่อยครับ"
 
 
@@ -58,14 +59,14 @@ def _integration_catalog() -> dict[str, object]:
                 "label": "แจ้งปัญหาด้านบริการ",
                 "reporterMode": "OPTIONAL",
                 "classificationRootCodes": ["REQUEST_1"],
-                "requiresIncidentLocation": False,
+                "requiresIncidentLocation": True,
             },
             {
                 "code": "TIP_OFF",
                 "label": "แจ้งเบาะแส",
                 "reporterMode": "OPTIONAL",
                 "classificationRootCodes": ["REQUEST_4"],
-                "requiresIncidentLocation": False,
+                "requiresIncidentLocation": True,
             },
         ],
         "requestTypes": [
@@ -91,6 +92,18 @@ def _integration_catalog() -> dict[str, object]:
     }
 
 
+class _ExtractionAdapter(ScriptedLLMAdapter):
+    """Fake extraction adapter: structured empty output, never a real provider."""
+
+    async def complete(self, request):
+        self.requests.append(request)
+        return LLMResponse(text=json.dumps({
+            "message": json.dumps({"fields": {}}, ensure_ascii=False),
+            "toolCalls": [],
+            "directResponse": None,
+        }, ensure_ascii=False))
+
+
 class _MinimalKnowledgeBackend:
     """backend ปลอมขั้นต่ำ — KnowledgeTool จริงเรียก ``search`` ตาม protocol"""
 
@@ -103,7 +116,9 @@ class _MinimalKnowledgeBackend:
 
 
 class _FakeVocGatewayHandler(BaseHTTPRequestHandler):
-    """ขอบเขต HTTP เดียวที่ปลอม: GET catalog ของ gateway VOC — รูปเดียวกับ gateway จริง"""
+    """Fake gateway boundary: catalog plus captured case writes."""
+
+    posts: list[tuple[str, dict]] = []
 
     def do_GET(self) -> None:  # noqa: N802 — ชื่อตายตัวของ http.server
         if self.path.endswith("/catalog"):
@@ -117,12 +132,29 @@ class _FakeVocGatewayHandler(BaseHTTPRequestHandler):
             self.send_response(404)
             self.end_headers()
 
+    def do_POST(self) -> None:  # noqa: N802 — ชื่อตายตัวของ http.server
+        length = int(self.headers.get("Content-Length", "0"))
+        body = json.loads(self.rfile.read(length) or b"{}")
+        self.posts.append((self.path, body))
+        payload = json.dumps({
+            "caseId": "CASE-INTEGRATION-1",
+            "vocNumber": "VOC-INTEGRATION-1",
+            "keyCode": "KEY-INTEGRATION-1",
+            "journeyCode": "SERVICE_ISSUE",
+        }).encode("utf-8")
+        self.send_response(201)
+        self.send_header("Content-Type", "application/json")
+        self.send_header("Content-Length", str(len(payload)))
+        self.end_headers()
+        self.wfile.write(payload)
+
     def log_message(self, *args: object) -> None:
         pass
 
 
 @pytest.fixture()
 def voc_base_url() -> Iterator[str]:
+    _FakeVocGatewayHandler.posts = []
     server = ThreadingHTTPServer(("127.0.0.1", 0), _FakeVocGatewayHandler)
     thread = threading.Thread(target=server.serve_forever, daemon=True)
     thread.start()
@@ -165,7 +197,10 @@ def voc_stack(voc_base_url: str) -> Iterator[_VocStack]:
         guided_flows = GuidedFlows(
             tuple(flow for plugin in plugins if (flow := plugin.guided_flow) is not None)
         )
-        agent = MainAgent(LLMClient(ScriptedLLMAdapter()), registry, guided_flows=guided_flows)
+        llm = LLMClient(_ExtractionAdapter())
+        # Production attaches the same LLM to the guided flow's real prefiller.
+        guided_flows.attach_llm(llm)
+        agent = MainAgent(llm, registry, guided_flows=guided_flows)
         yield _VocStack(agent=agent, plugins=plugins, registry=registry, settings=settings)
     finally:
         for plugin in plugins:
@@ -183,15 +218,13 @@ async def test_chat_starts_voc_with_choice_prompt_and_selection_advances_the_flo
     prompt = first.choice_prompt
     assert prompt is not None
     assert prompt.prompt_id == _FIRST_PROMPT_ID
-    assert {option.label for option in prompt.options} == _JOURNEY_LABELS
-
-    selected = prompt.options[0]
+    assert prompt.options == ()
     second = await voc_stack.agent.handle_chat(
         ChatRequest(
             conversation_id=first.conversation_id,
-            message=selected.label,
+            message="พนักงานพูดไม่สุภาพ",
             selected_prompt_id=prompt.prompt_id,
-            selected_value=selected.value,
+            selected_value="พนักงานพูดไม่สุภาพ",
         )
     )
 
@@ -210,17 +243,73 @@ async def test_voice_bridge_without_display_reads_all_options_and_spoken_label_a
     prompt = first["choicePrompt"]
     guidance = first["voiceGuidance"]
     assert prompt is not None
-    assert guidance is not None
-    for option in prompt["options"]:
-        assert option["label"] in guidance
+    assert guidance is None  # free-text narrative is not a closed-enum card
 
-    spoken_label = prompt["options"][0]["label"]
-    second = await bridge.handle_text(spoken_label)
+    second = await bridge.handle_text("พนักงานพูดไม่สุภาพ")
 
     assert second["conversationId"] == first["conversationId"]
     second_prompt = second["choicePrompt"]
     assert second_prompt is not None
     assert second_prompt["promptId"] != prompt["promptId"]
+
+    current = await bridge.handle_text("กรุงเทพมหานคร")
+    consent_prompt = current["choicePrompt"]
+    assert consent_prompt is not None and consent_prompt["promptId"] == "voc_consent"
+    assert all(option["label"] in current["voiceGuidance"] for option in consent_prompt["options"])
+
+
+async def _prepare_tip_case(agent: MainAgent):
+    """Walk the loaded guided flow to consent without bypassing its prompts."""
+    response = await agent.handle_chat(ChatRequest(message="แจ้งเบาะแส"))
+    for _ in range(12):
+        if response.pending_action is not None:
+            return response
+        prompt = response.choice_prompt
+        assert prompt is not None, response.message
+        if prompt.prompt_id == "voc_consent":
+            value = "accept"
+            message = "ยินยอม"
+        elif prompt.options:
+            value = prompt.options[0].value
+            message = prompt.options[0].label
+        else:
+            value = message = "รายละเอียดจากผู้ใช้"
+        response = await agent.handle_chat(ChatRequest(
+            conversation_id=response.conversation_id,
+            message=message,
+            selected_prompt_id=prompt.prompt_id,
+            selected_value=value,
+        ))
+    raise AssertionError("guided flow did not prepare a tip case")
+
+
+async def test_prepare_confirm_is_the_only_path_to_one_gateway_post(
+    voc_stack: _VocStack,
+) -> None:
+    prepared = await _prepare_tip_case(voc_stack.agent)
+    assert prepared.pending_action is not None
+    assert _FakeVocGatewayHandler.posts == []
+
+    pending_id = prepared.pending_action.pending_action_id
+    confirmed = await voc_stack.agent.confirm_pending_action(pending_id)
+    assert confirmed.pending_action.status.value == "submitted"
+    assert len(_FakeVocGatewayHandler.posts) == 1
+
+    duplicate = await voc_stack.agent.confirm_pending_action(pending_id)
+    assert duplicate.pending_action.status.value == "submitted"
+    assert len(_FakeVocGatewayHandler.posts) == 1
+
+
+async def test_reject_is_terminal_and_does_not_post(
+    voc_stack: _VocStack,
+) -> None:
+    prepared = await _prepare_tip_case(voc_stack.agent)
+    assert prepared.pending_action is not None
+    rejected = await voc_stack.agent.reject_pending_action(
+        prepared.pending_action.pending_action_id, "ผู้ใช้ยกเลิก"
+    )
+    assert rejected.pending_action.status.value == "rejected"
+    assert _FakeVocGatewayHandler.posts == []
 
 
 async def test_admin_lists_loaded_voc_plugin_as_locked_code_tool_with_real_operations(
