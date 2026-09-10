@@ -1,0 +1,456 @@
+{
+  "schema_version": 1,
+  "purpose": "knowledge_lab_not_production_approval",
+  "documents": [
+    {
+      "id": "PEA_EV_Solar_ใบรับรองพลังงานหมุนเวียน_REC.md",
+      "path": "source/PEA_EV_Solar_ใบรับรองพลังงานหมุนเวียน_REC.md",
+      "title": "คู่มือบริการ RAG: บริการ EV, Solar และใบรับรอง REC (PEA Sabuy Service)",
+      "sha256": "ae45806845bac2645370725133b68ab0a8b089eb01d7af8dba9a39276e982d31",
+      "status": "published",
+      "content_review": "unverified_import",
+      "effective_from": null,
+      "effective_until": null
+    },
+    {
+      "id": "PEA_Solar_Rooftop_ตรวจจุดเชื่อมโยงโครงข่าย.md",
+      "path": "source/PEA_Solar_Rooftop_ตรวจจุดเชื่อมโยงโครงข่าย.md",
+      "title": "คู่มือบริการ RAG: บริการติดตั้ง PEA Solar Rooftop และขอตรวจสอบจุดเชื่อมโยงโครงข่ายไฟฟ้า",
+      "sha256": "53a9ddc3fc32a8e4c10c30d47d9de4a4f234f50aacd4e82a8ad9574a0810e7c1",
+      "status": "published",
+      "content_review": "unverified_import",
+      "effective_from": null,
+      "effective_until": null
+    },
+    {
+      "id": "PEA_eBill_WattDPoint_eTax.md",
+      "path": "source/PEA_eBill_WattDPoint_eTax.md",
+      "title": "คู่มือบริการ RAG: บริการ PEA e-Bill, คะแนนสะสม Watt-D Point และใบกำกับภาษีอิเล็กทรอนิกส์ (e-Tax)",
+      "sha256": "90f05da6c6b44e9d6fa663c7e8b5f6638bef3725039321c2742ec40557dc2d67",
+      "status": "published",
+      "content_review": "unverified_import",
+      "effective_from": null,
+      "effective_until": null
+    },
+    {
+      "id": "PEA_eBill_ผ่อนชำระ_คืนเงินประกัน.md",
+      "path": "source/PEA_eBill_ผ่อนชำระ_คืนเงินประกัน.md",
+      "title": "คู่มือบริการ RAG: บริการการเงิน e-Bill ผ่อนชำระ และคืนเงินประกัน (PEA Sabuy Service)",
+      "sha256": "2cd3fc57d179779e73c28260f06abc23ebf56c023e6a5ecbdfcfe2d5185bf4b7",
+      "status": "published",
+      "content_review": "unverified_import",
+      "effective_from": null,
+      "effective_until": null
+    },
+    {
+      "id": "PEA_residential_normal_1_1_2_SEP_DEC_2569.md",
+      "path": "source/PEA_residential_normal_1_1_2_SEP_DEC_2569.md",
+      "title": "Verified PEA residential normal 1.1.2 tariff — Sep–Dec 2569",
+      "sha256": "0a6b7ddf7ca38f18187e9fb7d5dee56c64938ced3aca28a47a976128db344721",
+      "status": "published",
+      "content_review": "unverified_import",
+      "effective_from": null,
+      "effective_until": null
+    },
+    {
+      "id": "PEA_ก่อสร้างวิศวกรรม_ฝึกอบรม_บริการสนับสนุน.md",
+      "path": "source/PEA_ก่อสร้างวิศวกรรม_ฝึกอบรม_บริการสนับสนุน.md",
+      "title": "คู่มือบริการ RAG: บริการก่อสร้าง วิศวกรรม ฝึกอบรม และบริการสนับสนุน (PEA Sabuy Service)",
+      "sha256": "139a142bca18fdc2657d4855bed29b2a913ec0013fc8a4c7be40f4d38a9e758e",
+      "status": "published",
+      "content_review": "unverified_import",
+      "effective_from": null,
+      "effective_until": null
+    },
+    {
+      "id": "PEA_ขยายเขตระบบไฟฟ้า_ย้ายเสาไฟฟ้า.md",
+      "path": "source/PEA_ขยายเขตระบบไฟฟ้า_ย้ายเสาไฟฟ้า.md",
+      "title": "คู่มือบริการ RAG: บริการขอขยายเขตระบบไฟฟ้าและย้ายเสาไฟฟ้า (PEA COS Expansion & Relocation)",
+      "sha256": "7668fe92bd62d12e88cb8c5e22b646e4d71613cafc9fa7fa385d0cbd1699649a",
+      "status": "published",
+      "content_review": "unverified_import",
+      "effective_from": null,
+      "effective_until": null
+    },
+    {
+      "id": "PEA_ขอขยายเขตไฟฟ้าแรงต่ำ_ไม่เกิน140เมตร.md",
+      "path": "source/PEA_ขอขยายเขตไฟฟ้าแรงต่ำ_ไม่เกิน140เมตร.md",
+      "title": "คู่มือการปฏิบัติงาน: กระบวนงานรับคำร้องขยายเขตระบบไฟฟ้าแรงต่ำ ระยะทางไม่เกิน 140 เมตร พร้อมติดตั้งมิเตอร์รายใหม่ ขนาดไม่เกิน 30 แอมป์ ผ่านระบบงานบริการลูกค้าอัจฉริยะ (SCS)",
+      "sha256": "c6157b6dfcb2217f9df9bd92ecc8b5b2e0a2639c5c74b2e1dc2c1d6b7e5e52e4",
+      "status": "published",
+      "content_review": "unverified_import",
+      "effective_from": null,
+      "effective_until": null
+    },
+    {
+      "id": "PEA_ขอคืนเงินประกันการใช้ไฟฟ้า.md",
+      "path": "source/PEA_ขอคืนเงินประกันการใช้ไฟฟ้า.md",
+      "title": "คู่มือบริการ RAG: บริการขอคืนเงินประกันการใช้ไฟฟ้า (PEA CDP Portal: cdp.pea.co.th)",
+      "sha256": "57b7c2bff6681da092c64f6e64d231ae46fdcaeda4128f57f728a93c1156f559",
+      "status": "published",
+      "content_review": "unverified_import",
+      "effective_from": null,
+      "effective_until": null
+    },
+    {
+      "id": "PEA_ขอใช้ไฟฟ้าใหม่_นิติบุคคลและธุรกิจ.md",
+      "path": "source/PEA_ขอใช้ไฟฟ้าใหม่_นิติบุคคลและธุรกิจ.md",
+      "title": "คู่มือบริการ RAG: บริการขอใช้ไฟฟ้าใหม่สำหรับนิติบุคคลและธุรกิจ (PEA e-Service COS Corporate)",
+      "sha256": "9d0618e2e84d359dcfd178ed5765f9f0575b72d05a0a60cf7aab730a6f7da1d5",
+      "status": "published",
+      "content_review": "unverified_import",
+      "effective_from": null,
+      "effective_until": null
+    },
+    {
+      "id": "PEA_ขอใช้ไฟฟ้าใหม่_บุคคลธรรมดา.md",
+      "path": "source/PEA_ขอใช้ไฟฟ้าใหม่_บุคคลธรรมดา.md",
+      "title": "คู่มือบริการ RAG: บริการขอใช้ไฟฟ้าใหม่สำหรับบุคคลธรรมดา (PEA e-Service COS)",
+      "sha256": "2d53b278b66d7a718ad78156d6dd9bd2a530435ab53b22d7f9367a2ef61836c8",
+      "status": "published",
+      "content_review": "unverified_import",
+      "effective_from": null,
+      "effective_until": null
+    },
+    {
+      "id": "PEA_ขึ้นทะเบียนซื้อขายใบรับรองพลังงานหมุนเวียน_REC.md",
+      "path": "source/PEA_ขึ้นทะเบียนซื้อขายใบรับรองพลังงานหมุนเวียน_REC.md",
+      "title": "คู่มือบริการ RAG: บริการขึ้นทะเบียนและซื้อขายใบรับรองการผลิตพลังงานหมุนเวียน (Renewable Energy Certificate - REC)",
+      "sha256": "bdfb845e311a062d3fc3187977ebfb38e69c2bda358d00d09b406c908347523d",
+      "status": "published",
+      "content_review": "unverified_import",
+      "effective_from": null,
+      "effective_until": null
+    },
+    {
+      "id": "PEA_ตรวจรับรองระบบไฟฟ้า_บำรุงรักษาHotline.md",
+      "path": "source/PEA_ตรวจรับรองระบบไฟฟ้า_บำรุงรักษาHotline.md",
+      "title": "คู่มือบริการ RAG: บริการตรวจสอบรับรองระบบไฟฟ้าและงานแก้ไขบำรุงรักษาโดยวิธี Hotline",
+      "sha256": "d84b218218d795147d44615deecfb5e264f3c3e1f5b7aa637b336bf430f54943",
+      "status": "published",
+      "content_review": "unverified_import",
+      "effective_from": null,
+      "effective_until": null
+    },
+    {
+      "id": "PEA_ตรวจสอบบำรุงรักษาระบบไฟฟ้าครบวงจร_แพ็กเกจ.md",
+      "path": "source/PEA_ตรวจสอบบำรุงรักษาระบบไฟฟ้าครบวงจร_แพ็กเกจ.md",
+      "title": "คู่มือบริการ RAG: บริการตรวจสอบและบำรุงรักษาระบบไฟฟ้าแบบครบวงจร (Package Maintenance)",
+      "sha256": "1a71c48147f74ffa0779770dd3e3a35ce384fc18a3eb676c820b2c23d9f4e83e",
+      "status": "published",
+      "content_review": "unverified_import",
+      "effective_from": null,
+      "effective_until": null
+    },
+    {
+      "id": "PEA_ตรวจสอบบำรุงรักษาสวิตช์เกียร์_เคเบิลใต้ดิน.md",
+      "path": "source/PEA_ตรวจสอบบำรุงรักษาสวิตช์เกียร์_เคเบิลใต้ดิน.md",
+      "title": "คู่มือบริการ RAG: บริการตรวจสอบและบำรุงรักษาสวิตช์เกียร์และเคเบิลใต้ดิน (Switchgear & Cable Services)",
+      "sha256": "cc10bd39511e3eb74728b460aa4f4e5137a809e1eab1ba6686ab9fb1a41e89d3",
+      "status": "published",
+      "content_review": "unverified_import",
+      "effective_from": null,
+      "effective_until": null
+    },
+    {
+      "id": "PEA_ตรวจสอบรีเลย์ป้องกัน_สแกนจุดร้อนไฟฟ้า.md",
+      "path": "source/PEA_ตรวจสอบรีเลย์ป้องกัน_สแกนจุดร้อนไฟฟ้า.md",
+      "title": "คู่มือบริการ RAG: บริการตรวจสอบรีเลย์ป้องกันและตรวจหาจุดร้อนทางไฟฟ้า (Relay Protection & Thermal Scan)",
+      "sha256": "ef3d8e034e5500eda31619aff00df6341d112fc756af82df3abdd37410d736ec",
+      "status": "published",
+      "content_review": "unverified_import",
+      "effective_from": null,
+      "effective_until": null
+    },
+    {
+      "id": "PEA_ตรวจสอบและบำรุงรักษาระบบไฟฟ้า.md",
+      "path": "source/PEA_ตรวจสอบและบำรุงรักษาระบบไฟฟ้า.md",
+      "title": "คู่มือบริการ RAG: บริการตรวจสอบและบำรุงรักษาระบบไฟฟ้า (PEA Sabuy Service)",
+      "sha256": "7678febc2c17502fb286a119004735a666c1d67553f0c1306fc3433ccf416704",
+      "status": "published",
+      "content_review": "unverified_import",
+      "effective_from": null,
+      "effective_until": null
+    },
+    {
+      "id": "PEA_ติดตามสถานะคำร้อง_ช่องทางดิจิทัล.md",
+      "path": "source/PEA_ติดตามสถานะคำร้อง_ช่องทางดิจิทัล.md",
+      "title": "คู่มือบริการ RAG: ระบบติดตามสถานะคำร้องออนไลน์ (PEA Tracking) และช่องทางดิจิทัลครบวงจร",
+      "sha256": "c7aad8ca065e777fb440a27857c8e4da5aaf488c9a95bf51082dc4363205d2c5",
+      "status": "published",
+      "content_review": "unverified_import",
+      "effective_from": null,
+      "effective_until": null
+    },
+    {
+      "id": "PEA_ทดสอบสอบเทียบอุปกรณ์ไฟฟ้า_ISO-IEC-17025.md",
+      "path": "source/PEA_ทดสอบสอบเทียบอุปกรณ์ไฟฟ้า_ISO-IEC-17025.md",
+      "title": "คู่มือบริการ RAG: บริการทดสอบและสอบเทียบอุปกรณ์ไฟฟ้ามาตรฐานสากล (ISO/IEC 17025)",
+      "sha256": "b84f59ee2654057693f848bb08639a9e4546fca6d7e8792914651ca71ffdc10e",
+      "status": "published",
+      "content_review": "unverified_import",
+      "effective_from": null,
+      "effective_until": null
+    },
+    {
+      "id": "PEA_ทดสอบและสอบเทียบอุปกรณ์ไฟฟ้า.md",
+      "path": "source/PEA_ทดสอบและสอบเทียบอุปกรณ์ไฟฟ้า.md",
+      "title": "คู่มือบริการ RAG: บริการทดสอบและสอบเทียบอุปกรณ์ไฟฟ้า (PEA Sabuy Service)",
+      "sha256": "d67c7a522be285710e63a8dc60d7e2428f3ff7c02596ac26f1bd2e342370bf20",
+      "status": "published",
+      "content_review": "unverified_import",
+      "effective_from": null,
+      "effective_until": null
+    },
+    {
+      "id": "PEA_ที่ปรึกษาวิศวกรรม_ก่อสร้างระบบไฟฟ้า_ฝึกอบรม.md",
+      "path": "source/PEA_ที่ปรึกษาวิศวกรรม_ก่อสร้างระบบไฟฟ้า_ฝึกอบรม.md",
+      "title": "คู่มือบริการ RAG: บริการที่ปรึกษาวิศวกรรม ก่อสร้างระบบไฟฟ้า และฝึกอบรมบุคลากรภายนอก",
+      "sha256": "5081fa9e36817782ac17a4a730e86dad116aca0c0acaf3b41cea8299b0626071",
+      "status": "published",
+      "content_review": "unverified_import",
+      "effective_from": null,
+      "effective_until": null
+    },
+    {
+      "id": "PEA_บริการขอใช้ไฟฟ้าใหม่.md",
+      "path": "source/PEA_บริการขอใช้ไฟฟ้าใหม่.md",
+      "title": "คู่มือบริการ RAG: บริการขอใช้ไฟฟ้าใหม่ (PEA Sabuy Service)",
+      "sha256": "2d028ba64ce8f856e2abe23eff4188880aea878f6f9498f927b821bd7cf8e409",
+      "status": "published",
+      "content_review": "unverified_import",
+      "effective_from": null,
+      "effective_until": null
+    },
+    {
+      "id": "PEA_บำรุงรักษาหม้อแปลงไฟฟ้า_ทดสอบน้ำมัน.md",
+      "path": "source/PEA_บำรุงรักษาหม้อแปลงไฟฟ้า_ทดสอบน้ำมัน.md",
+      "title": "คู่มือบริการ RAG: บริการบำรุงรักษาหม้อแปลงไฟฟ้า (Transformer Preventive Maintenance)",
+      "sha256": "33bddbbe2da55c16c33ecc73c89f11b8471e0789e1c83ae1aa4c7aef323ccb76",
+      "status": "published",
+      "content_review": "unverified_import",
+      "effective_from": null,
+      "effective_until": null
+    },
+    {
+      "id": "PEA_มิเตอร์เปรียบเทียบTOU_จำหน่ายอุปกรณ์ไฟฟ้า.md",
+      "path": "source/PEA_มิเตอร์เปรียบเทียบTOU_จำหน่ายอุปกรณ์ไฟฟ้า.md",
+      "title": "คู่มือบริการ RAG: บริการขอติดตั้งมิเตอร์เปรียบเทียบ TOU และซื้ออุปกรณ์ไฟฟ้า (TOU Comparison & Equipment Supply)",
+      "sha256": "27bae9f8beb724801abdadd6a707d3d695f57165973364a2ea66e9c115ab0fb2",
+      "status": "published",
+      "content_review": "unverified_import",
+      "effective_from": null,
+      "effective_until": null
+    },
+    {
+      "id": "PEA_ลงทะเบียนขอผ่อนชำระค่าไฟฟ้า.md",
+      "path": "source/PEA_ลงทะเบียนขอผ่อนชำระค่าไฟฟ้า.md",
+      "title": "คู่มือบริการ RAG: บริการลงทะเบียนขอผ่อนชำระค่าไฟฟ้า (PEA Installment Portal: installment.pea.co.th)",
+      "sha256": "3de99f205574c612da92a5e38d88fc83b86ebb67146e986fad3bc6734d23abfd",
+      "status": "published",
+      "content_review": "unverified_import",
+      "effective_from": null,
+      "effective_until": null
+    },
+    {
+      "id": "PEA_สถานีชาร์จEV_PEA_VOLTA_เต้ารับPupaplug.md",
+      "path": "source/PEA_สถานีชาร์จEV_PEA_VOLTA_เต้ารับPupaplug.md",
+      "title": "คู่มือบริการ RAG: บริการสถานีชาร์จรถยนต์ไฟฟ้า PEA VOLTA Platform และเต้ารับ Pupaplug",
+      "sha256": "106602c38035b7a8b7a7a8da3157f2ce8ee9996121a57708adcea0010dbff39c",
+      "status": "published",
+      "content_review": "unverified_import",
+      "effective_from": null,
+      "effective_until": null
+    },
+    {
+      "id": "PEA_สิทธิช่วยเหลือค่าไฟฟ้า_สวัสดิการแห่งรัฐ_2569.md",
+      "path": "source/PEA_สิทธิช่วยเหลือค่าไฟฟ้า_สวัสดิการแห่งรัฐ_2569.md",
+      "title": "โครงการลงทะเบียนเพื่อสวัสดิการแห่งรัฐ ปี 2569 https://welfareregis.pea.co.th/",
+      "sha256": "52d1fb7f11774f0c4b22cb1cf8c5335e897c99ceb078528be2565cab0d76de72",
+      "status": "published",
+      "content_review": "unverified_import",
+      "effective_from": null,
+      "effective_until": null
+    },
+    {
+      "id": "PEA_สิทธิไม่ตัดไฟ_ผู้ป่วยใช้เครื่องมือแพทย์.md",
+      "path": "source/PEA_สิทธิไม่ตัดไฟ_ผู้ป่วยใช้เครื่องมือแพทย์.md",
+      "title": "PEA ไม่ตัดกระแสไฟฟ้าสถานที่ หรือบ้านที่มีผู้ป่วยที่ต้องใช้ไฟฟ้าในการเดินเครื่องมือทางการแพทย์เพื่อการรักษาพยาบาล https://www.pea.co.th/news/infographic/561",
+      "sha256": "d2a8bdf605ba1da4089d13968c7d38a8d9ea4c6c59b150aa6c750d7335834f25",
+      "status": "published",
+      "content_review": "unverified_import",
+      "effective_from": null,
+      "effective_until": null
+    },
+    {
+      "id": "PEA_หลักฐานการขอใช้ไฟฟ้าแต่ละประเภท_2562.md",
+      "path": "source/PEA_หลักฐานการขอใช้ไฟฟ้าแต่ละประเภท_2562.md",
+      "title": "หลักฐานทั้งหมดที่ต้องใช้ในการขอใช้บริการและการขอใช้ไฟฟ้าแต่ละประเภท ตามระเบียบการไฟฟ้าส่วนภูมิภาค พ.ศ. 2562 มีรายละเอียดดังนี้",
+      "sha256": "1d24cd28aa514be44fb62340045de113bfac71a681618ca74009caeb508faa37",
+      "status": "published",
+      "content_review": "unverified_import",
+      "effective_from": null,
+      "effective_until": null
+    },
+    {
+      "id": "PEA_อัตราค่าไฟฟ้า_TOU_2569.md",
+      "path": "source/PEA_อัตราค่าไฟฟ้า_TOU_2569.md",
+      "title": "อัตราค่าไฟฟ้า TOU (Time of Use) ปี 2569",
+      "sha256": "450e3c5bdd47c91173bd963db436bc54568a9e393982ed8603b851386c1ba746",
+      "status": "published",
+      "content_review": "unverified_import",
+      "effective_from": null,
+      "effective_until": null
+    },
+    {
+      "id": "PEA_อัตราค่าไฟฟ้า_ค่าธรรมเนียม_ค่าFt.md",
+      "path": "source/PEA_อัตราค่าไฟฟ้า_ค่าธรรมเนียม_ค่าFt.md",
+      "title": "อัตราค่าบริการต่าง ๆ ตารางค่าธรรมเนียมการขอใช้ไฟฟ้า https://www.pea.co.th/our-services/tariff",
+      "sha256": "be3ca96cf1bc688bc0f4f2eb0d8ddcdf987ccb25a605cd93ef56daf3af15cf96",
+      "status": "published",
+      "content_review": "unverified_import",
+      "effective_from": null,
+      "effective_until": null
+    },
+    {
+      "id": "PEA_เช่าหม้อแปลงและอุปกรณ์ไฟฟ้า.md",
+      "path": "source/PEA_เช่าหม้อแปลงและอุปกรณ์ไฟฟ้า.md",
+      "title": "คู่มือบริการ RAG: บริการขอเช่าหม้อแปลงและจัดหาอุปกรณ์ไฟฟ้า (PEA Sabuy Service)",
+      "sha256": "604175287afab330846faa2b0efa2be2388c6ec8bcba4c8b01807b036bae554c",
+      "status": "published",
+      "content_review": "unverified_import",
+      "effective_from": null,
+      "effective_until": null
+    },
+    {
+      "id": "PEA_เช่าหม้อแปลงไฟฟ้า_แบบฟอร์มS315.md",
+      "path": "source/PEA_เช่าหม้อแปลงไฟฟ้า_แบบฟอร์มS315.md",
+      "title": "คู่มือบริการ RAG: บริการขอเช่าหม้อแปลงไฟฟ้า (PEA Transformer Rental S315)",
+      "sha256": "6b4a3745139e7c25ff8bc66ff8699e42a5414654e8b9995e0056561bf4ae600a",
+      "status": "published",
+      "content_review": "unverified_import",
+      "effective_from": null,
+      "effective_until": null
+    },
+    {
+      "id": "PEA_เช่าเครื่องกำเนิดไฟฟ้า_ฉนวนครอบสายแรงสูง.md",
+      "path": "source/PEA_เช่าเครื่องกำเนิดไฟฟ้า_ฉนวนครอบสายแรงสูง.md",
+      "title": "คู่มือบริการ RAG: บริการขอเช่าเครื่องกำเนิดไฟฟ้าและฉนวนครอบสายไฟฟ้า (Mobile Generator & Line Cover)",
+      "sha256": "1d6beb4d4bce0cfcaa42e7def3818a626ff4205f1647ff02d2e61f8814508272",
+      "status": "published",
+      "content_review": "unverified_import",
+      "effective_from": null,
+      "effective_until": null
+    },
+    {
+      "id": "qa/qa_การขอใช้ไฟฟ้าแรงสูง.md",
+      "path": "source/qa/qa_การขอใช้ไฟฟ้าแรงสูง.md",
+      "title": "ถาม: การขอมิเตอร์แรงสูงต้องทำอย่างไร | คำถามใกล้เคียง: ขอมิเตอร์ไฟฟ้าแรงสูงต้องใช้เอกสารอะไร / ติดตั้งไฟฟ้าแรงสูงต้องติดต่อที่ไหน / ธุรกิจต้องการใช้ไฟแรงสูงขอได้อย่างไร",
+      "sha256": "59b68b6d67c357e93997c2487e2163edccebfbc5bb5bc33483578a7c97aedc4c",
+      "status": "published",
+      "content_review": "unverified_import",
+      "effective_from": null,
+      "effective_until": null
+    },
+    {
+      "id": "qa/qa_ขั้นตอนขอคืนเงินประกันการใช้ไฟฟ้า.md",
+      "path": "source/qa/qa_ขั้นตอนขอคืนเงินประกันการใช้ไฟฟ้า.md",
+      "title": "ถาม: ขอคืนเงินประกันการใช้ไฟฟ้ากับ กฟภ. ต้องทำอย่างไร | คำถามใกล้เคียง: ขอคืนเงินประกันมิเตอร์ไฟฟ้าทำอย่างไร / เงินประกันการใช้ไฟฟ้าคืนได้ไหม / ต้องทำอย่างไรจึงจะได้รับคืนเงินประกันค่าไฟ",
+      "sha256": "e2670da55e9ed2113e1f4424f09c1bc7aaf98e8dd8b9a1b125c7258bdaa439db",
+      "status": "published",
+      "content_review": "unverified_import",
+      "effective_from": null,
+      "effective_until": null
+    },
+    {
+      "id": "qa/qa_ความหมายค่าบริการรายเดือนค่าไฟฟ้า.md",
+      "path": "source/qa/qa_ความหมายค่าบริการรายเดือนค่าไฟฟ้า.md",
+      "title": "ถาม: ค่าบริการรายเดือนในใบแจ้งหนี้และใบเสร็จค่าไฟคืออะไร | คำถามใกล้เคียง: ค่าบริการรายเดือนค่าไฟคืออะไร / ค่าไฟมีค่าบริการรายเดือนทำไม / ค่าบริการในใบแจ้งหนี้ไฟฟ้าคิดจากอะไร",
+      "sha256": "ee41e45dfb52a64ee67800ca549ccf186021947228f696afdf66d71245fa9dac",
+      "status": "published",
+      "content_review": "unverified_import",
+      "effective_from": null,
+      "effective_until": null
+    },
+    {
+      "id": "qa/qa_ความหมายและการคำนวณค่าFt.md",
+      "path": "source/qa/qa_ความหมายและการคำนวณค่าFt.md",
+      "title": "ถาม: ค่า Ft คืออะไร และทำไม กฟภ. ต้องเรียกเก็บ | คำถามใกล้เคียง: ค่า Ft ในบิลค่าไฟคืออะไร / ทำไมต้องจ่ายค่า Ft / ค่าไฟเพิ่มเพราะค่า Ft หรือไม่",
+      "sha256": "8d3b8f3fd4aa6706885fbf7925c363d4f956abfc975112fe0d3a145a887b93b1",
+      "status": "published",
+      "content_review": "unverified_import",
+      "effective_from": null,
+      "effective_until": null
+    },
+    {
+      "id": "qa/qa_ค้างชำระค่าไฟ_แบ่งชำระ.md",
+      "path": "source/qa/qa_ค้างชำระค่าไฟ_แบ่งชำระ.md",
+      "title": "ถาม: ค้างชำระค่าไฟมากกว่า 2 เดือน สามารถแบ่งจ่ายเฉพาะเดือนแรกได้หรือไม่ | คำถามใกล้เคียง: ค้างค่าไฟขอผ่อนจ่ายได้ไหม / ค่าไฟค้างหลายเดือนแบ่งจ่ายอย่างไร / ขอชำระค่าไฟบางเดือนก่อนได้ไหม",
+      "sha256": "27c6279bf5110533031de0814b40cd82e7e42c9e2626f586bb7e6610a1e71656",
+      "status": "published",
+      "content_review": "unverified_import",
+      "effective_from": null,
+      "effective_until": null
+    },
+    {
+      "id": "qa/qa_ชำระค่าไฟเกินกำหนด_เคาน์เตอร์เซอร์วิส.md",
+      "path": "source/qa/qa_ชำระค่าไฟเกินกำหนด_เคาน์เตอร์เซอร์วิส.md",
+      "title": "ถาม: หากเกินกำหนดวันชำระค่าไฟ สามารถจ่ายที่ 7-Eleven หรือ Counter Service ได้หรือไม่ | คำถามใกล้เคียง: ค่าไฟเกินกำหนดจ่ายที่ไหนได้บ้าง / จ่ายค่าไฟช้าได้ไหม / ค้างจ่ายค่าไฟต้องติดต่ออย่างไร / ค่าไฟเลยกำหนดชำระแล้วทำอย่างไร",
+      "sha256": "f7e5a42966c081242bcf54f2f896e22e6754eaebf3888b3c24d59558790c6d3e",
+      "status": "published",
+      "content_review": "unverified_import",
+      "effective_from": null,
+      "effective_until": null
+    },
+    {
+      "id": "qa/qa_วันที่จดหน่วยไฟฟ้าในใบแจ้งหนี้ไม่ตรงกัน.md",
+      "path": "source/qa/qa_วันที่จดหน่วยไฟฟ้าในใบแจ้งหนี้ไม่ตรงกัน.md",
+      "title": "ถาม: ทำไมวันที่จดหน่วยแจ้งหนี้ของ กฟภ. ไม่ตรงกันในแต่ละเดือน | คำถามใกล้เคียง: ทำไมวันจดมิเตอร์แต่ละเดือนไม่เหมือนกัน / วันที่อ่านหน่วยไฟฟ้าเปลี่ยนได้หรือไม่ / วันจดหน่วยในบิลค่าไฟไม่ตรงกันเพราะอะไร",
+      "sha256": "fa7e625e5683370d5967377544b4ed1b31005b8b05de0fea5f4cda9a9140c21f",
+      "status": "published",
+      "content_review": "unverified_import",
+      "effective_from": null,
+      "effective_until": null
+    },
+    {
+      "id": "qa/qa_หักบัญชีค่าไฟ_ไม่ได้รับใบเสร็จ.md",
+      "path": "source/qa/qa_หักบัญชีค่าไฟ_ไม่ได้รับใบเสร็จ.md",
+      "title": "ถาม: หักค่าไฟผ่านบัญชีธนาคารแต่ไม่ได้รับใบเสร็จ เพราะเหตุใด | คำถามใกล้เคียง: หักบัญชีค่าไฟแล้วใบเสร็จไม่มา / จ่ายค่าไฟผ่านธนาคารแต่ไม่ได้รับใบเสร็จ / ทำไมตัดเงินจากบัญชีแล้วไม่มีใบเสร็จค่าไฟ",
+      "sha256": "8f2ae1997b3d51a125ebd31fdd0f2dea2247eb8352ea43373ba196fb261122f8",
+      "status": "published",
+      "content_review": "unverified_import",
+      "effective_from": null,
+      "effective_until": null
+    },
+    {
+      "id": "qa/qa_เปลี่ยนที่อยู่จัดส่งใบเสร็จค่าไฟฟ้า.md",
+      "path": "source/qa/qa_เปลี่ยนที่อยู่จัดส่งใบเสร็จค่าไฟฟ้า.md",
+      "title": "ถาม: การเปลี่ยนแปลงที่อยู่ในการจัดส่งใบเสร็จรับเงินค่าไฟฟ้าต้องทำอย่างไร | คำถามใกล้เคียง: เปลี่ยนที่อยู่รับใบเสร็จค่าไฟทำอย่างไร / ขอแก้ไขที่อยู่จัดส่งใบเสร็จรับเงิน / ใบเสร็จค่าไฟส่งไปที่อยู่ใหม่ได้ไหม",
+      "sha256": "83178d8e91120a419119c03b1e8bd9922c4654beaba36f0987e7a49c906e544e",
+      "status": "published",
+      "content_review": "unverified_import",
+      "effective_from": null,
+      "effective_until": null
+    },
+    {
+      "id": "qa/qa_เปลี่ยนที่อยู่จัดส่งใบแจ้งค่าไฟฟ้า.md",
+      "path": "source/qa/qa_เปลี่ยนที่อยู่จัดส่งใบแจ้งค่าไฟฟ้า.md",
+      "title": "ถาม: การเปลี่ยนแปลงที่อยู่ในการจัดส่งใบแจ้งค่าไฟฟ้าต้องทำอย่างไร | คำถามใกล้เคียง: เปลี่ยนที่อยู่รับใบแจ้งค่าไฟทำอย่างไร / ขอแก้ไขที่อยู่จัดส่งบิลค่าไฟ / ใบแจ้งค่าไฟส่งไปที่อยู่ใหม่ได้ไหม",
+      "sha256": "1315e0d538325589a0503ed390f01249874939e2dacc61f89b04892fd5904a99",
+      "status": "published",
+      "content_review": "unverified_import",
+      "effective_from": null,
+      "effective_until": null
+    },
+    {
+      "id": "qa/qa_เอกสารประกอบการขอใช้ไฟฟ้าใหม่.md",
+      "path": "source/qa/qa_เอกสารประกอบการขอใช้ไฟฟ้าใหม่.md",
+      "title": "ถาม: ต้องการขอใช้ไฟฟ้าต้องมีเอกสารอะไรบ้าง | คำถามใกล้เคียง: ขอไฟใหม่ต้องใช้เอกสารอะไร / ติดตั้งมิเตอร์ไฟฟ้าใหม่ต้องเตรียมอะไรบ้าง / ขอใช้ไฟฟ้าใหม่กับ กฟภ. ต้องทำอย่างไร / อยากมีไฟฟ้าเข้าบ้านต้องยื่นเอกสารอะไร",
+      "sha256": "df9d0291153f84df1d859166f6e7ff6e233c64069af80402f26389ec17c0ce28",
+      "status": "published",
+      "content_review": "unverified_import",
+      "effective_from": null,
+      "effective_until": null
+    }
+  ]
+}
