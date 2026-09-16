@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+import logging
 from contextlib import suppress
 from uuid import UUID, uuid4
 
@@ -56,6 +57,9 @@ class AdkLiveSession:
     def __init__(self, *, api_key: str, model: str, voice: str, agent: MainAgent,
                  has_display: bool = True, session_service: BaseSessionService | None = None) -> None:
         self._id = str(uuid4())
+        # ADK's INFO/DEBUG logs include resumption handles and live payloads.
+        # WSC logs safe lifecycle boundaries instead.
+        logging.getLogger("google_adk").setLevel(logging.WARNING)
         self._user_id = str(uuid4())
         self._agent = agent
         self._client = genai.Client(api_key=api_key, vertexai=False,

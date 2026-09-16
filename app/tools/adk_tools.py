@@ -89,13 +89,18 @@ class WscTools:
                 try:
                     validate(args, tool.schema)
                 except SchemaError:
-                    return _error("invalid_input", "ข้อมูลยังไม่ครบหรือรูปแบบไม่ถูกต้อง กรุณาระบุเฉพาะข้อมูลที่ขาดครับ")
+                    result = _error("invalid_input", "ข้อมูลยังไม่ครบหรือรูปแบบไม่ถูกต้อง กรุณาระบุเฉพาะข้อมูลที่ขาดครับ")
+                    result["missingFields"] = sorted(set(tool.schema.get("required", [])) - args.keys())
+                    return result
                 state = context.state
                 if tool.name in {"pea_confirm_pending_action", "pea_reject_pending_action"}:
                     pending_id = state.get(_PENDING)
                     if not pending_id:
                         return _error("no_pending_action", "ยังไม่มีรายการที่รอการยืนยันในเซสชันนี้ครับ")
                     if tool.name == "pea_confirm_pending_action":
+                        user_turn = _latest_user_turn(context)
+                        if not user_turn or user_turn == state.get("wsc_prepared_user_turn"):
+                            return _error("confirmation_required", "กรุณาฟังสรุปรายการแล้วตอบยืนยันอีกครั้งครับ")
                         decision = await self.agent.confirm_pending_action(UUID(pending_id), args["confirmationNote"])
                     else:
                         decision = await self.agent.reject_pending_action(UUID(pending_id), args["reason"])
@@ -106,6 +111,8 @@ class WscTools:
                     return decision.model_dump(mode="json", by_alias=True)
 
                 if tool.name == "voc_intake":
+                    if state.get(_PENDING):
+                        return _error("action_conflict", "กรุณายืนยันหรือยกเลิกรายการเดิมก่อนครับ")
                     response = await self.agent.advance_domain_intake(ChatRequest(
                         conversation_id=self.conversation_id, message=args["message"],
                     ))
@@ -136,6 +143,7 @@ class WscTools:
                         )
                 if response.pending_action:
                     state[_PENDING] = str(response.pending_action.pending_action_id)
+                    state["wsc_prepared_user_turn"] = _latest_user_turn(context)
                 payload = response.model_dump(mode="json", by_alias=True)
                 payload["voiceGuidance"] = self._presentation._voice_guidance(response)
                 return payload
@@ -149,6 +157,12 @@ class WscTools:
             except Exception:
                 logger.error("adk_domain_tool_failed", extra={"function_name": tool.name})
                 return _error("unavailable", "ไม่สามารถดำเนินการได้ในขณะนี้ครับ")
+
+
+def _latest_user_turn(context: ToolContext) -> str | None:
+    """Require an actual later user event, never a model-supplied confirmation ID."""
+    return next((event.id for event in reversed(context.session.events)
+                 if event.author == "user" and (event.input_transcription or event.content)), None)
 
 
 class WscTool(BaseTool):
