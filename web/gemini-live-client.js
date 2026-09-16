@@ -58,7 +58,7 @@ export class GeminiLiveClient {
       this.resolveReady?.();
     } else if (message.type === 'transcript' || message.type === 'transcript.user' || message.type === 'transcript.assistant') {
       const role = message.role || (message.type.endsWith('.user') ? 'user' : 'assistant');
-      this.handlers.onTranscript?.(role, String(message.text || ''), message.final !== false);
+      this.handlers.onTranscript?.(role, String(message.text || ''), message.final !== false, message.replace === true);
       if (role === 'user') this.handlers.onState?.('listening');
     } else if (message.type === 'audio.interrupted') {
       this.media.flushPlayback();

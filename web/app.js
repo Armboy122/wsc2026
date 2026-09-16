@@ -882,7 +882,7 @@ import { linkifySafeHtml } from './linkify.js';
   let liveClient = null;
   const voiceDrafts = {};
 
-  function renderVoiceTranscript(role, text, isFinal) {
+  function renderVoiceTranscript(role, text, isFinal, replace = false) {
     if (!text) return;
     const key = role === 'user' ? 'user' : 'assistant';
     let el = voiceDrafts[key];
@@ -896,7 +896,8 @@ import { linkifySafeHtml } from './linkify.js';
       voiceDrafts[key] = el;
     }
     el.dataset.final = String(isFinal);
-    el.querySelector('.bubble').textContent += text;
+    const bubble = el.querySelector('.bubble');
+    bubble.textContent = replace ? text : bubble.textContent + text;
     scrollThread();
     if (isFinal) delete voiceDrafts[key];
   }

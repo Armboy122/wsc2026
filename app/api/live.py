@@ -19,12 +19,27 @@ async def gemini_live(websocket: WebSocket, channel: str = "web") -> None:
     ถือว่าเป็นเว็บที่มีจอ เพื่อให้ค่าเริ่มต้นปลอดภัยเมื่อไคลเอนต์ไม่ระบุ
     """
     settings = load_settings()
+    if settings.voice_runtime not in {"legacy", "adk"}:
+        await websocket.accept()
+        await websocket.send_json({"type": "error", "message": "ค่า VOICE_RUNTIME ต้องเป็น legacy หรือ adk"})
+        await websocket.close(code=1011)
+        return
     if not settings.gemini_api_key:
         await websocket.accept()
         await websocket.send_json({"type": "error", "message": "โหมดเสียงยังไม่ได้ตั้งค่า"})
         await websocket.close(code=1011)
         return
     try:
+        if settings.voice_runtime == "adk":
+            from app.runtime.adk_live import AdkLiveSession
+
+            session = AdkLiveSession(
+                api_key=settings.gemini_api_key, model=settings.live_model,
+                voice=settings.live_voice, agent=agent_service.agent,
+                has_display=channel != "phone",
+            )
+            await session.serve(websocket)
+            return
         # google-genai is optional: text mode must start without voice extras.
         from app.live.gemini_live import GeminiLiveSession
     except ImportError:
