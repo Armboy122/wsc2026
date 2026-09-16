@@ -313,6 +313,13 @@ class MainAgent:
         if flow is not None:
             flow.cancel(conversation_id)
 
+    def domain_action_is_open(self, pending_action_id: UUID) -> bool:
+        """Reconcile voice state after a decision made through the existing UI."""
+        pending = self._pending_actions.get(pending_action_id)
+        return pending is not None and pending.status in {
+            PendingActionStatus.PENDING_CONFIRMATION, PendingActionStatus.CONFIRMED,
+        }
+
     async def confirm_pending_action(self, pending_action_id: UUID, confirmation_note: str | None = None) -> ActionDecisionResponse:
         task = self._confirmation_tasks.get(pending_action_id)
         if task is not None:

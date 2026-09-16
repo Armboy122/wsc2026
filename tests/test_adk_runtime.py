@@ -178,6 +178,18 @@ async def test_model_cannot_prepare_and_confirm_in_same_user_turn(domain):
 
 
 @pytest.mark.asyncio
+async def test_existing_http_decision_does_not_leave_voice_pending_stuck(domain):
+    state = {}
+    args = {"description": "ไฟดับ", "location": "หาดใหญ่", "contactPhone": "0812345678"}
+    prepared = await call(domain.adapter, "oms_tool_prepare_anonymous_outage", args, state)
+    # Same domain method used by the existing HTTP confirmation endpoint.
+    await domain.agent.confirm_pending_action(UUID(prepared["pendingAction"]["pendingActionId"]))
+    next_request = await call(domain.adapter, "oms_tool_prepare_anonymous_outage", args, state)
+    assert next_request["pendingAction"]["status"] == "pending_confirmation"
+    assert next_request["pendingAction"]["pendingActionId"] != prepared["pendingAction"]["pendingActionId"]
+
+
+@pytest.mark.asyncio
 async def test_voc_intake_retains_catalog_and_explicit_consent(domain):
     state = {}
     response = await call(domain.adapter, "voc_intake", {"message": "ร้องเรียนบริการ"}, state)

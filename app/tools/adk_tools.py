@@ -93,6 +93,9 @@ class WscTools:
                     result["missingFields"] = sorted(set(tool.schema.get("required", [])) - args.keys())
                     return result
                 state = context.state
+                pending_id = state.get(_PENDING)
+                if pending_id and not self.agent.domain_action_is_open(UUID(pending_id)):
+                    state[_PENDING] = None
                 if tool.name in {"pea_confirm_pending_action", "pea_reject_pending_action"}:
                     pending_id = state.get(_PENDING)
                     if not pending_id:
