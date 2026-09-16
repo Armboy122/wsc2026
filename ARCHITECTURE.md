@@ -171,7 +171,44 @@ LINE Reply/Push Message (fallback เป็น push เมื่อ reply token 
 
 โมดูลนี้ต้องไม่เปิดเผย sub-agent, agent แยกตาม tool หรือ tool ที่ไม่ได้ประกาศไว้ tool อาจมีโค้ด helper ภายในได้ แต่จะไม่มีการลงทะเบียน tool ระดับบนสุดเพิ่มเติมกับ LLM
 
-### โมดูล Voice (Gemini Live)
+### ADK Live runtime (feature flag)
+
+`VOICE_RUNTIME=legacy` (default) retains the flow below. `VOICE_RUNTIME=adk`
+selects `app/runtime/adk_live.py` through the same `/ws/live` route:
+
+```mermaid
+flowchart TD
+    UI["Existing voice UI"] --> WS["WebSocket transport"]
+    WS --> ADK["ADK Runner and LiveRequestQueue"]
+    ADK --> Agent["PEA One Agent"]
+    Agent --> Tools["WSC adapters: Knowledge / VOC / OMS"]
+    Tools --> Domain["Existing domain services and write policies"]
+    ADK <--> Gemini["Gemini Live"]
+```
+
+ADK owns live execution, tool dispatch/result return, conversation events,
+upstream session resumption and interruption events. WSC owns business contracts,
+Knowledge grounding, plugin intake/consent, validation, traces and write safety.
+The new `MainAgent.execute_domain_tool` / `advance_domain_intake` entry points
+reuse deterministic domain behavior **without calling handle_chat or the JSON
+planner loop**, and do not store a duplicate conversational history.
+
+`app/agent/adk_agent.py` defines the agent; `app/tools/adk_tools.py` adapts enabled
+tools. VOC prepare is exposed only through its existing guided intake. Submit
+actions remain hidden; confirmation is session-bound and requires a later user
+event than the preparation. HTTP confirmation/rejection still uses the same
+pending-action and trace stores. Synchronous REST waits run off the event loop.
+
+Each browser socket receives an isolated ADK session and tool adapter. The
+SessionService is injectable; the prototype uses in-memory storage and deletes
+the ADK session on disconnect. WSC pending actions/traces retain existing HTTP
+lifetime semantics. A fresh browser socket starts a new conversation, as before.
+
+The legacy-only VoiceBridge ownership restrictions below do not apply to the
+new domain adapter; the ADK transport itself still contains no business logic.
+See [migration and acceptance notes](docs/adk-runtime-migration.md).
+
+### โมดูล Voice (Gemini Live, legacy)
 
 **ส่วนเชื่อมต่อ:** `app/live/bridge.py` (`VoiceBridge`), `app/live/gemini_live.py` (`GeminiLiveSession`) และ `app/api/live.py` (`/ws/live`)
 

@@ -62,6 +62,11 @@ StaticFiles) — จากนั้นต้นทางเดียวกัน
 
 ## โหมดเสียง (Gemini Live)
 
+`VOICE_RUNTIME=adk` uses the same endpoint and UI. Final ADK transcripts carry
+`replace: true` because they contain accumulated text; interim fragments and
+legacy transcripts append as before. ADK `session.ready` signals input readiness,
+with upstream connection failures reported separately as safe errors.
+
 ปุ่มไมโครโฟนในช่องเขียนข้อความเปิด/ปิดโหมดเสียง โดยใช้ `WS /ws/live` เดียว
 ต่อเซสชันเบราว์เซอร์:
 

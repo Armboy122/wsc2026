@@ -133,6 +133,27 @@
 
 ## ช่องเสียง `/ws/live` (ส่วนเพิ่มเติม — ไม่เปลี่ยนสัญญา HTTP)
 
+**Runtime migration:** `VOICE_RUNTIME=legacy` is the default and retains the
+bridge contract below. `VOICE_RUNTIME=adk` keeps the URL, PCM formats and event
+envelopes. In ADK mode `session.ready` means the input queue/session is ready;
+it does not assert that Gemini has authenticated. A provider failure emits the
+existing safe `error` and closes the socket.
+
+ADK transcription events add optional `replace: true` on final accumulated
+text. The UI replaces the current draft for that role; legacy deltas still append.
+No raw ADK event, hidden thought, resumption handle or provider error is exposed.
+
+In ADK mode the model sees enabled Knowledge/OMS read/prepare actions and VOC
+read actions as individual ADK tools. `voc_intake(message)` preserves the
+existing catalog and consent workflow. `pea_confirm_pending_action` and
+`pea_reject_pending_action` accept a note/reason, never an ID. Submit actions
+are never model-visible. Confirmation requires a later actual user event than
+preparation; same-turn prepare+confirm fails with `confirmation_required`.
+Adapter input errors may include `missingFields` alongside the safe `error`.
+ADK owns conversation events; existing WSC domain envelopes and HTTP contracts
+in `app/contracts.py` are unchanged. Browser JSON still cannot invoke tools.
+New sockets start new conversations; only upstream Live reconnection resumes.
+
 ช่องเสียงเป็นสัญญาเพิ่มเติมสำหรับ Voice Mode (Gemini Live) สัญญา HTTP v1
 ข้างต้นยังคงเป็น frozen ตามเดิม: ฟิลด์ camelCase, state machine, idempotency,
 trace และ redaction ทั้งหมดไม่เปลี่ยนแปลง ช่องเสียงเป็นเพียงช่องทางขนส่งเพิ่มเติม

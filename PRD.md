@@ -130,6 +130,19 @@ Sabuy และ VOC ไม่ลงทะเบียนใน runtime catalogue
 | สถานะโมเดล | `gemini-3.1-flash-live-preview` (Preview) — ยังไม่ใช่ GA และอาจเปลี่ยนพฤติกรรม/เสียง |
 | ข้อมูล OMS | ToolResult ยังคง `simulation=true` เช่นเดียวกับช่องทางข้อความ |
 
+### 7.2 Controlled ADK runtime migration
+
+The 7.1 table describes `VOICE_RUNTIME=legacy`, which remains the default.
+Opt-in `VOICE_RUNTIME=adk` replaces the custom voice/planner execution loop with
+one ADK Live agent and exposes enabled Knowledge, VOC and OMS through thin
+adapters. Existing business rules, VOC consent/intake, pending-action approval,
+citations, static UI and HTTP behavior remain regression boundaries.
+
+Acceptance requires Thai microphone input/output, interruption, tool return to
+the same conversation, grounded follow-ups, no redundant questions for supplied
+information and asking only for missing data. Offline adapter/transport tests
+do not establish this live acceptance. No telephony or UI redesign is included.
+
 ## 8. Critical User Journeys
 
 ### J1 — Ask a knowledge question

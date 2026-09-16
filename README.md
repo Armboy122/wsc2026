@@ -8,6 +8,22 @@
 
 ---
 
+## ทดลอง ADK Live runtime
+
+Branch `feat/adk-live-runtime` retains legacy as the default. Install and run:
+
+```bash
+uv sync --frozen --extra dev --extra voice --extra adk
+# Configure GEMINI_API_KEY and the existing OMS/VOC/Knowledge settings in .env.
+VOICE_RUNTIME=adk uv run --frozen --extra voice --extra adk uvicorn app.main:app --host 127.0.0.1 --port 8000
+# Roll back the runtime by restarting with:
+VOICE_RUNTIME=legacy uv run --frozen --extra voice --extra adk uvicorn app.main:app --host 127.0.0.1 --port 8000
+```
+
+Open http://127.0.0.1:8000 and use the existing microphone button.
+ADK owns live/tool execution; existing domain tools and confirmation rules remain.
+See [architecture, configuration and validation limits](docs/adk-runtime-migration.md).
+
 ## Quick Start — รันให้ได้ใน 5 นาที
 
 เปิด Terminal แล้วพิมพ์ตามนี้ทีละบรรทัด (คัดลอกได้เลย):
