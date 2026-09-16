@@ -7,6 +7,7 @@
 
 from __future__ import annotations
 
+import asyncio
 from typing import Any
 
 from pydantic import ValidationError
@@ -47,7 +48,9 @@ class SimulatedTool:
                 f"ข้อมูลนำเข้าสำหรับ {call.action.value} ไม่ถูกต้อง",
             )
         try:
-            data = self._run(call.action, input_model)
+            # REST adapters are synchronous. Keep microphone/event streaming live
+            # while an operational request waits on the network.
+            data = await asyncio.to_thread(self._run, call.action, input_model)
         except BackendError as exc:
             return self._error(call, exc.code, exc.message)
         except Exception:  # noqa: BLE001 - ปิดอย่างปลอดภัยเมื่อเกิดข้อผิดพลาดที่ไม่คาดคิดจาก backend

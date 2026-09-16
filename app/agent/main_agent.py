@@ -274,6 +274,45 @@ class MainAgent:
         self._conversations.append(conversation_id, LLMMessage("assistant", message))
         return ChatResponse(conversation_id=conversation_id, trace_id=trace_id, message=message, citations=citations, pending_action=pending, tool_results=tuple(all_results))
 
+    @property
+    def tool_catalogue(self) -> tuple[ToolDefinition, ...]:
+        """Enabled domain operations, also consumed by the ADK adapter."""
+        return self._tool_catalogue
+
+    async def execute_domain_tool(
+        self, call: ToolCall, conversation_id: UUID, *, user_message: str = ""
+    ) -> ChatResponse:
+        """Execute one validated operation without invoking the legacy planner.
+
+        Keep write preparation, trace ordering and authoritative presentation in
+        WSC. ADK owns conversation history and decides the next tool call.
+        """
+        trace_id = uuid4()
+        result = await self._execute_chat_call(call, conversation_id, trace_id)
+        pending = self._create_pending_from_results(conversation_id, trace_id, [result])
+        return ChatResponse(
+            conversation_id=conversation_id,
+            trace_id=trace_id,
+            message=_authoritative_message(
+                "", [result], pending, user_message=user_message,
+                response_policies=self._response_policies,
+            ),
+            citations=result.citations if result.status is ToolResultStatus.SUCCESS else (),
+            pending_action=pending,
+            tool_results=(result,),
+        )
+
+    async def advance_domain_intake(self, request: ChatRequest) -> ChatResponse | None:
+        """Reuse plugin intake without storing a second conversation history."""
+        return await self._handle_guided_turn(
+            request, request.conversation_id or uuid4(), uuid4(), record_history=False,
+        )
+
+    def cancel_domain_intake(self, conversation_id: UUID) -> None:
+        flow = self._guided_flows.active_flow(conversation_id)
+        if flow is not None:
+            flow.cancel(conversation_id)
+
     async def confirm_pending_action(self, pending_action_id: UUID, confirmation_note: str | None = None) -> ActionDecisionResponse:
         task = self._confirmation_tasks.get(pending_action_id)
         if task is not None:
@@ -356,6 +395,8 @@ class MainAgent:
         request: ChatRequest,
         conversation_id: UUID,
         trace_id: UUID,
+        *,
+        record_history: bool = True,
     ) -> ChatResponse | None:
         """เดิน flow ของปลั๊กอินโดยไม่เรียกโมเดล และคืน None เมื่อไม่มี flow ที่รับเทิร์นนี้"""
         if not self._guided_flows:
@@ -405,8 +446,9 @@ class MainAgent:
         elif pending is not None:
             message = f"{message}\n\nกรุณายืนยันรายการที่เสนอนี้อย่างชัดเจนเพื่อส่งรายการครับ"
 
-        self._conversations.append(conversation_id, LLMMessage("user", request.message))
-        self._conversations.append(conversation_id, LLMMessage("assistant", message))
+        if record_history:
+            self._conversations.append(conversation_id, LLMMessage("user", request.message))
+            self._conversations.append(conversation_id, LLMMessage("assistant", message))
         return ChatResponse(
             conversation_id=conversation_id,
             trace_id=trace_id,

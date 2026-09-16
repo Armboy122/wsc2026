@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import asyncio
 import re
 from typing import Any
 from uuid import UUID, uuid4
@@ -77,7 +78,7 @@ class VocGuidedFlow:
         if self.is_active(conversation_id) or not _wants_new_case(message):
             return None
         try:
-            flow = self._flow()
+            flow = await asyncio.to_thread(self._flow)
         except BackendError:
             # catalog อ่านไม่ได้แปลว่าเดินขั้นตอนโดยไม่เดารหัสไม่ได้ จึงไม่เปิด session ค้างไว้
             return GuidedTurn(message=_CATALOG_UNAVAILABLE_MESSAGE, finished=True)
@@ -130,7 +131,7 @@ class VocGuidedFlow:
             else:
                 answer = matched
 
-        flow = self._flow()
+        flow = await asyncio.to_thread(self._flow)
         if prompt.prompt_id == STEP_CONSENT and answer == CONSENT_DECLINE:
             self.cancel(conversation_id)
             return GuidedTurn(message=_DECLINED_MESSAGE, finished=True)
