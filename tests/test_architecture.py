@@ -3,6 +3,9 @@
 from __future__ import annotations
 
 import ast
+import os
+import subprocess
+import sys
 from pathlib import Path
 
 import pytest
@@ -71,7 +74,7 @@ def test_no_python_module_imports_deleted_platform_code() -> None:
 
 
 def test_contracts_module_holds_only_shared_primitives() -> None:
-    import app.contracts as contracts
+    from app import contracts
 
     for removed in ("BillCalculationRequest", "ChatRequest", "PendingAction", "Citation", "ToolName", "TraceEvent"):
         assert not hasattr(contracts, removed), removed
@@ -106,3 +109,47 @@ def test_all_knowledge_documents_are_retained() -> None:
     assert len(list(source_root.joinpath("qa").glob("qa_*.md"))) >= 10
     assert len(list(ROOT.joinpath("knowledge", "aliases").glob("*.md"))) >= 4
     assert ROOT.joinpath("docs", "research", "electricity-tariff-sep-2569.md").is_file()
+
+
+def test_knowledge_index_package_has_no_generative_or_adk_imports() -> None:
+    """The local index is deterministic: no generative client and no ADK dependency."""
+    modules = sorted(ROOT.joinpath("app", "knowledge", "index").glob("*.py"))
+    assert modules, "expected the deterministic knowledge index modules"
+
+    forbidden_roots = ("google", "adk", "genai", "openai", "anthropic")
+    for module in modules:
+        tree = ast.parse(module.read_text(encoding="utf-8"))
+        for node in ast.walk(tree):
+            if isinstance(node, ast.Import):
+                for alias in node.names:
+                    root = alias.name.split(".")[0]
+                    assert root not in forbidden_roots, f"{module.name} imports {alias.name}"
+            elif isinstance(node, ast.ImportFrom):
+                root = (node.module or "").split(".")[0]
+                assert root not in forbidden_roots, f"{module.name} imports {node.module}"
+            elif isinstance(node, ast.Attribute):
+                assert node.attr != "generate_content", (
+                    f"{module.name} calls a generative provider"
+                )
+            elif isinstance(node, ast.Call) and isinstance(node.func, ast.Name):
+                assert node.func.id not in {"generate_content", "generate_content_async"}
+
+
+def test_importing_knowledge_index_keeps_torch_and_sentence_transformers_lazy() -> None:
+    """Importing the index must not pull in torch or sentence-transformers."""
+    code = (
+        "import sys; import app.knowledge.index; "
+        "assert 'torch' not in sys.modules, 'torch must stay lazy'; "
+        "assert 'sentence_transformers' not in sys.modules, "
+        "'sentence-transformers must stay lazy'"
+    )
+    env = {**os.environ, "PYTHONPATH": str(ROOT)}
+    result = subprocess.run(
+        [sys.executable, "-c", code],
+        cwd=ROOT,
+        env=env,
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+    assert result.returncode == 0, result.stderr

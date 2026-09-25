@@ -22,9 +22,21 @@ dev = [
   "pytest>=8.0",
   "pytest-asyncio>=0.24",
 ]
+# Local hybrid knowledge index (Story 4). Importing app.knowledge.index does not load
+# torch or sentence-transformers; the real embedding model is imported lazily on first use.
+index = [
+  "numpy>=2.4.6",
+  "pythainlp>=5.3.8",
+  "rank-bm25>=0.2.2",
+  "sentence-transformers>=6.1.0",
+]
 
 [tool.pytest.ini_options]
 testpaths = ["app/api/tests", "app/core/tests", "tests"]
 pythonpath = "."
 asyncio_mode = "auto"
 asyncio_default_fixture_loop_scope = "function"
+markers = [
+  "model: opt-in test needing a locally cached real embedding model (deselected by default)",
+]
+addopts = "-m 'not model'"

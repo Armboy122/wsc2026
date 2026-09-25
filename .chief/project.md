@@ -11,8 +11,8 @@ approved local PEA Markdown documents.
 | Purpose | Command |
 | --- | --- |
 | Create venv (CPython 3.11) | `uv venv --python 3.11 .venv` |
-| Install deps | `uv pip install --python .venv/bin/python 'fastapi>=0.115,<1.0' 'pydantic>=2.8,<3.0' 'uvicorn[standard]>=0.30,<1.0' 'httpx>=0.27' 'google-genai>=1.0,<3.0' 'google-adk==2.9.1' 'pytest>=8.0' 'pytest-asyncio>=0.24'` |
-| Run tests | `.venv/bin/python -m pytest -q` |
+| Install deps | `uv sync --all-extras` (includes the `index` extra: `numpy`, `pythainlp`, `rank-bm25`, `sentence-transformers`) |
+| Run tests | `uv run --all-extras pytest -q` (real-model tests are opt-in: `uv run --all-extras pytest -m model`; they skip unless `BAAI/bge-m3` is already cached) |
 | Run server | `.venv/bin/python -m uvicorn app.main:app --reload --port 8000` |
 
 Notes verified during audit:
