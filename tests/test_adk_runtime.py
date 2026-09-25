@@ -5,10 +5,12 @@ from __future__ import annotations
 import asyncio
 from contextlib import asynccontextmanager
 from types import SimpleNamespace
+from typing import cast
 from uuid import UUID, uuid4
 
 import httpx
 import pytest
+from fastapi import WebSocket
 
 pytest.importorskip("google.adk")
 
@@ -49,7 +51,7 @@ class Evidence:
     async def search(self, query, max_results):
         self.queries.append(query)
         return GroundedEvidence("หลักฐานจากเอกสาร", 1, (Citation(
-            sourceId="demo", title="คู่มือ", uri="knowledge://demo", snippet="หลักฐานจากเอกสาร",
+            source_id="demo", title="คู่มือ", uri="knowledge://demo", snippet="หลักฐานจากเอกสาร",
         ),))
 
 
@@ -225,14 +227,14 @@ class Wire:
 @pytest.mark.asyncio
 async def test_event_mapping_audio_interruption_transcripts_and_no_thoughts():
     wire = Wire()
-    await forward_event(wire, Event(author="pea_one_agent", partial=True, content=types.Content(parts=[
+    await forward_event(cast(WebSocket, wire), Event(author="pea_one_agent", partial=True, content=types.Content(parts=[
         types.Part(text="hidden reasoning", thought=True),
         types.Part(inline_data=types.Blob(data=b"\x00\x01", mime_type="audio/pcm;rate=24000")),
     ]), output_transcription=types.Transcription(text="สวัสดี", finished=False)))
-    await forward_event(wire, Event(author="pea_one_agent", interrupted=True, content=types.Content(parts=[
+    await forward_event(cast(WebSocket, wire), Event(author="pea_one_agent", interrupted=True, content=types.Content(parts=[
         types.Part(inline_data=types.Blob(data=b"stale", mime_type="audio/pcm;rate=24000")),
     ])))
-    await forward_event(wire, Event(author="pea_one_agent", turn_complete=True,
+    await forward_event(cast(WebSocket, wire), Event(author="pea_one_agent", turn_complete=True,
         output_transcription=types.Transcription(text="สวัสดีครับ", finished=True)))
     assert wire.audio == [b"\x00\x01"]
     assert wire.events[1] == {"type": "audio.interrupted"}
@@ -240,7 +242,7 @@ async def test_event_mapping_audio_interruption_transcripts_and_no_thoughts():
     assert wire.events[-1] == {"type": "turn.complete"}
     assert "hidden" not in str(wire.events)
     with pytest.raises(RuntimeError):
-        await forward_event(wire, Event(author="pea_one_agent", error_code="500", error_message="SECRET"))
+        await forward_event(cast(WebSocket, wire), Event(author="pea_one_agent", error_code="500", error_message="SECRET"))
     assert "SECRET" not in str(wire.events)
 
 
@@ -289,7 +291,7 @@ class LiveModel(BaseLlm):
         self._connection = connection
 
     @asynccontextmanager
-    async def connect(self, request):
+    async def connect(self, llm_request):
         yield self._connection
 
     async def generate_content_async(self, *args, **kwargs):
@@ -326,6 +328,7 @@ async def test_real_adk_runner_dispatches_knowledge_returns_audio_and_keeps_sess
     assert len(connection.responses) == 2
     assert all(c.parts[0].function_response.response["citations"] for c in connection.responses)
     saved = await service.get_session(app_name="test", user_id="user", session_id="session")
+    assert saved is not None
     assert len(saved.events) >= 4
     assert any(e.content and any(p.inline_data for p in e.content.parts) for e in events)
 
@@ -341,8 +344,8 @@ async def test_socket_cleanup_and_provider_error_are_isolated(domain):
         raise RuntimeError("SECRET_API_KEY")
         yield
 
-    live._runner = SimpleNamespace(run_live=fail)
-    await live.serve(wire)
+    live._runner = cast(Runner, SimpleNamespace(run_live=fail))
+    await live.serve(cast(WebSocket, wire))
     assert wire.closed
     assert wire.events[-1]["type"] == "error"
     assert "SECRET" not in str(wire.events)
@@ -358,8 +361,8 @@ async def test_socket_cleanup_and_provider_error_are_isolated(domain):
         await asyncio.Event().wait()
         yield
 
-    second._runner = SimpleNamespace(run_live=hold)
-    await second.serve(other)
+    second._runner = cast(Runner, SimpleNamespace(run_live=hold))
+    await second.serve(cast(WebSocket, other))
     assert other.closed and other.events == [{"type": "session.ready"}]
     assert second._id != live._id
 
@@ -380,6 +383,7 @@ async def test_adk_state_persists_pending_id_until_next_spoken_turn(domain):
             if event.turn_complete:
                 if len(connection.audio) == 1:
                     saved = await service.get_session(app_name="test", user_id="user", session_id="session")
+                    assert saved is not None
                     assert saved.state["wsc_pending_action_id"]
                     assert not domain.requests
                     queue.send_realtime(types.Blob(data=b"\x01\x00", mime_type="audio/pcm;rate=16000"))
@@ -415,39 +419,102 @@ async def test_slow_operational_request_does_not_block_audio_loop(domain):
         await asyncio.gather(task, return_exceptions=True)
 
 
+def test_live_run_config_preserves_audio_interruption_and_resumption_contract() -> None:
+    config = live_run_config("Puck")
+
+    assert config.streaming_mode.value == "bidi"
+    assert config.response_modalities == [types.Modality.AUDIO]
+    assert config.speech_config is not None
+    assert config.speech_config.voice_config is not None
+    assert config.speech_config.voice_config.prebuilt_voice_config is not None
+    assert config.speech_config.voice_config.prebuilt_voice_config.voice_name == "Puck"
+    assert config.input_audio_transcription == types.AudioTranscriptionConfig()
+    assert config.output_audio_transcription == types.AudioTranscriptionConfig()
+    assert config.realtime_input_config is not None
+    assert (
+        config.realtime_input_config.activity_handling
+        == types.ActivityHandling.START_OF_ACTIVITY_INTERRUPTS
+    )
+    assert (
+        config.realtime_input_config.turn_coverage
+        == types.TurnCoverage.TURN_INCLUDES_ONLY_ACTIVITY
+    )
+    assert config.session_resumption == types.SessionResumptionConfig()
+
+
+@pytest.mark.parametrize("audio", [b"", b"\x00", b"\x00" * 32002])
+@pytest.mark.asyncio
+async def test_browser_rejects_invalid_pcm16_frames(audio: bytes) -> None:
+    wire, queue = Wire(), LiveRequestQueue()
+    await wire.incoming.put({"type": "websocket.receive", "bytes": audio})
+
+    with pytest.raises(ValueError, match="Invalid PCM16 frame"):
+        await AdkLiveSession._receive_browser(
+            cast(AdkLiveSession, object()), cast(WebSocket, wire), queue
+        )
+
+
+@pytest.mark.asyncio
+async def test_browser_accepts_maximum_pcm16_frame() -> None:
+    audio = b"\x00" * 32000
+    wire, queue = Wire(), LiveRequestQueue()
+    await wire.incoming.put({"type": "websocket.receive", "bytes": audio})
+    task = asyncio.create_task(
+        AdkLiveSession._receive_browser(
+            cast(AdkLiveSession, object()), cast(WebSocket, wire), queue
+        )
+    )
+
+    try:
+        packet = await asyncio.wait_for(queue.get(), 1)
+        assert packet.blob is not None
+        assert packet.blob.data is not None
+        assert len(packet.blob.data) == 32000
+    finally:
+        task.cancel()
+        await asyncio.gather(task, return_exceptions=True)
+
+
 @pytest.mark.asyncio
 async def test_binary_audio_and_json_cannot_invoke_writes():
     wire, queue = Wire(), LiveRequestQueue()
     await wire.incoming.put({"type": "websocket.receive", "text": '{"function":"pea_confirm_pending_action"}'})
     await wire.incoming.put({"type": "websocket.receive", "bytes": b"\x00\x01"})
-    task = asyncio.create_task(AdkLiveSession._receive_browser(None, wire, queue))
+    task = asyncio.create_task(AdkLiveSession._receive_browser(
+        cast(AdkLiveSession, object()), cast(WebSocket, wire), queue
+    ))
     packet = await asyncio.wait_for(queue.get(), 1)
+    assert packet.blob is not None
     assert packet.blob.data == b"\x00\x01" and packet.blob.mime_type == "audio/pcm;rate=16000"
     task.cancel()
     await asyncio.gather(task, return_exceptions=True)
 
 
-def test_fastapi_websocket_selects_adk_and_legacy(monkeypatch):
+def test_fastapi_websocket_always_uses_adk_without_runtime_selector(monkeypatch):
     from fastapi.testclient import TestClient
     from app.main import app
     from app.core.config import Settings
     from app.api import live
+
     selected = []
+    monkeypatch.setenv("VOICE_RUNTIME", "legacy")
 
     class Session:
-        def __init__(self, **kwargs): selected.append(kwargs)
+        def __init__(self, **kwargs):
+            selected.append(kwargs)
+
         async def serve(self, websocket):
             await websocket.accept()
             await websocket.send_json({"type": "session.ready"})
             await websocket.close()
 
     monkeypatch.setattr("app.runtime.adk_live.AdkLiveSession", Session)
-    monkeypatch.setattr("app.live.gemini_live.GeminiLiveSession", Session)
-    for runtime in ("adk", "legacy"):
-        monkeypatch.setattr(live, "load_settings", lambda: Settings(gemini_api_key="test", voice_runtime=runtime))
-        with TestClient(app).websocket_connect("/ws/live") as ws:
-            assert ws.receive_json()["type"] == "session.ready"
-    assert len(selected) == 2
-    monkeypatch.setattr(live, "load_settings", lambda: Settings(voice_runtime="typo"))
-    with TestClient(app).websocket_connect("/ws/live") as ws:
-        assert ws.receive_json()["type"] == "error"
+    monkeypatch.setattr(live, "get_knowledge_tool", lambda: object())
+    monkeypatch.setattr(live, "load_settings", lambda: Settings(gemini_api_key="test"))
+
+    with TestClient(app).websocket_connect("/ws/live") as websocket:
+        assert websocket.receive_json()["type"] == "session.ready"
+
+    assert len(selected) == 1
+    assert "knowledge_tool" in selected[0]
+    assert not hasattr(Settings, "voice_runtime")

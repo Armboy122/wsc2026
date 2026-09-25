@@ -1,58 +1,36 @@
-"""Thin WebSocket entry point for the Gemini Live voice session."""
+"""Thin WebSocket entry point for the ADK Gemini Live session."""
 
 from __future__ import annotations
 
 from fastapi import APIRouter, WebSocket
 
 from app.core.config import load_settings
-from app.core.di import agent_service, get_knowledge_tool
-from app.live.scoped_agent import scoped_voice_agent
+from app.core.di import get_knowledge_tool
 
 router = APIRouter()
 
 
 @router.websocket("/ws/live")
-async def gemini_live(websocket: WebSocket, channel: str = "web") -> None:
-    """Create a fresh Gemini session, queue, bridge, and conversation per socket.
-
-    ``channel=phone`` คือสายเสียงล้วนแบบ 1129 ที่ไม่มีหน้าจอ ค่าอื่นทั้งหมด
-    ถือว่าเป็นเว็บที่มีจอ เพื่อให้ค่าเริ่มต้นปลอดภัยเมื่อไคลเอนต์ไม่ระบุ
-    """
+async def gemini_live(websocket: WebSocket) -> None:
+    """Create one ADK Live session for each browser connection."""
     settings = load_settings()
-    if settings.voice_runtime not in {"legacy", "adk"}:
-        await websocket.accept()
-        await websocket.send_json({"type": "error", "message": "ค่า VOICE_RUNTIME ต้องเป็น legacy หรือ adk"})
-        await websocket.close(code=1011)
-        return
     if not settings.gemini_api_key:
         await websocket.accept()
         await websocket.send_json({"type": "error", "message": "โหมดเสียงยังไม่ได้ตั้งค่า"})
         await websocket.close(code=1011)
         return
     try:
-        if settings.voice_runtime == "adk":
-            from app.runtime.adk_live import AdkLiveSession
-
-            session = AdkLiveSession(
-                api_key=settings.gemini_api_key,
-                model=settings.live_model,
-                voice=settings.live_voice,
-                knowledge_tool=get_knowledge_tool(),
-            )
-            await session.serve(websocket)
-            return
-        # google-genai is optional: text mode must start without voice extras.
-        from app.live.gemini_live import GeminiLiveSession
+        from app.runtime.adk_live import AdkLiveSession
     except ImportError:
         await websocket.accept()
         await websocket.send_json({"type": "error", "message": "โหมดเสียงไม่พร้อมใช้งาน กรุณาลองใหม่อีกครั้ง"})
         await websocket.close(code=1011)
         return
-    session = GeminiLiveSession(
+
+    session = AdkLiveSession(
         api_key=settings.gemini_api_key,
         model=settings.live_model,
         voice=settings.live_voice,
-        agent=scoped_voice_agent(agent_service.agent),
-        has_display=channel != "phone",
+        knowledge_tool=get_knowledge_tool(),
     )
     await session.serve(websocket)

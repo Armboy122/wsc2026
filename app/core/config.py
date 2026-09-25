@@ -66,7 +66,6 @@ class Settings:
     gemini_long_context_model: str = "gemini-3.5-flash-lite"
     live_model: str = "gemini-3.1-flash-live-preview"
     live_voice: str = "Puck"
-    voice_runtime: str = "legacy"
     oms_base_url: str = "http://127.0.0.1:8080/api/v1/oms"
     oms_timeout_seconds: float = 5.0
     oms_api_key: str | None = field(default=None, repr=False)
@@ -202,7 +201,6 @@ class Settings:
             gemini_long_context_model=gemini_long_context_model,
             live_model=live_model,
             live_voice=live_voice,
-            voice_runtime=env.get("VOICE_RUNTIME", "legacy").strip().lower(),
             oms_base_url=oms_base_url,
             oms_timeout_seconds=oms_timeout_seconds,
             oms_api_key=oms_api_key,

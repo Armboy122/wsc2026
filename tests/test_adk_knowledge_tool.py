@@ -64,6 +64,15 @@ async def test_adk_knowledge_tool_calls_only_knowledge_and_returns_provenance() 
     assert knowledge.calls[0].input == {"query": "ขอใช้ไฟฟ้า", "maxResults": 2}
 
 
+def test_adk_voice_prompt_is_short_and_knowledge_only() -> None:
+    prompt = Path("app/prompts/adk_voice.md").read_text(encoding="utf-8").lower()
+
+    assert "knowledge" in prompt
+    assert "เอกสาร" in prompt
+    for excluded in ("oms", "voc", "ca number", "pending", "confirm", "reject", "consent", "idempotency", "write", "outage", "complaint"):
+        assert excluded not in prompt
+
+
 def test_adk_agent_exposes_only_knowledge_and_voice_runtime_has_no_main_agent_import() -> None:
     knowledge_tool = AdkKnowledgeTool(cast(KnowledgeTool, Knowledge()))
     client = Client(api_key="test")

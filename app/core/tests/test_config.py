@@ -8,7 +8,8 @@ from app.core.config import Settings, load_settings
 
 
 def test_default_settings() -> None:
-    settings = Settings.from_env({})
+    settings = Settings.from_env({"VOICE_RUNTIME": "legacy"})
+    assert not hasattr(settings, "voice_runtime")
     assert settings.app_env == "development"
     assert settings.log_level == "info"
     assert "http://localhost:3000" in settings.cors_origins
