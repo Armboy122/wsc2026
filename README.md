@@ -20,7 +20,7 @@ VOICE_RUNTIME=adk uv run --frozen --extra voice --extra adk uvicorn app.main:app
 VOICE_RUNTIME=legacy uv run --frozen --extra voice --extra adk uvicorn app.main:app --host 127.0.0.1 --port 8000
 ```
 
-Open http://127.0.0.1:8000 and use the existing microphone button.
+Open <http://127.0.0.1:8000> and use the existing microphone button.
 ADK owns live/tool execution; existing domain tools and confirmation rules remain.
 See [architecture, configuration and validation limits](docs/adk-runtime-migration.md).
 
@@ -59,7 +59,7 @@ open http://127.0.0.1:8000
 ## สิ่งที่ต้องเตรียมก่อน (Prerequisites)
 
 | ของที่ต้องมี | รายละเอียด |
-|---|---|
+| --- | --- |
 | **Python 3.11 ขึ้นไป** | ตรวจด้วย `python3 --version` |
 | **[uv](https://docs.astral.sh/uv/)** | ตัวจัดการ dependency + virtualenv ติดตั้งด้วย `curl -LsSf https://astral.sh/uv/install.sh \| sh` แล้วเปิด Terminal ใหม่ |
 | **GEMINI_API_KEY** | คีย์ฟรีจาก [Google AI Studio](https://aistudio.google.com/apikey) — จำเป็นสำหรับแชต (provider `gemini`), การค้นหาความรู้ และโหมดเสียง |
@@ -90,10 +90,12 @@ knowledge/source/qa/       คำถาม-คำตอบที่อนุม�
 ### เงื่อนไขที่ Knowledge ต้องมีเพื่อจะตอบได้
 
 - ตั้งค่าใน `.env`:
+
   ```dotenv
   KNOWLEDGE_LLM_PROVIDER=gemini
   GEMINI_API_KEY=your-google-ai-key
   ```
+
 - ตรวจสอบความพร้อมได้ที่ `http://127.0.0.1:8000/health` — ต้องเห็น
   `"knowledge_backend": "ready"` (ถ้าเป็น `unavailable` แปลว่า key/ไฟล์ไม่พร้อม)
 
@@ -108,6 +110,7 @@ knowledge/source/qa/       คำถาม-คำตอบที่อนุม�
 ---
 
 <a id="voice-mode"></a>
+
 ## โหมดเสียง (Voice Mode) — ต้องกด "อนุญาต" (Allow) ก่อน
 
 โหมดเสียงใช้ Gemini Live พูดคุยกับผู้ช่วยแบบเรียลไทม์ (ครอบคลุม Knowledge + OMS)
@@ -134,7 +137,7 @@ knowledge/source/qa/       คำถาม-คำตอบที่อนุม�
 ### ตัวแปร environment สำหรับเสียง (มีค่าเริ่มต้นแล้ว ไม่ต้องแก้ก็ได้)
 
 ```dotenv
-GEMINI_LIVE_MODEL=gemini-3.1-flash-live-preview   # โมเดลเสียง (เป็น Preview)
+GEMINI_LIVE_MODEL=gemini-3.8-live                # โมเดลเสียงเรียลไทม์
 GEMINI_LIVE_VOICE=Puck                             # เสียงพูด
 ```
 
@@ -164,7 +167,7 @@ uv run pytest -q
 ### Provider ของ LLM
 
 | บทบาท | ตั้งค่าใน `llm-settings.yaml` | รองรับ |
-|---|---|---|
+| --- | --- | --- |
 | Main Agent | `roles.main` | `gemini`, `local` (OpenAI-compatible), `demo` |
 | Judge | `roles.judge` | `gemini`, `local` (OpenAI-compatible), `demo` |
 | Knowledge | `roles.knowledge` | `gemini` เท่านั้น (Full-file Long Context ที่ตรวจสอบแล้ว) |
@@ -204,7 +207,7 @@ roles:
 ### ตัวแปรอื่น ๆ ที่น่าสนใจ
 
 | ตัวแปร | ความหมาย | ค่าเริ่มต้น |
-|---|---|---|
+| --- | --- | --- |
 | `KNOWLEDGE_SOURCE_ROOT` | โฟลเดอร์เอกสารความรู้ | `knowledge/source` |
 | `KNOWLEDGE_BACKEND_NAME` | backend ของความรู้ (ปัจจุบันรองรับค่าเดียว) | `full_document` |
 | `OMS_BASE_URL` / `OMS_API_KEY` | OMS จำลอง (REST) | `http://127.0.0.1:8080/api/v1/oms` / `88888888` |
@@ -227,7 +230,7 @@ roles:
 ### API หลัก
 
 | เส้นทาง | ใช้สำหรับ |
-|---|---|
+| --- | --- |
 | `POST /api/v1/chat` | ส่งข้อความ |
 | `POST /api/v1/actions/{id}/confirm` / `reject` | ยืนยัน / ปฏิเสธรายการที่เตรียมไว้ |
 | `GET /api/v1/traces/{traceId}` | ดู trace |
@@ -242,7 +245,7 @@ roles:
 ระบบแบ่งเครื่องมือเป็นสองชั้น:
 
 | ชั้น | ตัวอย่าง | ประกอบที่ไหน |
-|---|---|---|
+| --- | --- | --- |
 | **Built-in** | `knowledge_tool` | `app/main.py` โดยตรง |
 | **Plugin** | `oms_tool` | `app/plugins/<id>/plugin.yaml` (ค้นพบตอน startup) |
 
@@ -295,7 +298,7 @@ metadata:
 ### หน้าที่ของแต่ละส่วน
 
 | ส่วน | หน้าที่ | **ไม่ใช่** หน้าที่ |
-|---|---|---|
+| --- | --- | --- |
 | `plugin.yaml` | discovery, metadata, ประกาศ operation, ชี้ชื่อ env var | ยิง HTTP, ถือ schema, เก็บ secret |
 | `factory.py` | ประกอบ `PluginRuntime` จาก settings | business logic |
 | `demo.py` / `response.py` | deterministic demo planning และการแสดงผลเฉพาะ plugin | HTTP/write state machine |
@@ -355,7 +358,7 @@ Main Agent **ไม่ปล่อยข้อความอิสระขอ�
 ## การแก้ปัญหา (Troubleshooting)
 
 | อาการ | วิธีแก้ |
-|---|---|
+| --- | --- |
 | `command not found: uv` | ติดตั้ง uv ก่อน: `curl -LsSf https://astral.sh/uv/install.sh \| sh` แล้วเปิด Terminal ใหม่ |
 | รัน `uv sync` ไม่ผ่าน | ตรวจว่า Python ≥ 3.11 และอินเทอร์เน็ตปกติ |
 | "โหมดเสียงยังไม่ได้ตั้งค่า" | ตั้ง `GEMINI_API_KEY` ใน `.env` แล้ว restart เซิร์ฟเวอร์ |

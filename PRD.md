@@ -127,7 +127,7 @@ Sabuy และ VOC ไม่ลงทะเบียนใน runtime catalogue
 | เมทอดที่เรียก | `handle_chat` / `confirm_pending_action` / `reject_pending_action` เท่านั้น |
 | การยืนยัน/ปฏิเสธด้วยเสียง | ผูกกับเซสชัน — โมเดลไม่รับ/ส่ง `pendingActionId` ระบบเลือก "รายการปัจจุบัน" ของเซสชันเอง และ fail closed เมื่อไม่มีรายการ |
 | ความกำกวม | โมเดลต้องถามย้ำและห้ามเรียกฟังก์ชันตัดสินใจเมื่อคำตอบไม่ชัดเจน |
-| สถานะโมเดล | `gemini-3.1-flash-live-preview` (Preview) — ยังไม่ใช่ GA และอาจเปลี่ยนพฤติกรรม/เสียง |
+| โมเดลเสียง | `gemini-3.8-live` — ต้องยืนยันการเข้าถึงด้วยบัญชีจริงก่อน live acceptance |
 | ข้อมูล OMS | ToolResult ยังคง `simulation=true` เช่นเดียวกับช่องทางข้อความ |
 
 ### 7.2 Controlled ADK runtime migration
@@ -348,7 +348,7 @@ Known gaps ณ baseline นี้:
 - ข้อมูลใน process สูญหายเมื่อ restart
 - ยังไม่มี authentication/authorization สำหรับ production
 - Workflow ส่งคำถามที่ตอบไม่ได้ให้เจ้าหน้าที่เป็นข้อความแจ้งเท่านั้น ยังไม่มี ticket integration จริง
-- โหมดเสียงใช้ `gemini-3.1-flash-live-preview` (Preview) — ตรวจสอบสดด้วย key จริงแล้วว่า `/ws/live` เชื่อมต่อและ SDK รับ transcription/PCM audio ได้ แต่ยังไม่มีการทดสอบไมโครโฟน/ลำโพงจริงแบบอัตโนมัติ ต้องซ้อมสดด้วยมือก่อนนำเสนอ
+- โหมดเสียงตั้งค่า `gemini-3.8-live`; การเชื่อมต่อรุ่นนี้กับ Gemini Live จริงและการทดสอบไมโครโฟน/ลำโพงยังไม่ได้ทำ ต้องตรวจด้วยบัญชีจริงก่อน live acceptance
 - โหมดเสียงเป็น bridge บาง ๆ ไปยังความสามารถ Knowledge และ OMS ของ Main Agent และต้องใช้เบราว์เซอร์ที่รองรับ AudioWorklet/getUserMedia (แนะนำ Chrome/Edge ล่าสุด)
 
 ก่อนทำสไลด์ release/demo ให้รัน test/evaluator และอัปเดตหลักฐานสถานะในเอกสารที่เกี่ยวข้อง

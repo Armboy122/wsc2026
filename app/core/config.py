@@ -64,7 +64,7 @@ class Settings:
         / "source"
     )
     gemini_long_context_model: str = "gemini-3.5-flash-lite"
-    live_model: str = "gemini-3.1-flash-live-preview"
+    live_model: str = "gemini-3.8-live"
     live_voice: str = "Puck"
     oms_base_url: str = "http://127.0.0.1:8080/api/v1/oms"
     oms_timeout_seconds: float = 5.0
@@ -95,7 +95,7 @@ class Settings:
         gemini_long_context_model = env.get(
             "GEMINI_LONG_CONTEXT_MODEL", "gemini-3.5-flash-lite"
         )
-        live_model = env.get("GEMINI_LIVE_MODEL", "gemini-3.1-flash-live-preview")
+        live_model = env.get("GEMINI_LIVE_MODEL", "gemini-3.8-live")
         live_voice = env.get("GEMINI_LIVE_VOICE", "Puck")
         oms_base_url = (_get("OMS_BASE_URL") or "http://127.0.0.1:8080/api/v1/oms").rstrip("/")
         oms_api_key = _get("OMS_API_KEY")

@@ -44,10 +44,11 @@ Legacy remains the default until real microphone acceptance is verified.
 ## Official API verification
 
 Checked 2026-09-16: stable Google ADK release v2.9.1 (2026-09-15).
-Sources: https://github.com/google/adk-python/releases/tag/v2.9.1,
-https://adk.dev/live/sessions/, https://adk.dev/live/configuration/,
-https://adk.dev/live/events/, https://adk.dev/live/custom-server/,
-https://ai.google.dev/gemini-api/docs/live-api/capabilities.
+Sources: <https://github.com/google/adk-python/releases/tag/v2.9.1>,
+<https://adk.dev/live/sessions/>, <https://adk.dev/live/configuration/>,
+<https://adk.dev/live/events/>, <https://adk.dev/live/custom-server/>,
+<https://ai.google.dev/gemini-api/docs/live-api/capabilities>,
+<https://ai.google.dev/gemini-api/docs/models/gemini-3.8-live>.
 
 Use Agent, Runner, an injected SessionService, LiveRequestQueue.send_realtime,
 RunConfig and Runner.run_live. Run input and output concurrently. Configure
@@ -89,7 +90,7 @@ restarting the same command with `VOICE_RUNTIME=legacy`. No data migration.
 | --- | --- |
 | `VOICE_RUNTIME` | `legacy` default, or `adk`; unknown values fail closed |
 | `GEMINI_API_KEY` | Required for real Live and default Knowledge provider |
-| `GEMINI_LIVE_MODEL` | Existing default `gemini-3.1-flash-live-preview`; requires account access |
+| `GEMINI_LIVE_MODEL` | Default `gemini-3.8-live`; requires account access |
 | `GEMINI_LIVE_VOICE` | Existing default `Puck`; Thai instructed by agent prompt |
 | `KNOWLEDGE_LLM_MODEL`, `KNOWLEDGE_SOURCE_ROOT` | Existing Knowledge settings; retain verified documents |
 | `OMS_BASE_URL`, `OMS_API_KEY`, `OMS_TIMEOUT_SECONDS` | Existing OMS REST service configuration |
