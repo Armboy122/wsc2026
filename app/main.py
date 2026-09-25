@@ -18,27 +18,26 @@ from app.agent.main_agent import InvalidActionStateError, MainAgent, NotFoundErr
 from app.agent.registry import ToolRegistry
 from app.api.live import router as live_router
 from app.api.routes import router
-from app.backends.full_document_knowledge import (
-    SUPPORTED_PROVIDERS,
-    FullDocumentKnowledgeBackend,
-)
+from app.backends.full_document_knowledge import FullDocumentKnowledgeBackend
 from app.core.config import LLMRuntimeSettings, load_settings
-from app.core.di import adapter_service, agent_service, set_knowledge_tool
+from app.core.di import adapter_service, agent_service, set_knowledge_service
 from app.core.errors import ConflictException, NotFoundException, platform_exception_handler
 from app.core.startup import create_platform_app, startup_event
+from app.knowledge.catalog import KnowledgeCatalog
+from app.knowledge.service import KnowledgeDocumentService
 from app.llm import JudgeLLMClient, LLMClient, LLMProviderConfig, create_llm_adapter
 from app.plugins import load_plugins
 from app.tools.knowledge_tool import KnowledgeTool
 
 
 class _KnowledgeReadiness:
-    """เปิดเผยตัวตรวจสอบความพร้อมที่ไม่มีข้อมูลรับรองให้เส้นทาง health"""
+    """Knowledge is ready when the deterministic catalog has approved documents."""
 
-    def __init__(self, backend: FullDocumentKnowledgeBackend) -> None:
-        self._backend = backend
+    def __init__(self, service: KnowledgeDocumentService) -> None:
+        self._service = service
 
     async def ready(self) -> bool:
-        return await self._backend.is_ready()
+        return len(self._service.catalog) > 0
 
 
 async def _not_found_handler(request: Request, exc: NotFoundError) -> JSONResponse:
@@ -70,22 +69,15 @@ def _provider_config(config: LLMRuntimeSettings) -> LLMProviderConfig:
 
 
 settings = load_settings()
-if settings.knowledge_backend_name != "full_document":
-    raise RuntimeError(
-        f"ไม่รองรับ backend ความรู้: {settings.knowledge_backend_name}"
-    )
-if settings.knowledge_provider not in SUPPORTED_PROVIDERS:
-    raise RuntimeError(f"ไม่รองรับ Knowledge provider: {settings.knowledge_provider}")
 
-knowledge_backend = FullDocumentKnowledgeBackend(
-    api_key=settings.knowledge_llm.api_key,
-    source_root=settings.knowledge_source_root,
-    model=settings.knowledge_llm.model,
-    provider=settings.knowledge_llm.provider,
-    base_url=settings.knowledge_llm.base_url,
-)
+# Deterministic Knowledge for the ADK Voice Agent: no model client is constructed here.
+knowledge_catalog = KnowledgeCatalog(settings.knowledge_source_root)
+knowledge_service = KnowledgeDocumentService(knowledge_catalog)
+set_knowledge_service(knowledge_service)
+
+# Legacy Chat keeps only deterministic tariff evidence until Story 3 removes Chat.
+knowledge_backend = FullDocumentKnowledgeBackend(source_root=settings.knowledge_source_root)
 knowledge_tool = KnowledgeTool(knowledge_backend)
-set_knowledge_tool(knowledge_tool)
 # โหลด plugin contributions ก่อนประกอบ demo adapter; provider จริงรับเฉพาะข้อความคำสั่ง
 plugins = load_plugins(settings)
 llm_adapter = create_llm_adapter(
@@ -113,7 +105,7 @@ main_agent = MainAgent(main_llm_client, tool_registry, guided_flows=guided_flows
 
 agent_service.set_agent(main_agent)
 adapter_service.set_llm(llm_adapter)
-adapter_service.set_knowledge(_KnowledgeReadiness(knowledge_backend))
+adapter_service.set_knowledge(_KnowledgeReadiness(knowledge_service))
 
 app = create_platform_app(settings)
 app.include_router(router)

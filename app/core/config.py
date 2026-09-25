@@ -49,21 +49,13 @@ class Settings:
         )
     )
     main_llm: LLMRuntimeSettings = field(default_factory=LLMRuntimeSettings)
-    knowledge_llm: LLMRuntimeSettings = field(
-        default_factory=lambda: LLMRuntimeSettings(
-            provider="gemini", model="gemini-3.5-flash-lite"
-        )
-    )
     judge_llm: LLMRuntimeSettings = field(default_factory=LLMRuntimeSettings)
-    knowledge_backend_name: str = "full_document"
-    knowledge_provider: str = "gemini"
     gemini_api_key: str | None = None
     knowledge_source_root: Path = field(
         default_factory=lambda: Path(__file__).resolve().parents[2]
         / "knowledge"
         / "source"
     )
-    gemini_long_context_model: str = "gemini-3.5-flash-lite"
     live_model: str = "gemini-3.8-live"
     live_voice: str = "Puck"
     oms_base_url: str = "http://127.0.0.1:8080/api/v1/oms"
@@ -92,9 +84,6 @@ class Settings:
             return value if value is not None and value.strip() != "" else None
 
         gemini_api_key = _get("GEMINI_API_KEY")
-        gemini_long_context_model = env.get(
-            "GEMINI_LONG_CONTEXT_MODEL", "gemini-3.5-flash-lite"
-        )
         live_model = env.get("GEMINI_LIVE_MODEL", "gemini-3.8-live")
         live_voice = env.get("GEMINI_LIVE_VOICE", "Puck")
         oms_base_url = (_get("OMS_BASE_URL") or "http://127.0.0.1:8080/api/v1/oms").rstrip("/")
@@ -166,13 +155,6 @@ class Settings:
             )
 
         main_llm = _llm_settings("MAIN", "main", legacy_provider_key="LLM_ADAPTER_NAME")
-        knowledge_llm = _llm_settings(
-            "KNOWLEDGE",
-            "knowledge",
-            default_provider="gemini",
-            legacy_provider_key="KNOWLEDGE_PROVIDER",
-            gemini_model=gemini_long_context_model,
-        )
         judge_llm = _llm_settings("JUDGE", "judge")
 
         line_channel_secret = _get("LINE_CHANNEL_SECRET")
@@ -189,16 +171,12 @@ class Settings:
                 )
             ),
             main_llm=main_llm,
-            knowledge_llm=knowledge_llm,
             judge_llm=judge_llm,
-            knowledge_backend_name=env.get("KNOWLEDGE_BACKEND_NAME", "full_document").lower(),
-            knowledge_provider=knowledge_llm.provider,
             gemini_api_key=gemini_api_key,
             knowledge_source_root=Path(env.get(
                 "KNOWLEDGE_SOURCE_ROOT",
                 str(Path(__file__).resolve().parents[2] / "knowledge" / "source"),
             )),
-            gemini_long_context_model=gemini_long_context_model,
             live_model=live_model,
             live_voice=live_voice,
             oms_base_url=oms_base_url,

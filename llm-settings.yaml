@@ -24,10 +24,3 @@ roles:
     provider: demo
     thinking: false
     effort: low
-  # Knowledge remains Gemini-only because its verified FullDocument backend
-  # uses the Gemini Long Context contract. Live Voice is independently Gemini-only.
-  knowledge:
-    provider: gemini
-    model: gemini-3.5-flash-lite
-    thinking: false
-    effort: low

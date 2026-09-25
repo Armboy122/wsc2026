@@ -1,57 +1,34 @@
-"""Fail-closed provider-swappable long-context backend for approved documents.
+"""Legacy Chat Knowledge backend with no generative model calls.
 
-The first model call receives catalog metadata only and selects document identifiers.  A
-second call receives only the selected, complete documents; this module never uses File
-Search, embeddings, chunking, or an index.
+The Knowledge router/answer model calls were removed in Story 2 Ticket 002: Gemini Live now
+selects approved documents itself through ``app.knowledge`` and the ADK
+``get_knowledge_documents`` tool. The remaining legacy Chat path keeps only the deterministic,
+hash-verified tariff evidence used by bill calculation; free-text Chat Knowledge search fails
+closed with a structured ``unavailable`` error. Story 3 deletes this module with the Chat
+runtime.
 """
 
 from __future__ import annotations
 
 import asyncio
 import hashlib
-import json
-import os
-import re
 import stat
 import zipfile
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any, Callable
 from urllib.parse import quote
 from xml.etree import ElementTree
 
-from app.backends.knowledge_aliases import KnowledgeAliasRule, load_alias_rules, matching_rule
 from app.contracts import Citation, ToolErrorCode
 
-ENV_API_KEY = "GEMINI_API_KEY"
-ENV_FALLBACK_API_KEY = "GOOGLE_API_KEY"
-DEFAULT_PROVIDER = "gemini"
-SUPPORTED_PROVIDERS = frozenset({"gemini"})
-DEFAULT_MODEL = "gemini-3.5-flash-lite"
-DEFAULT_TIMEOUT_SECONDS = 60.0
-DEFAULT_READINESS_TIMEOUT_SECONDS = 5.0
 DEFAULT_SOURCE_ROOT = Path(__file__).resolve().parents[2] / "knowledge" / "source"
 DEFAULT_HARD_CONTEXT_CHARS = 1_000_000
 BILL_SOURCE_ID = "PEA_residential_normal_1_1_2_SEP_DEC_2569.md"
 BILL_SOURCE_SHA256 = "24f32caffa1167cad5060af6a8c535d3fba2738ef9e3c7b6feebbcd8f1477b1e"
-MAX_ANSWER_CONTEXT_CHARS = 4000
-MAX_CONCISE_ANSWER_CHARS = 1000
-MAX_CONCISE_ANSWER_UNITS = 3
-MAX_SNIPPET_CHARS = 1000
 SUPPORTED_DOCUMENT_SUFFIXES = frozenset({".docx", ".md"})
-_ONLINE_ACTION_PREFIX = "ดำเนินการออนไลน์: "
-USER_SAFE_NOT_CONFIGURED = (
-    "เซิร์ฟเวอร์นี้ยังไม่ได้ตั้งค่าบริการความรู้ "
-    "กรุณาติดต่อผู้ดูแลระบบเพื่อตรวจสอบการตั้งค่าบริการ"
+USER_SAFE_CHAT_KNOWLEDGE_REMOVED = (
+    "การค้นความรู้ผ่านแชตถูกปิดแล้ว กรุณาใช้โหมดเสียงเพื่อสอบถามข้อมูลจากเอกสาร PEA"
 )
-USER_SAFE_UNAVAILABLE = "บริการความรู้ไม่พร้อมใช้งานชั่วคราว กรุณาลองใหม่อีกสักครู่"
-
-# URL ที่อนุญาตให้ปรากฏในคำตอบมีเฉพาะ http/https เท่านั้น และต้องถูกคัดลอก
-# ตรงตามตัวอักษร (verbatim) จากข้อความฉบับเต็มของเอกสารที่เลือก โดยไม่มีการ
-# ดัดแปลง แก้ไข หรือเติมอักขระใด ๆ เข้าไปใน token ของ URL
-_URL_PATTERN = re.compile(r"https?://[^\s<>\"']+")
-
-ClientFactory = Callable[[str], Any]
 
 
 class KnowledgeBackendError(Exception):
@@ -65,11 +42,13 @@ class KnowledgeBackendError(Exception):
 
 @dataclass(frozen=True)
 class GroundedEvidence:
-    """คำตอบจากข้อความฉบับเต็มพร้อม citation ที่ตรวจสอบแล้ว"""
+    """หลักฐานจากข้อความฉบับเต็มพร้อม citation ที่ตรวจสอบแล้ว"""
 
     answer_context: str
     result_count: int
     citations: tuple[Citation, ...]
+
+
 _WORD_NS = "{http://schemas.openxmlformats.org/wordprocessingml/2006/main}"
 
 
@@ -82,124 +61,32 @@ class _Document:
 
 
 class FullDocumentKnowledgeBackend:
-    """Route a query to allowlisted Markdown or DOCX files, then ground it with the provider."""
+    """Deterministic legacy Chat backend: verified tariff evidence only, no model client."""
 
     def __init__(
         self,
         *,
-        api_key: str | None = None,
         source_root: Path | str = DEFAULT_SOURCE_ROOT,
-        alias_root: Path | str | None = None,
-        model: str | None = None,
-        provider: str = DEFAULT_PROVIDER,
-        base_url: str | None = None,
-        timeout_seconds: float = DEFAULT_TIMEOUT_SECONDS,
-        readiness_timeout_seconds: float = DEFAULT_READINESS_TIMEOUT_SECONDS,
-        client_factory: ClientFactory | None = None,
         hard_context_chars: int = DEFAULT_HARD_CONTEXT_CHARS,
     ) -> None:
-        self._provider = provider.lower()
-        if api_key is not None:
-            self._api_key = api_key
-        else:
-            self._api_key = os.environ.get(ENV_API_KEY) or os.environ.get(
-                ENV_FALLBACK_API_KEY
-            )
         self._source_root = Path(source_root)
-        self._alias_root = (
-            Path(alias_root) if alias_root is not None else self._source_root.parent / "aliases"
-        )
-        known_source_ids = set(self._catalog()) if self._source_root.is_dir() else set()
-        self._alias_rules: tuple[KnowledgeAliasRule, ...] = load_alias_rules(
-            self._alias_root, known_source_ids
-        )
-        self._model = model or DEFAULT_MODEL
-        self._base_url = (base_url or "").rstrip("/") or None
-        self._timeout_seconds = timeout_seconds
-        self._readiness_timeout_seconds = readiness_timeout_seconds
-        self._client_factory = client_factory
         self._hard_context_chars = hard_context_chars
         self._text_cache: dict[tuple[str, int, int], str] = {}
 
-    @property
-    def model(self) -> str:
-        return self._model
-
-    @property
-    def provider(self) -> str:
-        return self._provider
-
     def is_configured(self) -> bool:
-        return bool(
-            self._provider in SUPPORTED_PROVIDERS
-            and self._api_key
-            and self._source_root.is_dir()
-            and self._hard_context_chars > 0
-        )
+        return self._source_root.is_dir() and self._hard_context_chars > 0
 
     async def is_ready(self) -> bool:
         if not self.is_configured():
             return False
         try:
-            await asyncio.wait_for(asyncio.to_thread(self._ready_sync), self._readiness_timeout_seconds)
+            return bool(await asyncio.to_thread(self._catalog))
         except Exception:
             return False
-        return True
-
-    def _ready_sync(self) -> None:
-        if not self._catalog():
-            raise ValueError("no approved knowledge documents")
-        self._make_client()
 
     async def search(self, query: str, max_results: int) -> GroundedEvidence:
-        """ให้ router และ answer call ได้รับ timeout budget แยกกัน"""
-        try:
-            if not self.is_configured():
-                raise KnowledgeBackendError(ToolErrorCode.UNAVAILABLE, USER_SAFE_NOT_CONFIGURED)
-            if not isinstance(query, str) or not query.strip() or max_results < 1:
-                return GroundedEvidence("", 0, ())
-
-            catalog = await asyncio.to_thread(self._catalog)
-            if not catalog:
-                return GroundedEvidence("", 0, ())
-            client = self._make_client()
-            alias_rule = matching_rule(query, self._alias_rules)
-            if alias_rule is not None:
-                selected_ids = list(alias_rule.source_ids)
-                if len(selected_ids) > max_results or any(
-                    source_id not in catalog for source_id in selected_ids
-                ):
-                    return GroundedEvidence("", 0, ())
-            else:
-                selected_ids = await asyncio.wait_for(
-                    asyncio.to_thread(self._route, client, query, catalog, max_results),
-                    self._timeout_seconds,
-                )
-                if not selected_ids:
-                    return GroundedEvidence("", 0, ())
-
-            selected = [catalog[source_id] for source_id in selected_ids]
-            texts: dict[str, str] = {}
-            for document in selected:
-                try:
-                    texts[document.source_id] = await asyncio.to_thread(
-                        self._full_text, document
-                    )
-                except (OSError, ValueError, zipfile.BadZipFile, ElementTree.ParseError):
-                    return GroundedEvidence("", 0, ())
-            if sum(len(text) for text in texts.values()) > self._hard_context_chars:
-                return GroundedEvidence("", 0, ())
-
-            return await asyncio.wait_for(
-                asyncio.to_thread(self._answer, client, query, selected, texts),
-                self._timeout_seconds,
-            )
-        except KnowledgeBackendError:
-            raise
-        except asyncio.TimeoutError as exc:
-            raise KnowledgeBackendError(ToolErrorCode.UNAVAILABLE, USER_SAFE_UNAVAILABLE) from exc
-        except Exception as exc:
-            raise KnowledgeBackendError(ToolErrorCode.UNAVAILABLE, USER_SAFE_UNAVAILABLE) from exc
+        """Free-text Chat Knowledge search no longer exists; fail closed and visibly."""
+        raise KnowledgeBackendError(ToolErrorCode.UNAVAILABLE, USER_SAFE_CHAT_KNOWLEDGE_REMOVED)
 
     async def bill_evidence(self, max_results: int) -> GroundedEvidence:
         """Load and verify the fixed tariff evidence without invoking a provider."""
@@ -246,15 +133,6 @@ class FullDocumentKnowledgeBackend:
             tuple(citations),
         )
 
-    def _make_client(self) -> Any:
-        if not self._api_key:
-            raise ValueError("missing provider API key")
-        if self._client_factory is not None:
-            return self._client_factory(self._api_key)
-        from google import genai
-
-        return genai.Client(api_key=self._api_key)
-
     def _catalog(self) -> dict[str, _Document]:
         root = self._source_root.resolve(strict=True)
         if not root.is_dir():
@@ -280,33 +158,6 @@ class FullDocumentKnowledgeBackend:
             catalog[source_id] = _Document(source_id, candidate, candidate.name, title)
         return catalog
 
-    def _route(
-        self, client: Any, query: str, catalog: dict[str, _Document], max_results: int
-    ) -> list[str]:
-        metadata = [
-            {"sourceId": item.source_id, "filename": item.filename, "title": item.title}
-            for item in catalog.values()
-        ]
-        prompt = (
-            "Select documents relevant to the Thai user query. You only know this catalog, "
-            "not document contents. A follow-up query may contain a current question plus prior "
-            "document/topic context; select for the current question and use prior context only "
-            "to disambiguate it. Return JSON only, exactly {\"sourceIds\":[...]} with no "
-            f"more than {max_results} unique sourceIds. Query: {query}\nCatalog: "
-            + json.dumps(metadata, ensure_ascii=False)
-        )
-        data = _json_response(client, self._model, prompt)
-        if not isinstance(data, dict) or set(data) != {"sourceIds"}:
-            return []
-        source_ids = data.get("sourceIds")
-        if not isinstance(source_ids, list) or not source_ids or len(source_ids) > max_results:
-            return []
-        if any(not isinstance(source_id, str) for source_id in source_ids):
-            return []
-        if len(set(source_ids)) != len(source_ids) or any(source_id not in catalog for source_id in source_ids):
-            return []
-        return source_ids
-
     def _full_text(self, document: _Document) -> str:
         status = document.path.stat()
         cache_key = (document.source_id, status.st_mtime_ns, status.st_size)
@@ -320,128 +171,6 @@ class FullDocumentKnowledgeBackend:
         }
         self._text_cache[cache_key] = text
         return text
-
-    def _answer(
-        self, client: Any, query: str, selected: list[_Document], texts: dict[str, str]
-    ) -> GroundedEvidence:
-        blocks = "\n\n".join(
-            f"<source sourceId={json.dumps(doc.source_id)} filename={json.dumps(doc.filename)}>\n"
-            f"{texts[doc.source_id]}\n</source>"
-            for doc in selected
-        )
-        prompt = (
-            "Answer the Thai user directly, completely, and concisely using only the full "
-            "documents below. Prefer at most three short bullets or sentences; omit details "
-            "that do not answer the current question. If the query labels a current question "
-            "and prior context, answer only the current question; use the prior context solely "
-            "to identify what it refers to. When the user asks about a service and the documents "
-            "include a relevant service URL, end with exactly one primary "
-            "call to action on its own line in this form (with no punctuation after the URL): "
-            "ดำเนินการออนไลน์: <URL>\nPlace the URL only in that call to action. "
-            "You may include relevant URLs only by copying them exactly (verbatim) from the "
-            "documents above; never invent, guess, shorten, or add punctuation to a URL, and "
-            "do not answer with a bare list of links or a summary. Return JSON only exactly "
-            "in this shape: "
-            "{\"answer\":string,\"citations\":[{\"sourceId\":string,\"snippet\":string}]}. "
-            "Every citation snippet must be one short contiguous passage copied verbatim "
-            "from its cited source, at most 200 characters; preserve its whitespace exactly "
-            "and never combine or reformat separate passages. "
-            f"Query: {query}\nDocuments:\n{blocks}"
-        )
-        data = _json_response(client, self._model, prompt)
-        if not isinstance(data, dict) or set(data) != {"answer", "citations"}:
-            return GroundedEvidence("", 0, ())
-        answer, raw_citations = data.get("answer"), data.get("citations")
-        if not isinstance(answer, str) or not answer.strip() or len(answer) > MAX_ANSWER_CONTEXT_CHARS:
-            return GroundedEvidence("", 0, ())
-        if not _answer_format_is_concise(answer):
-            return GroundedEvidence("", 0, ())
-        # ตรวจ URL แบบกำหนดผลแน่นอน: คำตอบที่มี http/https URL ต้องคัดลอก URL นั้น
-        # ตรงตามตัวอักษรจากข้อความฉบับเต็มของเอกสารที่เลือก มิฉะนั้น fail closed
-        if not _answer_urls_verified(answer, texts):
-            return GroundedEvidence("", 0, ())
-        if not isinstance(raw_citations, list) or not raw_citations:
-            return GroundedEvidence("", 0, ())
-        allowed = {document.source_id: document for document in selected}
-        citations: list[Citation] = []
-        for item in raw_citations:
-            if not isinstance(item, dict) or set(item) != {"sourceId", "snippet"}:
-                return GroundedEvidence("", 0, ())
-            source_id, snippet = item.get("sourceId"), item.get("snippet")
-            if (
-                not isinstance(source_id, str)
-                or not isinstance(snippet, str)
-                or not snippet
-                or len(snippet) > MAX_SNIPPET_CHARS
-                or source_id not in allowed
-                or snippet not in texts[source_id]
-            ):
-                return GroundedEvidence("", 0, ())
-            document = allowed[source_id]
-            citations.append(Citation(
-                source_id=source_id,
-                title=document.title,
-                uri="knowledge://source/" + quote(source_id, safe="/"),
-                snippet=snippet,
-            ))
-        return GroundedEvidence(answer, len({citation.source_id for citation in citations}), tuple(citations))
-
-
-def _answer_format_is_concise(answer: str) -> bool:
-    """Validate the deterministic concise-answer and online-action format."""
-    if len(answer) > MAX_CONCISE_ANSWER_CHARS:
-        return False
-    lines = [line.strip() for line in answer.splitlines() if line.strip()]
-    action_lines = [line for line in lines if line.startswith(_ONLINE_ACTION_PREFIX)]
-    if len(action_lines) > 1:
-        return False
-    urls = _URL_PATTERN.findall(answer)
-    if urls:
-        if len(action_lines) != 1:
-            return False
-        action_line = action_lines[0]
-        action_url = action_line.removeprefix(_ONLINE_ACTION_PREFIX).strip()
-        if lines[-1] != action_line or _URL_PATTERN.fullmatch(action_url) is None or urls != [action_url]:
-            return False
-        lines.remove(action_line)
-    elif action_lines:
-        return False
-    text_without_urls = _URL_PATTERN.sub("", " ".join(lines))
-    sentence_count = len([part for part in re.split(r"[.!?。]+", text_without_urls) if part.strip()])
-    return max(len(lines), sentence_count) <= MAX_CONCISE_ANSWER_UNITS
-
-
-def _answer_urls_verified(answer: str, texts: dict[str, str]) -> bool:
-    """คืน False เมื่อคำตอบมี http/https URL ที่ไม่อยู่ในเอกสารที่เลือกแบบ verbatim
-
-    ตรวจเฉพาะเอกสารที่ Document Router เลือก (``texts``) URL ที่โมเดลแต่งขึ้น
-    แก้ไข ดัดแปลง เติมอักขระ หรือนำมาจากเอกสารที่ไม่ได้เลือก จะถูกปฏิเสธแบบ
-    fail-closed — เทียบ candidate ที่ regex จับได้ตรงตัวโดยไม่มีการตัดทอน
-    เนื่องจากพรอมต์สั่งห้ามเติมวรรคตอนต่อท้าย URL แล้ว คำตอบที่ฝ่าฝืนต้องถูกปฏิเสธ
-    """
-    full_text = "\n".join(texts.values())
-    for candidate in _URL_PATTERN.findall(answer):
-        if candidate not in full_text:
-            return False
-    return True
-
-
-def _json_response(client: Any, model: str, prompt: str) -> Any:
-    generate_json = getattr(client, "generate_json", None)
-    if callable(generate_json):
-        return generate_json(model, prompt)
-    response = client.models.generate_content(
-        model=model,
-        contents=prompt,
-        config={"response_mime_type": "application/json"},
-    )
-    text = getattr(response, "text", None)
-    if not isinstance(text, str):
-        return None
-    try:
-        return json.loads(text)
-    except json.JSONDecodeError:
-        return None
 
 
 _CORE_TITLE = "{http://purl.org/dc/elements/1.1/}title"

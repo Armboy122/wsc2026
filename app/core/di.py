@@ -18,21 +18,21 @@ from app.contracts import (
     ToolResult,
     TraceResponse,
 )
-from app.tools.knowledge_tool import KnowledgeTool
+from app.knowledge.service import KnowledgeDocumentService
 
 
-_adk_knowledge_tool: KnowledgeTool | None = None
+_knowledge_service: KnowledgeDocumentService | None = None
 
 
-def set_knowledge_tool(tool: KnowledgeTool) -> None:
-    global _adk_knowledge_tool
-    _adk_knowledge_tool = tool
+def set_knowledge_service(service: KnowledgeDocumentService) -> None:
+    global _knowledge_service
+    _knowledge_service = service
 
 
-def get_knowledge_tool() -> KnowledgeTool:
-    if _adk_knowledge_tool is None:
-        raise RuntimeError("ยังไม่ได้เชื่อมต่อ Knowledge Tool เข้ากับ ADK Voice Agent")
-    return _adk_knowledge_tool
+def get_knowledge_service() -> KnowledgeDocumentService:
+    if _knowledge_service is None:
+        raise RuntimeError("ยังไม่ได้เชื่อมต่อ Knowledge service เข้ากับ ADK Voice Agent")
+    return _knowledge_service
 
 
 @runtime_checkable

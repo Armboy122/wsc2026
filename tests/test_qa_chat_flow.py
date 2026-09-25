@@ -4,7 +4,6 @@ from __future__ import annotations
 
 import zipfile
 from pathlib import Path
-from types import SimpleNamespace
 
 import httpx
 import pytest
@@ -37,17 +36,13 @@ def _write_qa_markdown(path: Path, question: str, answer: str) -> None:
     path.write_text(f"# {question}\n\n{answer}\n", encoding="utf-8")
 
 
-class _FakeGeminiClient:
-    def __init__(self, responses: list[str]) -> None:
-        self._responses = iter(responses)
-        self.models = SimpleNamespace(generate_content=self._generate_content)
-
-    def _generate_content(self, **_: object) -> SimpleNamespace:
-        return SimpleNamespace(text=next(self._responses))
-
-
 @pytest.mark.asyncio
-async def test_chat_answers_from_an_approved_qa_document() -> None:
+async def test_chat_knowledge_fails_closed_after_knowledge_model_removal() -> None:
+    """Story 2 Ticket 002 removed Knowledge router/answer model calls.
+
+    Legacy Chat (removed in Story 3) must not fabricate an answer or citations; the Knowledge
+    tool returns a structured unavailable error instead.
+    """
     from tempfile import TemporaryDirectory
 
     question = "ถาม: ผู้เช่าบ้านขอใช้ไฟฟ้าใหม่ได้หรือไม่"
@@ -57,17 +52,7 @@ async def test_chat_answers_from_an_approved_qa_document() -> None:
     with TemporaryDirectory() as directory:
         source_root = Path(directory)
         _write_qa_docx(source_root / source_id, question, answer)
-        client = _FakeGeminiClient(
-            [
-                f'{{"sourceIds":["{source_id}"]}}',
-                f'{{"answer":"{answer}","citations":[{{"sourceId":"{source_id}","snippet":"{answer}"}}]}}',
-            ]
-        )
-        backend = FullDocumentKnowledgeBackend(
-            api_key="test-key",
-            source_root=source_root,
-            client_factory=lambda _: client,
-        )
+        backend = FullDocumentKnowledgeBackend(source_root=source_root)
         agent = MainAgent(
             LLMClient(DemoLLMAdapter()),
             ToolRegistry(
@@ -76,21 +61,8 @@ async def test_chat_answers_from_an_approved_qa_document() -> None:
                     OmsTool(
                         base_url="http://oms.test/api/v1/oms",
                         transport=httpx.MockTransport(
-                            lambda request: httpx.Response(
-                                200,
-                                json={
-                                    "caNumber": "100000000003",
-                                    "customerFound": True,
-                                    "network": {
-                                        "meterId": "M",
-                                        "transformerId": "T",
-                                        "feederId": "F",
-                                    },
-                                    "activeEvent": None,
-                                    "recommendedAction": "CREATE_METER_EVENT",
-                                },
-                            )
-                        )
+                            lambda request: httpx.Response(500)
+                        ),
                     ),
                 ]
             ),
@@ -100,8 +72,12 @@ async def test_chat_answers_from_an_approved_qa_document() -> None:
             ChatRequest(message="ผู้เช่าบ้านสามารถขอใช้ไฟฟ้าใหม่ได้ไหม")
         )
 
-    assert response.message == answer
-    assert response.citations[0].source_id == source_id
+    assert answer not in response.message
+    assert response.citations == ()
+    knowledge_results = [r for r in response.tool_results if r.name.value == "knowledge_tool"]
+    assert knowledge_results
+    assert all(r.status.value == "error" for r in knowledge_results)
+    assert all(r.error is not None and r.error.code.value == "unavailable" for r in knowledge_results)
 
 
 def test_catalog_reads_markdown_and_excludes_policy_readmes(tmp_path: Path) -> None:
@@ -112,7 +88,7 @@ def test_catalog_reads_markdown_and_excludes_policy_readmes(tmp_path: Path) -> N
     (tmp_path / "README.md").write_text("# นโยบาย corpus\n", encoding="utf-8")
     (tmp_path / "qa" / "README.md").write_text("# นโยบาย Q&A\n", encoding="utf-8")
 
-    backend = FullDocumentKnowledgeBackend(api_key="test-key", source_root=tmp_path)
+    backend = FullDocumentKnowledgeBackend(source_root=tmp_path)
 
     catalog = backend._catalog()
 

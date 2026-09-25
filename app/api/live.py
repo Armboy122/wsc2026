@@ -5,7 +5,7 @@ from __future__ import annotations
 from fastapi import APIRouter, WebSocket
 
 from app.core.config import load_settings
-from app.core.di import get_knowledge_tool
+from app.core.di import get_knowledge_service
 
 router = APIRouter()
 
@@ -31,6 +31,6 @@ async def gemini_live(websocket: WebSocket) -> None:
         api_key=settings.gemini_api_key,
         model=settings.live_model,
         voice=settings.live_voice,
-        knowledge_tool=get_knowledge_tool(),
+        knowledge_service=get_knowledge_service(),
     )
     await session.serve(websocket)

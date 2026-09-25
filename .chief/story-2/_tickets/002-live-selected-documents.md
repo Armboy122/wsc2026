@@ -1,7 +1,7 @@
 # Ticket 002 — Let Gemini Live select and retrieve source documents
 
 Type: implementation
-Status: open
+Status: resolved
 Blocked by: 001
 
 ## TASK

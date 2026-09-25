@@ -18,7 +18,7 @@ from google.genai import types
 
 from app.agent.adk_agent import AdkKnowledgeTool, create_adk_agent
 from app.core.logging import get_logger
-from app.tools.knowledge_tool import KnowledgeTool
+from app.knowledge.service import KnowledgeDocumentService
 
 logger = get_logger(__name__)
 APP_NAME = "wsc_voice"
@@ -59,7 +59,7 @@ class AdkLiveSession:
         api_key: str,
         model: str,
         voice: str,
-        knowledge_tool: KnowledgeTool,
+        knowledge_service: KnowledgeDocumentService,
         session_service: BaseSessionService | None = None,
     ) -> None:
         self._id = str(uuid4())
@@ -73,7 +73,7 @@ class AdkLiveSession:
             http_options=types.HttpOptions(api_version="v1alpha"),
         )
         self._service = session_service or InMemorySessionService()
-        self._knowledge_tool = AdkKnowledgeTool(knowledge_tool)
+        self._knowledge_tool = AdkKnowledgeTool(knowledge_service)
         self._runner = Runner(
             app_name=APP_NAME,
             agent=create_adk_agent(

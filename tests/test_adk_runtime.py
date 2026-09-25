@@ -37,7 +37,9 @@ from app.plugins.voc.flow import VocGuidedFlow
 from app.plugins.voc.response import VocResponsePolicy
 from app.plugins.tests.test_voc_intake import _catalog, _TEXT_ANSWERS
 from app.runtime.adk_live import AdkLiveSession, forward_event, live_run_config
-from app.agent.adk_agent import AdkKnowledgeTool
+from app.agent.adk_agent import AdkKnowledgeTool, create_adk_agent
+from app.knowledge.catalog import KnowledgeCatalog
+from app.knowledge.service import KnowledgeDocumentService
 from app.tools.adk_tools import WscTools
 from app.tools.knowledge_tool import KnowledgeTool
 from app.tools.oms_tool import OmsTool
@@ -53,6 +55,18 @@ class Evidence:
         return GroundedEvidence("หลักฐานจากเอกสาร", 1, (Citation(
             source_id="demo", title="คู่มือ", uri="knowledge://demo", snippet="หลักฐานจากเอกสาร",
         ),))
+
+
+ALPHA_MARKDOWN = "# บริการอัลฟ่า\n\n## ขั้นตอน\n\nยื่นคำขอที่สำนักงาน PEA\n"
+
+
+@pytest.fixture
+def knowledge_service(tmp_path):
+    source = tmp_path / "source"
+    source.mkdir()
+    (source / "alpha.md").write_text(ALPHA_MARKDOWN, encoding="utf-8")
+    (source / "beta.md").write_text("# บริการบีต้า\n\nเนื้อหาบีต้า\n", encoding="utf-8")
+    return KnowledgeDocumentService(KnowledgeCatalog(source, alias_root=tmp_path / "aliases"))
 
 
 @pytest.fixture
@@ -258,7 +272,7 @@ class Connection(BaseLlmConnection):
     async def send_realtime(self, blob):
         self.audio.append(blob)
         name, args = (self.plans[len(self.audio) - 1] if self.plans else
-                      ("search_knowledge", {"query": "ขอใช้ไฟ"}))
+                      ("get_knowledge_documents", {"source_ids": ["alpha.md"]}))
         await self.events.put(LlmResponse(input_transcription=types.Transcription(text="ขอใช้ไฟ", finished=True)))
         await self.events.put(LlmResponse(content=types.Content(role="model", parts=[types.Part(
             function_call=types.FunctionCall(id=f"call-{len(self.audio)}", name=name, args=args),
@@ -300,16 +314,26 @@ class LiveModel(BaseLlm):
 
 
 @pytest.mark.asyncio
-async def test_real_adk_runner_dispatches_knowledge_returns_audio_and_keeps_session(domain):
+async def test_real_adk_runner_returns_selected_documents_into_same_live_session(
+    knowledge_service, monkeypatch
+):
+    from google.genai import models as genai_models
+
+    generative_calls = []
+
+    def forbidden(*args, **kwargs):
+        generative_calls.append(kwargs)
+        raise AssertionError("Knowledge must not call a generative provider")
+
+    monkeypatch.setattr(genai_models.Models, "generate_content", forbidden)
+    monkeypatch.setattr(genai_models.AsyncModels, "generate_content", forbidden)
     connection = Connection()
     service = InMemorySessionService()
     await service.create_session(app_name="test", user_id="user", session_id="session")
+    knowledge_tool = AdkKnowledgeTool(knowledge_service)
     runner = Runner(
         app_name="test",
-        agent=Agent(
-            name="pea", model=LiveModel(connection),
-            tools=[AdkKnowledgeTool(KnowledgeTool(domain.evidence))],
-        ),
+        agent=Agent(name="pea", model=LiveModel(connection), tools=[knowledge_tool]),
         session_service=service,
     )
     queue = LiveRequestQueue()
@@ -324,9 +348,20 @@ async def test_real_adk_runner_dispatches_knowledge_returns_audio_and_keeps_sess
                 else:
                     queue.close()
     assert len(connection.audio) == 2
-    assert len(domain.evidence.queries) == 2
+    # Each tool result goes back over the same Live connection, not to another model.
     assert len(connection.responses) == 2
-    assert all(c.parts[0].function_response.response["citations"] for c in connection.responses)
+    for content in connection.responses:
+        response = content.parts[0].function_response
+        assert response.name == "get_knowledge_documents"
+        assert response.response["status"] == "success"
+        assert response.response["documents"] == [{
+            "sourceId": "alpha.md",
+            "title": "บริการอัลฟ่า",
+            "uri": "knowledge://source/alpha.md",
+            "content": ALPHA_MARKDOWN,
+        }]
+        assert response.response["sources"][0]["sourceId"] == "alpha.md"
+    assert generative_calls == []
     saved = await service.get_session(app_name="test", user_id="user", session_id="session")
     assert saved is not None
     assert len(saved.events) >= 4
@@ -334,9 +369,50 @@ async def test_real_adk_runner_dispatches_knowledge_returns_audio_and_keeps_sess
 
 
 @pytest.mark.asyncio
-async def test_socket_cleanup_and_provider_error_are_isolated(domain):
+async def test_invalid_model_selection_returns_safe_failure_into_same_live_session(knowledge_service):
+    connection = Connection([
+        ("get_knowledge_documents", {"source_ids": ["../secrets.md"]}),
+    ])
+    service = InMemorySessionService()
+    await service.create_session(app_name="test", user_id="user", session_id="session")
+    runner = Runner(
+        app_name="test",
+        agent=Agent(name="pea", model=LiveModel(connection), tools=[AdkKnowledgeTool(knowledge_service)]),
+        session_service=service,
+    )
+    queue = LiveRequestQueue()
+    queue.send_realtime(types.Blob(data=b"\x00\x00", mime_type="audio/pcm;rate=16000"))
+    async with asyncio.timeout(10):
+        async for event in runner.run_live(user_id="user", session_id="session", live_request_queue=queue, run_config=live_run_config("Puck")):
+            if event.turn_complete:
+                queue.close()
+    response = connection.responses[0].parts[0].function_response.response
+    assert response["status"] == "error"
+    assert response["error"]["code"] == "invalid_input"
+    assert "documents" not in response
+
+
+def test_live_agent_instruction_carries_compact_catalog_and_one_tool(knowledge_service):
+    from google.genai import Client
+
+    client = Client(api_key="test")
+    try:
+        tool = AdkKnowledgeTool(knowledge_service)
+        agent = create_adk_agent(model="fake-live", client=client, knowledge_tool=tool)
+    finally:
+        client.close()
+    assert agent.tools == [tool]
+    assert '"sourceId":"alpha.md"' in agent.instruction
+    assert '"title":"บริการอัลฟ่า"' in agent.instruction
+    assert "get_knowledge_documents" in agent.instruction
+    # The catalog is metadata only; document bodies are fetched through the tool.
+    assert "ยื่นคำขอที่สำนักงาน PEA" not in agent.instruction
+
+
+@pytest.mark.asyncio
+async def test_socket_cleanup_and_provider_error_are_isolated(knowledge_service):
     live = AdkLiveSession(
-        api_key="test", model="fake", voice="Puck", knowledge_tool=KnowledgeTool(domain.evidence)
+        api_key="test", model="fake", voice="Puck", knowledge_service=knowledge_service
     )
     wire = Wire()
 
@@ -352,7 +428,7 @@ async def test_socket_cleanup_and_provider_error_are_isolated(domain):
     assert await live._service.get_session(app_name="wsc_voice", user_id=live._user_id, session_id=live._id) is None
     # A second socket can still connect and close cleanly.
     second = AdkLiveSession(
-        api_key="test", model="fake", voice="Puck", knowledge_tool=KnowledgeTool(domain.evidence)
+        api_key="test", model="fake", voice="Puck", knowledge_service=knowledge_service
     )
     other = Wire()
     await other.incoming.put({"type": "websocket.disconnect", "code": 1000})
@@ -509,12 +585,12 @@ def test_fastapi_websocket_always_uses_adk_without_runtime_selector(monkeypatch)
             await websocket.close()
 
     monkeypatch.setattr("app.runtime.adk_live.AdkLiveSession", Session)
-    monkeypatch.setattr(live, "get_knowledge_tool", lambda: object())
+    monkeypatch.setattr(live, "get_knowledge_service", lambda: object())
     monkeypatch.setattr(live, "load_settings", lambda: Settings(gemini_api_key="test"))
 
     with TestClient(app).websocket_connect("/ws/live") as websocket:
         assert websocket.receive_json()["type"] == "session.ready"
 
     assert len(selected) == 1
-    assert "knowledge_tool" in selected[0]
+    assert "knowledge_service" in selected[0]
     assert not hasattr(Settings, "voice_runtime")

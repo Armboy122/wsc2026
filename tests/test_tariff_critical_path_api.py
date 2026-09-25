@@ -24,7 +24,7 @@ class _OfflineTariffBackend(FullDocumentKnowledgeBackend):
 
 @pytest.fixture
 def client() -> Generator[TestClient, None, None]:
-    backend = _OfflineTariffBackend(api_key="offline")
+    backend = _OfflineTariffBackend()
     agent = MainAgent(LLMClient(DemoLLMAdapter()), ToolRegistry([KnowledgeTool(backend)]))
     app = create_platform_app()
     app.include_router(router)
@@ -120,7 +120,7 @@ def test_forged_planner_amount_is_not_user_facing() -> None:
     agent_service.set_agent(
         MainAgent(
             LLMClient(_ForgedPlanner()),
-            ToolRegistry([KnowledgeTool(_OfflineTariffBackend(api_key="offline"))]),
+            ToolRegistry([KnowledgeTool(_OfflineTariffBackend())]),
         )
     )
     with TestClient(app) as client:

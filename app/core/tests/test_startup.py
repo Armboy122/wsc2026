@@ -28,17 +28,20 @@ class _ListNamesRegistry:
     names = list(REQUIRED_TOOLS)
 
 
-def test_runtime_wires_full_document_backend(monkeypatch: pytest.MonkeyPatch) -> None:
-    """Importing the application constructs no network client and needs no store name."""
-    monkeypatch.setenv("KNOWLEDGE_BACKEND_NAME", "full_document")
+def test_runtime_wires_deterministic_knowledge_service(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Importing the application constructs the deterministic catalog and no Knowledge model client."""
     monkeypatch.setenv("MAIN_LLM_PROVIDER", "demo")
     from app import main
 
+    from app.core.di import get_knowledge_service
+    from app.knowledge.service import KnowledgeDocumentService
     from app.llm import JudgeLLMClient
 
+    assert isinstance(main.knowledge_service, KnowledgeDocumentService)
+    assert get_knowledge_service() is main.knowledge_service
+    assert len(main.knowledge_catalog) > 0
     assert isinstance(main.knowledge_backend, FullDocumentKnowledgeBackend)
     assert isinstance(main.judge_llm_client, JudgeLLMClient)
-    assert main.settings.knowledge_backend_name == "full_document"
 
 
 def test_validate_tool_registry_accepts_frozenset_property() -> None:

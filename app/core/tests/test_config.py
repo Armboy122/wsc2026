@@ -14,13 +14,10 @@ def test_default_settings() -> None:
     assert settings.log_level == "info"
     assert "http://localhost:3000" in settings.cors_origins
     assert settings.llm_adapter_name == "demo"
-    assert settings.knowledge_backend_name == "full_document"
     assert settings.gemini_api_key is None
-    assert settings.knowledge_provider == "gemini"
     assert settings.knowledge_source_root == (
         Path(__file__).resolve().parents[3] / "knowledge" / "source"
     )
-    assert settings.gemini_long_context_model == "gemini-3.5-flash-lite"
     assert settings.live_model == "gemini-3.8-live"
 
 
@@ -31,24 +28,19 @@ def test_env_override() -> None:
             "LOG_LEVEL": "warning",
             "CORS_ORIGINS": "https://demo.example.com",
             "LLM_ADAPTER_NAME": "judge",
-            "KNOWLEDGE_BACKEND_NAME": "other",
             "GEMINI_API_KEY": "sk-test",
             "KNOWLEDGE_SOURCE_ROOT": "/srv/pea-knowledge",
-            "GEMINI_LONG_CONTEXT_MODEL": "gemini-3.6-pro",
         }
     )
     assert settings.app_env == "production"
     assert settings.log_level == "warning"
     assert settings.cors_origins == ("https://demo.example.com",)
     assert settings.llm_adapter_name == "judge"
-    assert settings.knowledge_backend_name == "other"
     assert settings.gemini_api_key == "sk-test"
-    assert settings.knowledge_provider == "gemini"
     assert settings.knowledge_source_root == Path("/srv/pea-knowledge")
-    assert settings.gemini_long_context_model == "gemini-3.6-pro"
 
 
-def test_main_knowledge_and_judge_llm_configs_are_independent() -> None:
+def test_main_and_judge_llm_configs_are_independent() -> None:
     settings = Settings.from_env(
         {
             "MAIN_LLM_PROVIDER": "gemini",
@@ -58,20 +50,12 @@ def test_main_knowledge_and_judge_llm_configs_are_independent() -> None:
             "JUDGE_LLM_MODEL": "judge-model",
             "JUDGE_LLM_API_KEY": "judge-secret",
             "JUDGE_LLM_BASE_URL": "https://judge.example/v1/",
-            "KNOWLEDGE_LLM_PROVIDER": "demo",
-            "KNOWLEDGE_LLM_MODEL": "knowledge-model",
-            "KNOWLEDGE_LLM_API_KEY": "knowledge-secret",
-            "KNOWLEDGE_LLM_BASE_URL": "https://knowledge.example/v1/",
         }
     )
 
     assert settings.main_llm.provider == "gemini"
     assert settings.main_llm.model == "gemini-2.5-flash"
     assert settings.main_llm.api_key == "gemini-secret"
-    assert settings.knowledge_llm.provider == "demo"
-    assert settings.knowledge_llm.model == "knowledge-model"
-    assert settings.knowledge_llm.api_key == "knowledge-secret"
-    assert settings.knowledge_llm.base_url == "https://knowledge.example/v1"
     assert settings.judge_llm.provider == "demo"
     assert settings.judge_llm.model == "judge-model"
     assert settings.judge_llm.api_key == "judge-secret"
@@ -102,7 +86,6 @@ def test_load_dotenv(tmp_path: Path) -> None:
     env_file.write_text(
         "APP_ENV=test\nLOG_LEVEL=debug\nCORS_ORIGINS=http://test.local\n"
         "GEMINI_API_KEY=dotenv-key\nKNOWLEDGE_SOURCE_ROOT=/dotenv/knowledge\n"
-        "GEMINI_LONG_CONTEXT_MODEL=gemini-3.6-pro\n"
     )
     settings = load_settings(env_file, tmp_path / "no-llm-settings.yaml")
     assert settings.app_env == "test"
@@ -111,7 +94,6 @@ def test_load_dotenv(tmp_path: Path) -> None:
     assert settings.llm_adapter_name == "demo"
     assert settings.gemini_api_key == "dotenv-key"
     assert settings.knowledge_source_root == Path("/dotenv/knowledge")
-    assert settings.gemini_long_context_model == "gemini-3.6-pro"
 
 
 def test_real_environment_precedes_dotenv(
@@ -139,13 +121,11 @@ def test_settings_repr_does_not_expose_secrets() -> None:
         {
             "GEMINI_API_KEY": "super-secret",
             "KNOWLEDGE_SOURCE_ROOT": "/private/knowledge",
-            "GEMINI_LONG_CONTEXT_MODEL": "gemini-3.6-pro",
         }
     )
     text = repr(settings)
     assert "super-secret" not in text
     assert "/private/knowledge" in text
-    assert "gemini-3.6-pro" in text
     assert "[REDACTED]" in text
 
 
@@ -197,3 +177,26 @@ def test_llm_environment_overrides_settings_profile() -> None:
     assert settings.main_llm.provider == "openai-compatible"
     assert settings.main_llm.thinking is True
     assert settings.main_llm.effort == "high"
+
+
+def test_knowledge_has_no_model_settings() -> None:
+    """Knowledge is deterministic: legacy Knowledge model settings are ignored and absent."""
+    settings = Settings.from_env(
+        {
+            "KNOWLEDGE_LLM_PROVIDER": "gemini",
+            "KNOWLEDGE_LLM_MODEL": "knowledge-model",
+            "KNOWLEDGE_LLM_API_KEY": "knowledge-secret",
+            "KNOWLEDGE_PROVIDER": "gemini",
+            "KNOWLEDGE_BACKEND_NAME": "full_document",
+            "GEMINI_LONG_CONTEXT_MODEL": "gemini-3.6-pro",
+        }
+    )
+
+    for removed in (
+        "knowledge_llm",
+        "knowledge_provider",
+        "knowledge_backend_name",
+        "gemini_long_context_model",
+    ):
+        assert not hasattr(settings, removed)
+    assert "knowledge-secret" not in repr(settings)
