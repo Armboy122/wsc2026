@@ -1,134 +1,31 @@
-"""จุดประกอบหลักของแอปพลิเคชัน PEA One Agent
+"""Application entry point: static Voice UI, `GET /health`, and `WS /ws/live`.
 
-โมดูลนี้ทำหน้าที่เชื่อมแพลตฟอร์มตามสัญญา, Main Agent หนึ่งตัว, เครื่องมือระดับบนสุดสองตัว
-และ UI แบบ static สำหรับการแข่งขันเท่านั้น นโยบายธุรกิจยังคงอยู่ใน Main Agent
-และโมดูลเครื่องมือ
+Dependency graph: settings → deterministic Knowledge catalog → Knowledge service →
+ADK Knowledge tool/Gemini Live runtime (constructed per `/ws/live` connection).
 """
 
 from __future__ import annotations
 
 from pathlib import Path
 
-from fastapi import Request
-from fastapi.responses import JSONResponse
 from fastapi.staticfiles import StaticFiles
 
-from app.agent.guided_flow import GuidedFlows
-from app.agent.main_agent import InvalidActionStateError, MainAgent, NotFoundError
-from app.agent.registry import ToolRegistry
 from app.api.live import router as live_router
 from app.api.routes import router
-from app.backends.full_document_knowledge import FullDocumentKnowledgeBackend
-from app.core.config import LLMRuntimeSettings, load_settings
-from app.core.di import adapter_service, agent_service, set_knowledge_service
-from app.core.errors import ConflictException, NotFoundException, platform_exception_handler
-from app.core.startup import create_platform_app, startup_event
+from app.core.config import load_settings
+from app.core.di import set_knowledge_service
+from app.core.startup import create_platform_app
 from app.knowledge.catalog import KnowledgeCatalog
 from app.knowledge.service import KnowledgeDocumentService
-from app.llm import JudgeLLMClient, LLMClient, LLMProviderConfig, create_llm_adapter
-from app.plugins import load_plugins
-from app.tools.knowledge_tool import KnowledgeTool
-
-
-class _KnowledgeReadiness:
-    """Knowledge is ready when the deterministic catalog has approved documents."""
-
-    def __init__(self, service: KnowledgeDocumentService) -> None:
-        self._service = service
-
-    async def ready(self) -> bool:
-        return len(self._service.catalog) > 0
-
-
-async def _not_found_handler(request: Request, exc: NotFoundError) -> JSONResponse:
-    return await platform_exception_handler(
-        request,
-        NotFoundException(detail=str(exc)),
-    )
-
-
-async def _conflict_handler(
-    request: Request,
-    exc: InvalidActionStateError,
-) -> JSONResponse:
-    return await platform_exception_handler(
-        request,
-        ConflictException(detail=str(exc)),
-    )
-
-
-def _provider_config(config: LLMRuntimeSettings) -> LLMProviderConfig:
-    return LLMProviderConfig(
-        provider=config.provider,
-        api_key=config.api_key,
-        model=config.model,
-        base_url=config.base_url,
-        thinking=config.thinking,
-        effort=config.effort,
-    )
-
 
 settings = load_settings()
-
-# Deterministic Knowledge for the ADK Voice Agent: no model client is constructed here.
 knowledge_catalog = KnowledgeCatalog(settings.knowledge_source_root)
 knowledge_service = KnowledgeDocumentService(knowledge_catalog)
 set_knowledge_service(knowledge_service)
 
-# Legacy Chat keeps only deterministic tariff evidence until Story 3 removes Chat.
-knowledge_backend = FullDocumentKnowledgeBackend(source_root=settings.knowledge_source_root)
-knowledge_tool = KnowledgeTool(knowledge_backend)
-# โหลด plugin contributions ก่อนประกอบ demo adapter; provider จริงรับเฉพาะข้อความคำสั่ง
-plugins = load_plugins(settings)
-llm_adapter = create_llm_adapter(
-    _provider_config(settings.main_llm),
-    demo_behaviors=tuple(
-        behavior for plugin in plugins if (behavior := plugin.demo_behavior) is not None
-    ),
-)
-judge_llm_adapter = create_llm_adapter(_provider_config(settings.judge_llm))
-judge_llm_client = JudgeLLMClient(judge_llm_adapter)
-tool_registry = ToolRegistry(
-    [knowledge_tool, *(plugin.tool for plugin in plugins)],
-    catalogue=tuple(plugin.tool_definition for plugin in plugins),
-    response_policies=tuple(
-        policy for plugin in plugins if (policy := plugin.response_policy) is not None
-    ),
-)
-main_llm_client = LLMClient(llm_adapter)
-guided_flows = GuidedFlows(
-    tuple(flow for plugin in plugins if (flow := plugin.guided_flow) is not None)
-)
-# flow ใช้ LLM เพื่อเลือกจากตัวเลือกที่ catalog ให้มาเท่านั้น ไม่ใช่เพื่อสร้างรหัสเอง
-guided_flows.attach_llm(main_llm_client)
-main_agent = MainAgent(main_llm_client, tool_registry, guided_flows=guided_flows)
-
-agent_service.set_agent(main_agent)
-adapter_service.set_llm(llm_adapter)
-adapter_service.set_knowledge(_KnowledgeReadiness(knowledge_service))
-
 app = create_platform_app(settings)
 app.include_router(router)
 app.include_router(live_router)
-app.add_exception_handler(NotFoundError, _not_found_handler)
-app.add_exception_handler(InvalidActionStateError, _conflict_handler)
-startup_event(app, tool_registry)
-
-# ช่องทาง LINE เปิดเฉพาะเมื่อกรอก credential ครบ (เว้นว่าง = ปิดทั้ง route และบริการ)
-if settings.line_channel_secret and settings.line_channel_access_token:
-    from app.api.line import configure_line_webhook, router as line_router
-    from app.line.api_client import LineApiClient
-    from app.line.bridge import LineBridge
-    from app.line.service import LineWebhookService
-
-    configure_line_webhook(
-        LineWebhookService(
-            secret=settings.line_channel_secret,
-            client=LineApiClient(settings.line_channel_access_token),
-            bridge=LineBridge(main_agent),
-        )
-    )
-    app.include_router(line_router)
 
 _web_root = Path(__file__).resolve().parents[1] / "web"
 if _web_root.is_dir():

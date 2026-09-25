@@ -1,14 +1,12 @@
-"""การสร้าง Request ID, บริบท logging แบบมีโครงสร้าง และ CORS สำหรับเดโมภายในเครื่อง"""
+"""การสร้าง Request ID และบริบท logging แบบมีโครงสร้าง"""
 
 from __future__ import annotations
 
 import time
 import uuid
 from collections.abc import Awaitable, Callable
-from typing import Any
 
 from fastapi import Request, Response
-from fastapi.middleware.cors import CORSMiddleware
 from starlette.middleware.base import BaseHTTPMiddleware
 
 from app.core.logging import get_logger, log_extra, set_request_id
@@ -52,14 +50,3 @@ class RequestIdMiddleware(BaseHTTPMiddleware):
 def get_request_id() -> str | None:
     """ส่งคืน request id ที่ RequestIdMiddleware ผูกไว้ หากมี"""
     return get_request_id_from_context()
-
-
-def add_cors_middleware(app: Any, origins: tuple[str, ...]) -> None:
-    app.add_middleware(
-        CORSMiddleware,
-        allow_origins=list(origins),
-        allow_credentials=True,
-        allow_methods=["*"],
-        allow_headers=["*"],
-        expose_headers=[REQUEST_ID_HEADER],
-    )

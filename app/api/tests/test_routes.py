@@ -1,254 +1,105 @@
-"""ทดสอบเส้นทาง HTTP ของแพลตฟอร์มด้วยตัวแทนจำลอง Main Agent ที่กำหนดลำดับการทำงานไว้"""
+"""Public application surface: static Voice UI, `GET /health`, and `WS /ws/live` only."""
 
 from __future__ import annotations
 
-import uuid
-from datetime import UTC, datetime
-from typing import Any
+from pathlib import Path
 
 import pytest
-from fastapi import FastAPI
-from httpx import ASGITransport, AsyncClient
+from fastapi.routing import APIRoute, APIWebSocketRoute
+from fastapi.testclient import TestClient
 
 from app.api.routes import router
-from app.contracts import (
-    ActionDecisionResponse,
-    ChatResponse,
-    PendingAction,
-    PendingActionStatus,
-    ToolAction,
-    ToolName,
-    TraceEventKind,
-    TraceResponse,
-)
-from app.core.di import agent_service
+from app.core.config import Settings
+from app.core.di import get_knowledge_service, set_knowledge_service
 from app.core.startup import create_platform_app
-
-
-class ScriptedMainAgent:
-    """ตัวแทนจำลองในหน่วยความจำขนาดเล็กที่สุดที่เป็นไปตามข้อกำหนด MainAgent สำหรับทดสอบเส้นทาง"""
-
-    name = "scripted"
-
-    def __init__(self) -> None:
-        self.traces: dict[uuid.UUID, TraceResponse] = {}
-        self.pending: dict[uuid.UUID, PendingAction] = {}
-        self.conversations: dict[uuid.UUID, list[str]] = {}
-
-    async def handle_chat(self, request: Any) -> ChatResponse:
-        convo = getattr(request, "conversation_id", None) or uuid.uuid4()
-        trace_id = uuid.uuid4()
-        message = getattr(request, "message", "ack")
-        self.conversations.setdefault(convo, []).append(message)
-        self.traces[trace_id] = TraceResponse(
-            trace_id=trace_id,
-            events=(
-                {
-                    "event_id": uuid.uuid4(),
-                    "trace_id": trace_id,
-                    "sequence": 1,
-                    "at": datetime.now(UTC),
-                    "kind": TraceEventKind.CHAT_RECEIVED,
-                    "data": {"message_redacted": True},
-                },
-            ),
-        )
-        return ChatResponse(
-            conversation_id=convo,
-            trace_id=trace_id,
-            message="ack",
-        )
-
-    async def confirm_pending_action(
-        self,
-        pending_action_id: uuid.UUID,
-        confirmation_note: str | None = None,
-    ) -> ActionDecisionResponse:
-        action = self.pending.get(pending_action_id)
-        if action is None:
-            raise KeyError(pending_action_id)
-        from app.contracts import ToolResult, ToolResultStatus
-
-        submission_result = ToolResult(
-            call_id=uuid.uuid4(),
-            name=action.tool_name,
-            action=action.submit_action,
-            status=ToolResultStatus.SUCCESS,
-            data={"receipt_id": "R-1", "account_ref": "A-1", "amount_thb": "100.00", "status": "accepted"},
-            simulation=True,
-        )
-        confirmed = action.model_copy(
-            update={"status": PendingActionStatus.SUBMITTED, "submission_result": submission_result}
-        )
-        self.pending[pending_action_id] = confirmed
-        return ActionDecisionResponse(
-            pending_action=confirmed,
-            tool_result=submission_result,
-            trace_id=uuid.uuid4(),
-        )
-
-    async def reject_pending_action(
-        self,
-        pending_action_id: uuid.UUID,
-        reason: str,
-    ) -> ActionDecisionResponse:
-        action = self.pending.get(pending_action_id)
-        if action is None:
-            raise KeyError(pending_action_id)
-        rejected = action.model_copy(update={"status": PendingActionStatus.REJECTED})
-        self.pending[pending_action_id] = rejected
-        return ActionDecisionResponse(
-            pending_action=rejected,
-            tool_result=None,
-            trace_id=uuid.uuid4(),
-        )
-
-    def get_trace(self, trace_id: uuid.UUID) -> TraceResponse:
-        trace = self.traces.get(trace_id)
-        if trace is None:
-            raise LookupError(trace_id)
-        return trace
-
-    def reset_demo(self) -> Any:
-        self.traces.clear()
-        self.pending.clear()
-        self.conversations.clear()
-        return {"reset": True}
+from app.knowledge.catalog import KnowledgeCatalog
+from app.knowledge.service import KnowledgeDocumentService
 
 
 @pytest.fixture
-def app() -> FastAPI:
-    test_app = create_platform_app()
-    test_app.include_router(router)
-    agent = ScriptedMainAgent()
-    agent_service.set_agent(agent)
-    return test_app
+def restore_knowledge_service():
+    from app import main  # noqa: F401 - ensure the app graph exists before swapping
+
+    original = get_knowledge_service()
+    yield
+    set_knowledge_service(original)
 
 
-@pytest.fixture
-async def client(app: FastAPI) -> AsyncClient:
-    async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as ac:
-        yield ac
-
-
-@pytest.mark.anyio
-async def test_chat_creates_conversation(client: AsyncClient) -> None:
-    response = await client.post("/api/v1/chat", json={"message": "hello"})
-    assert response.status_code == 200
-    data = response.json()
-    assert data["message"] == "ack"
-    assert "conversationId" in data
-    assert "traceId" in data
-
-
-@pytest.mark.anyio
-async def test_chat_with_conversation_id(client: AsyncClient) -> None:
-    convo = str(uuid.uuid4())
-    response = await client.post("/api/v1/chat", json={"conversationId": convo, "message": "hi"})
-    assert response.status_code == 200
-    assert response.json()["conversationId"] == convo
-
-
-@pytest.mark.anyio
-async def test_confirm_pending_action(client: AsyncClient, app: FastAPI) -> None:
-    agent = agent_service.agent
-    pending_id = uuid.uuid4()
-    agent.pending[pending_id] = PendingAction(
-        pending_action_id=pending_id,
-        conversation_id=uuid.uuid4(),
-        tool_name=ToolName.SABUY,
-        prepare_action=ToolAction.SABUY_PREPARE_PAYMENT,
-        submit_action=ToolAction.SABUY_SUBMIT_PAYMENT,
-        prepared_input={},
-        summary="Pay 100 THB",
-        status=PendingActionStatus.PENDING_CONFIRMATION,
-        idempotency_key="idem-1",
-        created_at=datetime.now(UTC),
-        updated_at=datetime.now(UTC),
+def _health_app(api_key: str | None, source_root: Path) -> TestClient:
+    set_knowledge_service(
+        KnowledgeDocumentService(KnowledgeCatalog(source_root, alias_root=source_root / "none"))
     )
-    response = await client.post(
-        f"/api/v1/actions/{pending_id}/confirm",
-        json={"confirmationNote": "ok"},
-    )
+    app = create_platform_app(Settings(gemini_api_key=api_key))
+    app.include_router(router)
+    return TestClient(app)
+
+
+def test_only_health_and_live_routes_are_registered() -> None:
+    from app.main import app
+
+    routes = []
+    for route in app.routes:
+        # FastAPI wraps included routers; inspect the routers this app actually includes.
+        original = getattr(route, "original_router", None)
+        routes.extend(original.routes if original is not None else [route])
+    http = {route.path for route in routes if isinstance(route, APIRoute)}
+    websockets = {route.path for route in routes if isinstance(route, APIWebSocketRoute)}
+    assert http == {"/health"}
+    assert websockets == {"/ws/live"}
+    assert set(app.openapi()["paths"]) == {"/health"}
+
+
+@pytest.mark.parametrize(
+    ("method", "path"),
+    [
+        ("post", "/api/v1/chat"),
+        ("post", "/api/v1/actions/00000000-0000-0000-0000-000000000000/confirm"),
+        ("post", "/api/v1/actions/00000000-0000-0000-0000-000000000000/reject"),
+        ("get", "/api/v1/traces/00000000-0000-0000-0000-000000000000"),
+        ("post", "/api/v1/reset"),
+        ("post", "/api/v1/line/webhook"),
+        ("post", "/webhook/line"),
+    ],
+)
+def test_obsolete_routes_are_absent(method: str, path: str) -> None:
+    from app.main import app
+
+    client = TestClient(app)
+    response = client.get(path) if method == "get" else client.post(path, json={})
+    assert response.status_code in {404, 405}
+
+
+def test_static_voice_ui_is_served() -> None:
+    from app.main import app
+
+    response = TestClient(app).get("/")
     assert response.status_code == 200
-    data = response.json()
-    assert data["pendingAction"]["status"] == "submitted"
-    assert data["traceId"]
+    assert "<html" in response.text.lower()
 
 
-@pytest.mark.anyio
-async def test_reject_pending_action(client: AsyncClient) -> None:
-    agent = agent_service.agent
-    pending_id = uuid.uuid4()
-    agent.pending[pending_id] = PendingAction(
-        pending_action_id=pending_id,
-        conversation_id=uuid.uuid4(),
-        tool_name=ToolName.VOC,
-        prepare_action=ToolAction.VOC_PREPARE_CASE,
-        submit_action=ToolAction.VOC_SUBMIT_CASE,
-        prepared_input={},
-        summary="เปิดเคส VOC",
-        status=PendingActionStatus.PENDING_CONFIRMATION,
-        idempotency_key="idem-2",
-        created_at=datetime.now(UTC),
-        updated_at=datetime.now(UTC),
-    )
-    response = await client.post(
-        f"/api/v1/actions/{pending_id}/reject",
-        json={"reason": "เปลี่ยนใจแล้ว"},
-    )
+def test_health_ok_when_catalog_and_live_key_present(
+    tmp_path: Path, restore_knowledge_service: None
+) -> None:
+    (tmp_path / "doc.md").write_text("# เอกสาร\n", encoding="utf-8")
+    response = _health_app("test-key", tmp_path).get("/health")
+
     assert response.status_code == 200
-    assert response.json()["pendingAction"]["status"] == "rejected"
+    assert response.json() == {
+        "status": "ok",
+        "knowledgeBackend": "ready",
+        "liveVoice": "configured",
+    }
+    assert "test-key" not in response.text
 
 
-@pytest.mark.anyio
-async def test_get_trace_not_found(client: AsyncClient) -> None:
-    response = await client.get(f"/api/v1/traces/{uuid.uuid4()}")
-    assert response.status_code == 404
+def test_health_degraded_without_documents_or_live_key(
+    tmp_path: Path, restore_knowledge_service: None
+) -> None:
+    response = _health_app(None, tmp_path).get("/health")
 
-
-@pytest.mark.anyio
-async def test_get_trace_found(client: AsyncClient) -> None:
-    agent = agent_service.agent
-    trace_id = uuid.uuid4()
-    agent.traces[trace_id] = TraceResponse(
-        trace_id=trace_id,
-        events=(
-            {
-                "event_id": uuid.uuid4(),
-                "trace_id": trace_id,
-                "sequence": 1,
-                "at": datetime.now(UTC),
-                "kind": TraceEventKind.CHAT_RECEIVED,
-                "data": {},
-            },
-        ),
-    )
-    response = await client.get(f"/api/v1/traces/{trace_id}")
     assert response.status_code == 200
-    assert response.json()["traceId"] == str(trace_id)
-
-
-@pytest.mark.anyio
-async def test_reset(client: AsyncClient) -> None:
-    response = await client.post("/api/v1/reset")
-    assert response.status_code == 200
-    assert response.json()["reset"] is True
-
-
-@pytest.mark.anyio
-async def test_health(client: AsyncClient) -> None:
-    response = await client.get("/health")
-    assert response.status_code == 200
-    data = response.json()
-    assert data["status"] == "ok"
-    assert data["llmAdapter"] == "ready"
-    assert data["knowledgeBackend"] == "ready"
-    assert data["simulationMode"] is True
-
-
-@pytest.mark.anyio
-async def test_validation_error_returns_422(client: AsyncClient) -> None:
-    response = await client.post("/api/v1/chat", json={"message": ""})
-    assert response.status_code == 422
-    assert response.json()["error"] == "invalid_request"
+    assert response.json() == {
+        "status": "degraded",
+        "knowledgeBackend": "unavailable",
+        "liveVoice": "not_configured",
+    }

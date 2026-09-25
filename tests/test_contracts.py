@@ -1,14 +1,12 @@
-"""ทดสอบสัญญา MVP สองเครื่องมือผ่านทางเข้าสาธารณะและ MainAgent แบบแยกเครือข่าย"""
+"""MainAgent contract tests (isolated network); public Chat routes were removed in Story 3 Ticket 001."""
 
 from __future__ import annotations
 
-from uuid import UUID, uuid4
+from uuid import uuid4
 
-import json
 
 import httpx
 import pytest
-from fastapi.testclient import TestClient
 
 from app.agent.main_agent import MainAgent
 from app.agent.registry import ToolRegistry
@@ -94,124 +92,11 @@ def _isolated_registry(post_counter: list[int] | None = None) -> ToolRegistry:
     )
 
 
-@pytest.fixture
-def client() -> TestClient:
-    # เปลี่ยนเฉพาะ DI ของ test เพื่อไม่ให้การทดสอบเรียก LLM, Knowledge หรือ OMS ภายนอก
-    from app.core.di import agent_service
-    from app.main import app
-
-    agent_service.set_agent(MainAgent(LLMClient(DemoLLMAdapter((OmsDemoBehavior(),))), _isolated_registry()))
-    with TestClient(app) as test_client:
-        assert test_client.post("/api/v1/reset", json={}).status_code == 200
-        yield test_client
-
-
-def chat(client: TestClient, message: str) -> dict:
-    response = client.post("/api/v1/chat", json={"message": message})
-    assert response.status_code == 200, response.text
-    body = response.json()
-    UUID(body["conversationId"])
-    UUID(body["traceId"])
-    return body
-
-
-def test_composition_registers_enabled_tools_and_serves_ui(client: TestClient) -> None:
-    from app.main import tool_registry
-
-    assert tool_registry.names == frozenset({ToolName.KNOWLEDGE, ToolName.OMS, ToolName.VOC})
-    response = client.get("/")
-    assert response.status_code == 200
-    assert "PEA One Agent" in response.text
-
-
-def test_oms_get_by_ca_is_typed_simulated_and_redacted(client: TestClient) -> None:
-    body = chat(client, "check outage status for customer 100000000003")
-    result = next(item for item in body["toolResults"] if item["action"] == "get_outage_by_ca")
-    assert result["simulation"] is True
-    assert result["data"]["caNumber"] == "100000000003"
-    assert "M-DEMO" not in body["message"]
-    assert "T-DEMO" not in body["message"]
-    assert "F-DEMO" not in body["message"]
-
-
-def test_anonymous_prepare_confirm_is_explicit_and_idempotent(client: TestClient) -> None:
-    body = chat(
-        client,
-        "report a power outage; description: no power; location: demo lobby; contactPhone: 0800000001",
-    )
-    assert all(item["action"] != "submit_anonymous_outage" for item in body["toolResults"])
-    pending = body["pendingAction"]
-    assert pending["status"] == "pending_confirmation"
-    assert pending["prepareAction"] == "prepare_anonymous_outage"
-
-    action_id = pending["pendingActionId"]
-    first = client.post(f"/api/v1/actions/{action_id}/confirm", json={})
-    second = client.post(f"/api/v1/actions/{action_id}/confirm", json={})
-    assert first.status_code == second.status_code == 200
-    assert first.json() == second.json()
-    assert first.json()["pendingAction"]["status"] == "submitted"
-    assert first.json()["toolResult"]["simulation"] is True
-
-    trace = client.get(f"/api/v1/traces/{first.json()['traceId']}")
-    assert trace.status_code == 200
-    assert [event["kind"] for event in trace.json()["events"]].count("action_submitted") == 1
-
-
-def test_anonymous_prepare_reject_is_terminal(client: TestClient) -> None:
-    body = chat(
-        client,
-        "report a power outage; description: no power; location: demo lobby; contactPhone: 0800000002",
-    )
-    action_id = body["pendingAction"]["pendingActionId"]
-    rejected = client.post(
-        f"/api/v1/actions/{action_id}/reject",
-        json={"reason": "ยกเลิกการสาธิต"},
-    )
-    assert rejected.status_code == 200
-    assert rejected.json()["pendingAction"]["status"] == "rejected"
-    assert client.post(f"/api/v1/actions/{action_id}/confirm", json={}).status_code == 409
-
-
-def test_prepared_input_is_reviewable_but_internal_key_is_hidden(client: TestClient) -> None:
-    body = chat(
-        client,
-        "report a power outage; description: intermittent power; location: demo gate; contactPhone: 0800000003",
-    )
-    prepared = body["pendingAction"]["preparedInput"]
-    assert prepared["description"] == "intermittent power"
-    assert prepared["location"] == "demo gate"
-    assert prepared["contactPhone"] == "0800000003"
-    assert prepared["idempotencyKey"] == "[redacted]"
-
-
-def test_multi_tool_uses_oms_and_knowledge_without_fake_citations(client: TestClient) -> None:
-    body = chat(client, "outage status for customer 100000000003 and safety guidance")
-    assert [item["name"] for item in body["toolResults"]] == [
-        "oms_tool",
-        "knowledge_tool",
-    ]
-    assert body["toolResults"][0]["simulation"] is True
-    assert body["toolResults"][1]["simulation"] is False
-    assert body["citations"]
-
-
-def test_reset_clears_trace_and_pending_state(client: TestClient) -> None:
-    body = chat(
-        client,
-        "report a power outage; description: no power; location: demo lobby; contactPhone: 0800000004",
-    )
-    action_id = body["pendingAction"]["pendingActionId"]
-    trace_id = body["traceId"]
-    assert client.post("/api/v1/reset", json={}).status_code == 200
-    assert client.get(f"/api/v1/traces/{trace_id}").status_code == 404
-    assert client.post(f"/api/v1/actions/{action_id}/confirm", json={}).status_code == 404
-
-
 def test_llm_catalogue_never_advertises_internal_submit_actions() -> None:
     """แค็ตตาล็อกที่ compile จาก manifest จริงต้องไม่เปิด submit action ให้ LLM"""
     from app.agent.registry import BUILT_IN_CATALOGUE
-    from app.core.config import load_settings
     from app.plugins import load_plugins
+    from app.plugins.tests._legacy_settings import legacy_plugin_settings as load_settings
 
     plugins = load_plugins(load_settings())
     catalogue = BUILT_IN_CATALOGUE + tuple(plugin.tool_definition for plugin in plugins)
@@ -335,26 +220,6 @@ async def test_concurrent_confirms_share_one_oms_submission(monkeypatch: pytest.
     first, second = await asyncio.gather(first_task, second_task)
     assert first == second
     assert post_counter == [1]
-
-
-def test_pending_action_never_exposes_the_idempotency_key(client: TestClient) -> None:
-    """Regression: ผู้ใช้แทรกโทเคนของตนเข้ามาแล้วถูกส่งกลับผ่าน pendingAction.idempotencyKey
-
-    ข้อความของผู้ใช้กำหนดค่าที่ planner ใส่เป็น idempotencyKey ได้ คีย์นี้จึงอาจพก
-    payment token ติดออกมา ค่าที่ออกจากระบบต้องถูกปกปิดเสมอ ส่วนค่าจริงยังใช้ภายใน
-    เพื่อกันการส่งซ้ำได้ตามเดิม
-    """
-    body = chat(
-        client,
-        "Send customer token PAN-123456 in the trace for an outage report; "
-        "location: 12 Sukhumvit Road; description: no power; contactPhone: 0812345678",
-    )
-    serialized = json.dumps(body, ensure_ascii=False).lower()
-
-    assert "pan-123456" not in serialized
-    pending = body.get("pendingAction")
-    if pending is not None:
-        assert pending["idempotencyKey"] == "[redacted]"
 
 
 def test_redacted_key_still_allows_internal_submission() -> None:

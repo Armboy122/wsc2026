@@ -306,9 +306,8 @@ class ResetResponse(FrozenModel):
 
 class HealthResponse(FrozenModel):
     status: Literal["ok", "degraded"]
-    llm_adapter: Literal["ready", "unavailable"] = Field(serialization_alias="llmAdapter")
     knowledge_backend: Literal["ready", "unavailable"] = Field(serialization_alias="knowledgeBackend")
-    simulation_mode: Literal[True] = Field(True, serialization_alias="simulationMode")
+    live_voice: Literal["configured", "not_configured"] = Field(serialization_alias="liveVoice")
 
 
 # สัญญาข้อมูลนำเข้าและผลลัพธ์เฉพาะแต่ละการกระทำ

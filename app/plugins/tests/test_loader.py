@@ -12,7 +12,7 @@ from pathlib import Path
 import pytest
 import yaml
 
-from app.core.config import load_settings
+from app.plugins.tests._legacy_settings import legacy_plugin_settings as load_settings
 from app.plugins import PluginError, load_plugins
 from app.plugins.manifest import PluginManifest
 

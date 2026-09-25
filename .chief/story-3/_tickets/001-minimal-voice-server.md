@@ -1,7 +1,7 @@
 # Ticket 001 — Reduce server surface, DI, and settings to Voice
 
 Type: implementation
-Status: open
+Status: resolved
 Blocked by: Story 1 tickets 001–002; Story 2 tickets 001–002
 
 ## TASK

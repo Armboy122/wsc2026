@@ -1,5 +1,6 @@
-"""ทดสอบการโหลดการกำหนดค่าของแพลตฟอร์ม"""
+"""Settings are limited to the Voice + deterministic Knowledge architecture."""
 
+from dataclasses import fields
 from pathlib import Path
 
 import pytest
@@ -8,17 +9,15 @@ from app.core.config import Settings, load_settings
 
 
 def test_default_settings() -> None:
-    settings = Settings.from_env({"VOICE_RUNTIME": "legacy"})
-    assert not hasattr(settings, "voice_runtime")
+    settings = Settings.from_env({})
     assert settings.app_env == "development"
     assert settings.log_level == "info"
-    assert "http://localhost:3000" in settings.cors_origins
-    assert settings.llm_adapter_name == "demo"
     assert settings.gemini_api_key is None
+    assert settings.live_model == "gemini-3.8-live"
+    assert settings.live_voice == "Puck"
     assert settings.knowledge_source_root == (
         Path(__file__).resolve().parents[3] / "knowledge" / "source"
     )
-    assert settings.live_model == "gemini-3.8-live"
 
 
 def test_env_override() -> None:
@@ -26,72 +25,74 @@ def test_env_override() -> None:
         {
             "APP_ENV": "production",
             "LOG_LEVEL": "warning",
-            "CORS_ORIGINS": "https://demo.example.com",
-            "LLM_ADAPTER_NAME": "judge",
             "GEMINI_API_KEY": "sk-test",
+            "GEMINI_LIVE_MODEL": "gemini-live-other",
+            "GEMINI_LIVE_VOICE": "Kore",
             "KNOWLEDGE_SOURCE_ROOT": "/srv/pea-knowledge",
         }
     )
     assert settings.app_env == "production"
     assert settings.log_level == "warning"
-    assert settings.cors_origins == ("https://demo.example.com",)
-    assert settings.llm_adapter_name == "judge"
     assert settings.gemini_api_key == "sk-test"
+    assert settings.live_model == "gemini-live-other"
+    assert settings.live_voice == "Kore"
     assert settings.knowledge_source_root == Path("/srv/pea-knowledge")
 
 
-def test_main_and_judge_llm_configs_are_independent() -> None:
+def test_only_voice_and_knowledge_settings_exist() -> None:
+    assert {field.name for field in fields(Settings)} == {
+        "app_env",
+        "log_level",
+        "gemini_api_key",
+        "live_model",
+        "live_voice",
+        "knowledge_source_root",
+    }
+
+
+def test_obsolete_environment_is_ignored() -> None:
     settings = Settings.from_env(
         {
+            "VOICE_RUNTIME": "legacy",
             "MAIN_LLM_PROVIDER": "gemini",
-            "MAIN_LLM_MODEL": "gemini-2.5-flash",
-            "GEMINI_API_KEY": "gemini-secret",
-            "JUDGE_LLM_PROVIDER": "demo",
-            "JUDGE_LLM_MODEL": "judge-model",
-            "JUDGE_LLM_API_KEY": "judge-secret",
-            "JUDGE_LLM_BASE_URL": "https://judge.example/v1/",
-        }
-    )
-
-    assert settings.main_llm.provider == "gemini"
-    assert settings.main_llm.model == "gemini-2.5-flash"
-    assert settings.main_llm.api_key == "gemini-secret"
-    assert settings.judge_llm.provider == "demo"
-    assert settings.judge_llm.model == "judge-model"
-    assert settings.judge_llm.api_key == "judge-secret"
-    assert settings.judge_llm.base_url == "https://judge.example/v1"
-
-
-def test_legacy_main_llm_environment_is_still_supported() -> None:
-    settings = Settings.from_env(
-        {
             "LLM_ADAPTER_NAME": "gemini",
-            "GEMINI_API_KEY": "legacy-secret",
-            "MAIN_LLM_MODEL": "legacy-model",
+            "JUDGE_LLM_PROVIDER": "demo",
+            "KNOWLEDGE_LLM_API_KEY": "knowledge-secret",
+            "OMS_BASE_URL": "http://oms.example",
+            "OMS_API_KEY": "oms-secret",
+            "VOC_API_KEY": "voc-secret",
+            "LINE_CHANNEL_SECRET": "line-secret",
+            "LINE_CHANNEL_ACCESS_TOKEN": "line-token",
+            "CORS_ORIGINS": "https://example.com",
         }
     )
-
-    assert settings.main_llm.provider == "gemini"
-    assert settings.main_llm.api_key == "legacy-secret"
-    assert settings.main_llm.model == "legacy-model"
+    for removed in (
+        "voice_runtime", "main_llm", "judge_llm", "llm_adapter_name", "knowledge_llm",
+        "oms_base_url", "oms_api_key", "voc_base_url", "voc_api_key",
+        "voc_consent_notice_version", "line_channel_secret", "line_channel_access_token",
+        "cors_origins",
+    ):
+        assert not hasattr(settings, removed)
+    text = repr(settings)
+    for secret in ("knowledge-secret", "oms-secret", "voc-secret", "line-secret", "line-token"):
+        assert secret not in text
 
 
 def test_empty_api_key_is_normalized_to_none() -> None:
-    settings = Settings.from_env({"GEMINI_API_KEY": ""})
-    assert settings.gemini_api_key is None
+    assert Settings.from_env({"GEMINI_API_KEY": ""}).gemini_api_key is None
 
 
-def test_load_dotenv(tmp_path: Path) -> None:
+def test_load_dotenv(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    for key in ("APP_ENV", "LOG_LEVEL", "GEMINI_API_KEY", "KNOWLEDGE_SOURCE_ROOT"):
+        monkeypatch.delenv(key, raising=False)
     env_file = tmp_path / ".env"
     env_file.write_text(
-        "APP_ENV=test\nLOG_LEVEL=debug\nCORS_ORIGINS=http://test.local\n"
+        "# comment\nAPP_ENV=test\nLOG_LEVEL=debug\n\n"
         "GEMINI_API_KEY=dotenv-key\nKNOWLEDGE_SOURCE_ROOT=/dotenv/knowledge\n"
     )
-    settings = load_settings(env_file, tmp_path / "no-llm-settings.yaml")
+    settings = load_settings(env_file)
     assert settings.app_env == "test"
     assert settings.log_level == "debug"
-    assert settings.cors_origins == ("http://test.local",)
-    assert settings.llm_adapter_name == "demo"
     assert settings.gemini_api_key == "dotenv-key"
     assert settings.knowledge_source_root == Path("/dotenv/knowledge")
 
@@ -99,104 +100,24 @@ def test_load_dotenv(tmp_path: Path) -> None:
 def test_real_environment_precedes_dotenv(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
+    monkeypatch.delenv("LOG_LEVEL", raising=False)
     env_file = tmp_path / ".env"
-    env_file.write_text(
-        "APP_ENV=from-dotenv\n"
-        "LOG_LEVEL=debug\n"
-        "LLM_ADAPTER_NAME=scripted\n"
-        "GEMINI_API_KEY=dotenv-key\n"
-    )
+    env_file.write_text("APP_ENV=from-dotenv\nLOG_LEVEL=debug\nGEMINI_API_KEY=dotenv-key\n")
     monkeypatch.setenv("APP_ENV", "from-env")
     monkeypatch.setenv("GEMINI_API_KEY", "real-key")
 
-    settings = load_settings(env_file, tmp_path / "no-llm-settings.yaml")
+    settings = load_settings(env_file)
     assert settings.app_env == "from-env"
-    assert settings.log_level == "debug"  # ไม่ถูกแทนค่า จึงใช้ค่าจาก dotenv
-    assert settings.llm_adapter_name == "scripted"  # ใช้ค่าจาก dotenv
+    assert settings.log_level == "debug"
     assert settings.gemini_api_key == "real-key"
 
 
 def test_settings_repr_does_not_expose_secrets() -> None:
     settings = Settings.from_env(
-        {
-            "GEMINI_API_KEY": "super-secret",
-            "KNOWLEDGE_SOURCE_ROOT": "/private/knowledge",
-        }
+        {"GEMINI_API_KEY": "super-secret", "KNOWLEDGE_SOURCE_ROOT": "/private/knowledge"}
     )
     text = repr(settings)
     assert "super-secret" not in text
     assert "/private/knowledge" in text
     assert "[REDACTED]" in text
-
-
-def test_settings_str_matches_repr() -> None:
-    settings = Settings.from_env({"GEMINI_API_KEY": "another-secret"})
-    assert str(settings) == repr(settings)
-
-
-def test_llm_settings_select_local_profile_and_keep_key_in_environment() -> None:
-    settings = Settings.from_env(
-        {"LOCAL_LLM_API_KEY": "local-secret"},
-        {
-            "providers": {
-                "local": {
-                    "api": "openai-compatible",
-                    "api_key_env": "LOCAL_LLM_API_KEY",
-                    "base_url": "https://gateway.example/v1",
-                }
-            },
-            "roles": {
-                "main": {
-                    "provider": "local",
-                    "model": "qwen3.8-27b",
-                    "thinking": False,
-                    "effort": "low",
-                }
-            },
-        },
-    )
-
-    assert settings.main_llm.provider == "openai-compatible"
-    assert settings.main_llm.model == "qwen3.8-27b"
-    assert settings.main_llm.base_url == "https://gateway.example/v1"
-    assert settings.main_llm.api_key == "local-secret"
-    assert settings.main_llm.thinking is False
-    assert settings.main_llm.effort == "low"
-    assert "local-secret" not in repr(settings)
-
-
-def test_llm_environment_overrides_settings_profile() -> None:
-    settings = Settings.from_env(
-        {"MAIN_LLM_PROVIDER": "local", "MAIN_LLM_THINKING": "true", "MAIN_LLM_EFFORT": "high"},
-        {
-            "providers": {"local": {"api": "openai-compatible", "base_url": "http://host/v1"}},
-            "roles": {"main": {"provider": "gemini", "model": "configured-model"}},
-        },
-    )
-
-    assert settings.main_llm.provider == "openai-compatible"
-    assert settings.main_llm.thinking is True
-    assert settings.main_llm.effort == "high"
-
-
-def test_knowledge_has_no_model_settings() -> None:
-    """Knowledge is deterministic: legacy Knowledge model settings are ignored and absent."""
-    settings = Settings.from_env(
-        {
-            "KNOWLEDGE_LLM_PROVIDER": "gemini",
-            "KNOWLEDGE_LLM_MODEL": "knowledge-model",
-            "KNOWLEDGE_LLM_API_KEY": "knowledge-secret",
-            "KNOWLEDGE_PROVIDER": "gemini",
-            "KNOWLEDGE_BACKEND_NAME": "full_document",
-            "GEMINI_LONG_CONTEXT_MODEL": "gemini-3.6-pro",
-        }
-    )
-
-    for removed in (
-        "knowledge_llm",
-        "knowledge_provider",
-        "knowledge_backend_name",
-        "gemini_long_context_model",
-    ):
-        assert not hasattr(settings, removed)
-    assert "knowledge-secret" not in repr(settings)
+    assert str(settings) == text
