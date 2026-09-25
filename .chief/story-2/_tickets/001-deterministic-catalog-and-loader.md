@@ -1,7 +1,7 @@
 # Ticket 001 — Build a deterministic approved-document catalog and loader
 
 Type: implementation
-Status: open
+Status: resolved
 Blocked by: None
 
 ## TASK
