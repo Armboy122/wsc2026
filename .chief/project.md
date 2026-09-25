@@ -60,3 +60,15 @@ Browser microphone → WS /ws/live → ADK Runner.run_live() → Gemini Live
   traversal, no arbitrary filesystem reads, no hallucinated citations.
 - Do not silently truncate authoritative documents; exceed-budget is a structured failure.
 - Do not add vector DB, embeddings, RAG, MCP, queues, or extra agents/LLMs.
+  (Owner approved decision D0 on 2026-09-26: Story 4 replaces this with a local hybrid index
+  with embeddings (RAG, Q&A first). Ticket 003 rewrites this rule; see
+  `.chief/story-4/_decisions/pending-decisions.md`.)
+
+## Stories
+
+| Story | Title | Status |
+| --- | --- | --- |
+| story-1 | ADK-only Voice core | done |
+| story-2 | Single-model deterministic Knowledge | done |
+| story-3 | Remove platform scope (Voice-only) | done |
+| story-4 | RAG redesign: hybrid local Knowledge search (`search_knowledge`) | in progress — owner decisions D0–D7 recorded (`.chief/story-4/_decisions/pending-decisions.md`) |
