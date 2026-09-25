@@ -18,6 +18,21 @@ from app.contracts import (
     ToolResult,
     TraceResponse,
 )
+from app.tools.knowledge_tool import KnowledgeTool
+
+
+_adk_knowledge_tool: KnowledgeTool | None = None
+
+
+def set_knowledge_tool(tool: KnowledgeTool) -> None:
+    global _adk_knowledge_tool
+    _adk_knowledge_tool = tool
+
+
+def get_knowledge_tool() -> KnowledgeTool:
+    if _adk_knowledge_tool is None:
+        raise RuntimeError("ยังไม่ได้เชื่อมต่อ Knowledge Tool เข้ากับ ADK Voice Agent")
+    return _adk_knowledge_tool
 
 
 @runtime_checkable

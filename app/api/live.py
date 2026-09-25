@@ -5,7 +5,7 @@ from __future__ import annotations
 from fastapi import APIRouter, WebSocket
 
 from app.core.config import load_settings
-from app.core.di import agent_service
+from app.core.di import agent_service, get_knowledge_tool
 from app.live.scoped_agent import scoped_voice_agent
 
 router = APIRouter()
@@ -34,9 +34,10 @@ async def gemini_live(websocket: WebSocket, channel: str = "web") -> None:
             from app.runtime.adk_live import AdkLiveSession
 
             session = AdkLiveSession(
-                api_key=settings.gemini_api_key, model=settings.live_model,
-                voice=settings.live_voice, agent=agent_service.agent,
-                has_display=channel != "phone",
+                api_key=settings.gemini_api_key,
+                model=settings.live_model,
+                voice=settings.live_voice,
+                knowledge_tool=get_knowledge_tool(),
             )
             await session.serve(websocket)
             return
@@ -51,7 +52,6 @@ async def gemini_live(websocket: WebSocket, channel: str = "web") -> None:
         api_key=settings.gemini_api_key,
         model=settings.live_model,
         voice=settings.live_voice,
-        # ช่องทางเสียงเห็นเฉพาะ Knowledge กับ OMS ส่วนเว็บและ LINE ยังครบทุกเครื่องมือ
         agent=scoped_voice_agent(agent_service.agent),
         has_display=channel != "phone",
     )

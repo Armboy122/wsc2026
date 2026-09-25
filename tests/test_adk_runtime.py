@@ -35,6 +35,7 @@ from app.plugins.voc.flow import VocGuidedFlow
 from app.plugins.voc.response import VocResponsePolicy
 from app.plugins.tests.test_voc_intake import _catalog, _TEXT_ANSWERS
 from app.runtime.adk_live import AdkLiveSession, forward_event, live_run_config
+from app.agent.adk_agent import AdkKnowledgeTool
 from app.tools.adk_tools import WscTools
 from app.tools.knowledge_tool import KnowledgeTool
 from app.tools.oms_tool import OmsTool
@@ -255,7 +256,7 @@ class Connection(BaseLlmConnection):
     async def send_realtime(self, blob):
         self.audio.append(blob)
         name, args = (self.plans[len(self.audio) - 1] if self.plans else
-                      ("knowledge_tool_search", {"query": "ขอใช้ไฟ"}))
+                      ("search_knowledge", {"query": "ขอใช้ไฟ"}))
         await self.events.put(LlmResponse(input_transcription=types.Transcription(text="ขอใช้ไฟ", finished=True)))
         await self.events.put(LlmResponse(content=types.Content(role="model", parts=[types.Part(
             function_call=types.FunctionCall(id=f"call-{len(self.audio)}", name=name, args=args),
@@ -297,11 +298,18 @@ class LiveModel(BaseLlm):
 
 
 @pytest.mark.asyncio
-async def test_real_adk_runner_dispatches_tools_returns_audio_and_keeps_session(domain):
+async def test_real_adk_runner_dispatches_knowledge_returns_audio_and_keeps_session(domain):
     connection = Connection()
     service = InMemorySessionService()
     await service.create_session(app_name="test", user_id="user", session_id="session")
-    runner = Runner(app_name="test", agent=Agent(name="pea", model=LiveModel(connection), tools=domain.adapter.definitions()), session_service=service)
+    runner = Runner(
+        app_name="test",
+        agent=Agent(
+            name="pea", model=LiveModel(connection),
+            tools=[AdkKnowledgeTool(KnowledgeTool(domain.evidence))],
+        ),
+        session_service=service,
+    )
     queue = LiveRequestQueue()
     queue.send_realtime(types.Blob(data=b"\x00\x00", mime_type="audio/pcm;rate=16000"))
     events = []
@@ -324,7 +332,9 @@ async def test_real_adk_runner_dispatches_tools_returns_audio_and_keeps_session(
 
 @pytest.mark.asyncio
 async def test_socket_cleanup_and_provider_error_are_isolated(domain):
-    live = AdkLiveSession(api_key="test", model="fake", voice="Puck", agent=domain.agent)
+    live = AdkLiveSession(
+        api_key="test", model="fake", voice="Puck", knowledge_tool=KnowledgeTool(domain.evidence)
+    )
     wire = Wire()
 
     async def fail(**kwargs):
@@ -338,7 +348,9 @@ async def test_socket_cleanup_and_provider_error_are_isolated(domain):
     assert "SECRET" not in str(wire.events)
     assert await live._service.get_session(app_name="wsc_voice", user_id=live._user_id, session_id=live._id) is None
     # A second socket can still connect and close cleanly.
-    second = AdkLiveSession(api_key="test", model="fake", voice="Puck", agent=domain.agent)
+    second = AdkLiveSession(
+        api_key="test", model="fake", voice="Puck", knowledge_tool=KnowledgeTool(domain.evidence)
+    )
     other = Wire()
     await other.incoming.put({"type": "websocket.disconnect", "code": 1000})
 

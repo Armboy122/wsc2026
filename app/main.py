@@ -23,7 +23,7 @@ from app.backends.full_document_knowledge import (
     FullDocumentKnowledgeBackend,
 )
 from app.core.config import LLMRuntimeSettings, load_settings
-from app.core.di import adapter_service, agent_service
+from app.core.di import adapter_service, agent_service, set_knowledge_tool
 from app.core.errors import ConflictException, NotFoundException, platform_exception_handler
 from app.core.startup import create_platform_app, startup_event
 from app.llm import JudgeLLMClient, LLMClient, LLMProviderConfig, create_llm_adapter
@@ -84,6 +84,8 @@ knowledge_backend = FullDocumentKnowledgeBackend(
     provider=settings.knowledge_llm.provider,
     base_url=settings.knowledge_llm.base_url,
 )
+knowledge_tool = KnowledgeTool(knowledge_backend)
+set_knowledge_tool(knowledge_tool)
 # โหลด plugin contributions ก่อนประกอบ demo adapter; provider จริงรับเฉพาะข้อความคำสั่ง
 plugins = load_plugins(settings)
 llm_adapter = create_llm_adapter(
@@ -95,7 +97,7 @@ llm_adapter = create_llm_adapter(
 judge_llm_adapter = create_llm_adapter(_provider_config(settings.judge_llm))
 judge_llm_client = JudgeLLMClient(judge_llm_adapter)
 tool_registry = ToolRegistry(
-    [KnowledgeTool(knowledge_backend), *(plugin.tool for plugin in plugins)],
+    [knowledge_tool, *(plugin.tool for plugin in plugins)],
     catalogue=tuple(plugin.tool_definition for plugin in plugins),
     response_policies=tuple(
         policy for plugin in plugins if (policy := plugin.response_policy) is not None

@@ -5,21 +5,20 @@ from __future__ import annotations
 import asyncio
 import logging
 from contextlib import suppress
-from uuid import UUID, uuid4
+from uuid import uuid4
 
 from fastapi import WebSocket, WebSocketDisconnect
 from google import genai
 from google.adk.agents.live_request_queue import LiveRequestQueue
-from google.adk.agents.run_config import RunConfig, StreamingMode
+from google.adk.agents.run_config import RunConfig, StreamingMode  # pyright: ignore[reportPrivateImportUsage]
 from google.adk.events import Event
 from google.adk.runners import Runner
 from google.adk.sessions import BaseSessionService, InMemorySessionService
 from google.genai import types
 
-from app.agent.adk_agent import create_adk_agent
-from app.agent.main_agent import MainAgent
+from app.agent.adk_agent import AdkKnowledgeTool, create_adk_agent
 from app.core.logging import get_logger
-from app.tools.adk_tools import WscTools
+from app.tools.knowledge_tool import KnowledgeTool
 
 logger = get_logger(__name__)
 APP_NAME = "wsc_voice"
@@ -29,7 +28,7 @@ _ERROR = {"type": "error", "message": "โหมดเสียงไม่พ�
 def live_run_config(voice: str) -> RunConfig:
     return RunConfig(
         streaming_mode=StreamingMode.BIDI,
-        response_modalities=["AUDIO"],
+        response_modalities=[types.Modality.AUDIO],
         speech_config=types.SpeechConfig(
             voice_config=types.VoiceConfig(
                 prebuilt_voice_config=types.PrebuiltVoiceConfig(voice_name=voice),
@@ -54,21 +53,32 @@ class AdkLiveSession:
     or tool-response loop here. No raw ADK events or provider errors reach clients.
     """
 
-    def __init__(self, *, api_key: str, model: str, voice: str, agent: MainAgent,
-                 has_display: bool = True, session_service: BaseSessionService | None = None) -> None:
+    def __init__(
+        self,
+        *,
+        api_key: str,
+        model: str,
+        voice: str,
+        knowledge_tool: KnowledgeTool,
+        session_service: BaseSessionService | None = None,
+    ) -> None:
         self._id = str(uuid4())
         # ADK's INFO/DEBUG logs include resumption handles and live payloads.
         # WSC logs safe lifecycle boundaries instead.
         logging.getLogger("google_adk").setLevel(logging.WARNING)
         self._user_id = str(uuid4())
-        self._agent = agent
-        self._client = genai.Client(api_key=api_key, vertexai=False,
-                                    http_options=types.HttpOptions(api_version="v1alpha"))
+        self._client = genai.Client(
+            api_key=api_key,
+            vertexai=False,
+            http_options=types.HttpOptions(api_version="v1alpha"),
+        )
         self._service = session_service or InMemorySessionService()
-        self._tools = WscTools(agent, UUID(self._id), has_display=has_display)
+        self._knowledge_tool = AdkKnowledgeTool(knowledge_tool)
         self._runner = Runner(
             app_name=APP_NAME,
-            agent=create_adk_agent(model=model, client=self._client, tools=self._tools),
+            agent=create_adk_agent(
+                model=model, client=self._client, knowledge_tool=self._knowledge_tool
+            ),
             session_service=self._service,
         )
         self._config = live_run_config(voice)
@@ -103,7 +113,6 @@ class AdkLiveSession:
                 task.cancel()
             if tasks:
                 await asyncio.gather(*tasks, return_exceptions=True)
-            self._agent.cancel_domain_intake(self._tools.conversation_id)
             with suppress(Exception):
                 await self._service.delete_session(
                     app_name=APP_NAME, user_id=self._user_id, session_id=self._id,
@@ -160,11 +169,5 @@ async def forward_event(websocket: WebSocket, event: Event) -> None:
             await websocket.send_bytes(part.inline_data.data)
         if part.function_call:
             await websocket.send_json({"type": "state", "state": "thinking"})
-        if part.function_response:
-            operation = {
-                "pea_confirm_pending_action": "confirm", "pea_reject_pending_action": "reject",
-            }.get(part.function_response.name, "chat")
-            await websocket.send_json({"type": "agent.response", "operation": operation,
-                                       "response": part.function_response.response})
     if event.turn_complete:
         await websocket.send_json({"type": "turn.complete"})
