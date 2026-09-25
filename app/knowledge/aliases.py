@@ -1,8 +1,8 @@
-"""Validated, deterministic aliases for routing approved knowledge documents.
+"""Validated, deterministic alias metadata for approved knowledge documents.
 
-Alias rules are Markdown configuration outside ``knowledge/source``.  They can improve
-routing but can never provide facts: a matching rule selects already-approved source
-files, which are still read in full and cited by the normal knowledge backend.
+Alias rules are Markdown configuration outside ``knowledge/source``. They are shown to Gemini
+Live in the compact catalog to help it choose source IDs; they never provide facts and the
+server never selects documents by matching them against a query.
 """
 
 from __future__ import annotations
@@ -57,21 +57,6 @@ def load_alias_rules(alias_root: Path, known_source_ids: set[str]) -> tuple[Know
         seen_aliases.update(normalized_aliases)
         rules.append(rule)
     return tuple(rules)
-
-
-def matching_rule(query: str, rules: tuple[KnowledgeAliasRule, ...]) -> KnowledgeAliasRule | None:
-    """Return the rule with the most specific explicit phrase contained in the query."""
-    normalized_query = normalize_alias(query)
-    matches = [
-        (len(normalize_alias(alias)), rule)
-        for rule in rules
-        for alias in rule.aliases
-        if normalize_alias(alias) in normalized_query
-    ]
-    if not matches:
-        return None
-    # Duplicate normalized aliases are rejected at load time; ID makes remaining ties stable.
-    return max(matches, key=lambda item: (item[0], item[1].rule_id))[1]
 
 
 def _parse_rule(path: Path) -> KnowledgeAliasRule:

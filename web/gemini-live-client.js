@@ -69,8 +69,6 @@ export class GeminiLiveClient {
     } else if (message.type === 'turn.complete') {
       this.handlers.onTurnComplete?.();
       this.handlers.onState?.('listening');
-    } else if (message.type === 'agent.response') {
-      this.handlers.onAgentResponse?.(message.operation, message.response || {});
     } else if (message.type === 'error') {
       const error = new Error(message.message || 'โหมดเสียงเกิดข้อผิดพลาด');
       if (!this.ready) this.failReady(error);

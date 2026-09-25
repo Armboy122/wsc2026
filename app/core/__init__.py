@@ -1,1 +1,1 @@
-"""แกนหลักของแพลตฟอร์ม PEA One Agent (การตั้งค่า, DI, logging, errors, middleware และ startup)"""
+"""Core infrastructure: settings, DI, logging, errors, middleware, and app construction."""

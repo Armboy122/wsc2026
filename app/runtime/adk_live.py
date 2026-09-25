@@ -131,7 +131,7 @@ class AdkLiveSession:
                 raise WebSocketDisconnect(packet.get("code", 1000))
             audio = packet.get("bytes")
             if audio is None:
-                continue  # Browser JSON must never invoke tools or confirm writes.
+                continue  # Browser JSON is ignored; it must never invoke tools.
             if not audio or len(audio) % 2 or len(audio) > 32000:
                 raise ValueError("Invalid PCM16 frame")
             queue.send_realtime(types.Blob(data=audio, mime_type="audio/pcm;rate=16000"))

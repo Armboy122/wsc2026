@@ -1,1 +1,1 @@
-"""เส้นทางและสัญญา HTTP ของแพลตฟอร์ม PEA One Agent"""
+"""HTTP and WebSocket entry points of the PEA Knowledge Voice Agent."""

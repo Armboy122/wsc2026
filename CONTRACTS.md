@@ -1,425 +1,107 @@
-# PEA One Agent — สัญญาที่ตรึงไว้ (v1)
+# CONTRACTS — PEA Knowledge Voice Agent
 
-สัญญาเหล่านี้เป็นข้อกำหนดอ้างอิงสูงสุดสำหรับการผสานระบบในงานแฮกกาธอน นิยาม Pydantic v2 ที่สอดคล้องกันอยู่ใน `app/contracts.py` การเปลี่ยนแปลงต้องได้รับอนุมัติจากผู้รับผิดชอบหลักและดำเนินการผ่านการย้ายเวอร์ชัน ผู้ปฏิบัติงานต้องไม่เพิ่มฟิลด์โดยพลการ (`extra="forbid"`) ตัวระบุทั้งหมดเป็นสตริง UUID แบบ opaque เว้นแต่จะระบุไว้เป็นอย่างอื่น การประทับเวลาเป็นสตริง UTC ตาม RFC 3339
+สัญญาสาธารณะของระบบมีเพียงสามส่วน: `GET /health`, `WS /ws/live` และเครื่องมือ ADK
+`get_knowledge_documents` ที่ Gemini Live เรียกได้ นอกจากนี้คือไฟล์ static ของหน้าเว็บเสียงใน `web/`
+(เสิร์ฟที่ `/`, เช่น `/index.html`, `/phone.html`)
 
-## กฎทั่วไป
+Python primitives ที่ใช้ร่วมกันอยู่ใน `app/contracts.py` (`FrozenModel`, `ToolErrorCode`,
+`HealthResponse`) — ถ้าแก้ไฟล์นี้หรือเอกสารนี้ ต้องแก้ให้สอดคล้องกันและระบุการเปลี่ยนแปลงให้ชัด
 
-- ฟิลด์ JSON ใช้ `camelCase` ที่รอยต่อของ HTTP และ tool/LLM ส่วนโมเดล Python ใช้ `snake_case` พร้อม alias ของ Pydantic
-- เพย์โหลดสำหรับการเขียนทั้งหมดที่ไคลเอนต์ส่งมาต้องมี `idempotencyKey` ที่ไม่ว่าง (สูงสุด 128 อักขระ)
-- ผลลัพธ์ operational ของ OMS ต้องมี `simulation` และมีค่าเป็น `true`; สัญญา Sabuy/VOC ที่คงไว้แบบ dormant รักษากฎเดิมเพื่อ compatibility
-- การเรียกเครื่องมือมี `callId` ที่ระบบสร้างขึ้น โดยเครื่องมือไม่รับ call id ที่ไคลเอนต์เป็นผู้กำหนด
-- `ToolResult.status` เป็น `success` หรือ `error` โดยข้อผิดพลาดต้องมีชนิดชัดเจน ปลอดภัยสำหรับผู้ใช้ และต้องไม่มีข้อมูลรับรอง
-- `Citation` ปรากฏเฉพาะในการสืบค้นองค์ความรู้ ข้อเท็จจริงจำลองจะไม่แสดงในรูปแบบการอ้างอิง
-- ข้อมูลอินพุต/เอาต์พุตของเครื่องมือจะได้รับการตรวจสอบด้วยโมเดลเฉพาะแอ็กชันด้านล่างเพิ่มเติมจาก envelope ที่ตรึงไว้
+ไม่มี REST API สำหรับแชต, pending action, trace, reset, LINE webhook, OMS/VOC หรือการคำนวณค่าไฟ
+และปิด `/docs`, `/redoc`, `/openapi.json` ไว้ทุก environment
 
-## อินเทอร์เฟซ HTTP สาธารณะ
+## 1. `GET /health`
 
-### `POST /api/v1/chat`
+ตอบ `200` เสมอ (JSON, camelCase):
 
-คำขอ (`ChatRequest`):
+```json
+{ "status": "ok", "knowledgeBackend": "ready", "liveVoice": "configured" }
+```
+
+| ฟิลด์ | ค่า | ความหมาย |
+| --- | --- | --- |
+| `status` | `ok` \| `degraded` | `ok` เมื่อ catalog มีเอกสารอย่างน้อยหนึ่งไฟล์ **และ** ตั้ง `GEMINI_API_KEY` แล้ว |
+| `knowledgeBackend` | `ready` \| `unavailable` | catalog ความรู้โหลดได้และไม่ว่าง |
+| `liveVoice` | `configured` \| `not_configured` | มี `GEMINI_API_KEY` หรือไม่ (ไม่ได้เรียก provider จริง) |
+
+health ไม่เปิดเผยคีย์, path แบบ absolute หรือรายละเอียดข้อผิดพลาดของ provider
+
+## 2. `WS /ws/live`
+
+หนึ่ง connection = หนึ่ง ADK Live session (conversation ใหม่ทุกครั้งที่เชื่อมต่อ)
+
+### Browser → Server
+
+- **Binary frame เท่านั้น**: PCM16 little-endian mono 16 kHz, ความยาวเป็นเลขคู่, ไม่ว่าง,
+  ไม่เกิน 32,000 bytes ต่อ frame; frame ผิดรูปแบบจะปิด session พร้อม event `error`
+- Text/JSON frame จาก browser ถูกเพิกเฉย ไม่สามารถเรียกเครื่องมือหรือสั่งงานใด ๆ ได้
+
+### Server → Browser
+
+- **Binary frame**: เสียงตอบกลับ PCM16 24 kHz จาก Gemini Live (ไม่ส่งระหว่าง interrupted)
+- **JSON event**:
+
+| `type` | ฟิลด์อื่น | เมื่อใด |
+| --- | --- | --- |
+| `session.ready` | — | สร้าง session แล้ว พร้อมรับเสียง |
+| `transcript.user` / `transcript.assistant` | `role` (`user`/`assistant`), `text`, `final` (bool), `replace` (bool) | ข้อความถอดเสียง; เมื่อ `final=true` ข้อความคือข้อความสะสมทั้งหมด (`replace=true`) ไม่ใช่ delta |
+| `audio.interrupted` | — | ผู้ใช้พูดแทรก ให้หยุดเล่นเสียงที่ค้างอยู่ |
+| `state` | `state: "thinking"` | โมเดลกำลังเรียกเครื่องมือ Knowledge |
+| `turn.complete` | — | จบหนึ่งรอบคำตอบ |
+| `error` | `message` (ข้อความภาษาไทยที่ปลอดภัย) | ไม่ได้ตั้งค่าเสียง, dependency เสียงไม่พร้อม หรือ session ล้มเหลว; server จะปิด connection ต่อ (`1011` สำหรับกรณีไม่ได้ตั้งค่า/ไม่พร้อม) |
+
+ไม่มี raw ADK event, thought, tool payload หรือข้อผิดพลาดของ provider ส่งถึง browser
+
+## 3. เครื่องมือ ADK `get_knowledge_documents`
+
+เป็นเครื่องมือเดียวที่ agent (`app/agent/adk_agent.py`) เปิดให้ Gemini Live เรียก
+Gemini Live เลือก `sourceId` จาก catalog ที่ฝังอยู่ใน instruction (ฟิลด์ `sourceId`, `title`,
+`headings` ≤ 12, `aliases` ถ้ามี — ไม่มีเนื้อหาเอกสาร) แล้วเรียกเครื่องมือเพื่อรับเอกสารฉบับเต็ม
+
+เครื่องมือไม่ค้นหาจากคำถาม ไม่ตอบคำถาม และไม่เรียก model ใด ๆ (deterministic)
+
+### Input
+
+```json
+{ "source_ids": ["PEA_ขอใช้ไฟฟ้าใหม่_บุคคลธรรมดา.md"] }
+```
+
+- `source_ids`: array ของ string (1–5 รายการ, แต่ละรายการ ≤ 300 ตัวอักษร) ต้องเป็น `sourceId`
+  ที่อยู่ใน catalog เท่านั้น (relative path, ห้าม absolute/`..`/ไฟล์ซ่อน); ห้ามมี key อื่น
+
+### Success
 
 ```json
 {
-  "conversationId": "optional UUID; server creates one when omitted",
-  "message": "required non-empty text, max 4000 characters",
-  "requestId": "optional UUID for client correlation",
-  "clientLocation": "optional {lat, lon} — approximate location from IP geolocation (city/district level, not real GPS), fallback for OMS anonymous outage reports that have no CA (so no MST GIS lookup is possible); never read as conversation content, only auto-attached to OMS_PREPARE_ANONYMOUS_OUTAGE input server-side",
-  "selectedPromptId": "optional string(1..64); id ของ choicePrompt ที่ผู้ใช้กำลังตอบ",
-  "selectedValue": "optional string(1..64); ค่าตัวเลือกที่ผู้ใช้กด"
+  "status": "success",
+  "documents": [
+    { "sourceId": "…", "title": "…", "uri": "knowledge://source/<sourceId>", "content": "<Markdown ทั้งไฟล์>" }
+  ],
+  "sources": [ { "sourceId": "…", "title": "…", "uri": "knowledge://source/…" } ]
 }
 ```
 
-`selectedPromptId` และ `selectedValue` ต้องส่งคู่กันเสมอ ค่าที่ส่งมาถูกตรวจกับ catalog ต้นทางทุกครั้ง
-และคำตอบที่อ้าง prompt เก่าจะถูกปฏิเสธ โดยระบบตอบด้วยคำถามปัจจุบันแทน
+เนื้อหาส่งทั้งไฟล์ ไม่ตัดทอน ไม่แบ่ง chunk
 
-การตอบกลับ (`ChatResponse`):
-
-```json
-{
-  "conversationId": "UUID",
-  "traceId": "UUID",
-  "message": "assistant text",
-  "citations": [],
-  "pendingAction": null,
-  "toolResults": [],
-  "choicePrompt": null
-}
-```
-
-`pendingAction` จะไม่เป็น null เฉพาะหลังจากแอ็กชันเครื่องมือแบบ `prepare_*` สำเร็จเท่านั้น การสนทนาจะไม่ส่งคำสั่งเขียน
-ส่วนข้อความ `/ws/live` (voice) มี field เพิ่มคือ `voiceGuidance` (string/null): คำแนะนำ
-วิธีพูดคำถามนั้นตามช่องทาง — มีจอให้พูดสั้น ไม่มีจอให้อ่านตัวเลือกครบ — ไม่มี choicePrompt จึงเป็น null
-
-`choicePrompt` จะไม่เป็น null เมื่อ flow ที่ปลั๊กอินขับเองกำลังถามข้อมูลหนึ่งขั้น:
+### Error
 
 ```json
-{
-  "promptId": "string(1..64)",
-  "question": "string(1..500)",
-  "options": [{ "value": "string(1..64)", "label": "string(1..200)", "description": "string|null" }],
-  "allowFreeText": false
-}
+{ "status": "error", "error": { "code": "invalid_input", "message": "<ข้อความภาษาไทยที่ปลอดภัย>" } }
 ```
 
-`options` ว่างได้เฉพาะเมื่อ `allowFreeText` เป็น true (ขั้นที่ต้องพิมพ์ตอบ เช่น รายละเอียดเรื่อง)
-ทุก `value` มาจาก catalog ของ backend ไม่ใช่ค่าที่โมเดลสร้างขึ้น
-
-### `POST /api/v1/actions/{pending_action_id}/confirm`
-
-คำขอ (`ConfirmActionRequest`):
-
-```json
-{ "confirmationNote": "optional text, max 500 characters" }
-```
-
-การตอบกลับ (`ActionDecisionResponse`):
-
-```json
-{
-  "pendingAction": { "...": "PendingAction" },
-  "toolResult": { "...": "ToolResult or null when submit failed before a result" },
-  "traceId": "UUID"
-}
-```
-
-เส้นทางนี้ส่งแอ็กชันภายในแบบ `submit_*` ที่สอดคล้องกันหนึ่งครั้ง การยืนยันซ้ำจะคืนการตอบกลับเดิมที่เสร็จสมบูรณ์แล้ว โดยไม่ก่อให้เกิดผลกับระบบเบื้องหลังเป็นครั้งที่สอง การยืนยันแอ็กชันที่ถูกปฏิเสธจะคืนค่า 409
-
-### `POST /api/v1/actions/{pending_action_id}/reject`
-
-คำขอ (`RejectActionRequest`):
-
-```json
-{ "reason": "required non-empty text, max 500 characters" }
-```
-
-การตอบกลับใช้ `ActionDecisionResponse` โดยมี `pendingAction.status = "rejected"` และ `toolResult = null` การปฏิเสธซ้ำจะคืนผลลัพธ์สถานะสิ้นสุดเดิม การปฏิเสธแอ็กชันที่ได้รับการยืนยัน/ส่งแล้วจะคืนค่า 409
-
-### `GET /api/v1/traces/{trace_id}`
-
-คืนค่า `TraceResponse`:
-
-```json
-{ "traceId": "UUID", "events": [] }
-```
-
-เหตุการณ์เรียงตามลำดับเวลาโดย `sequence` ข้อความคำขอและฟิลด์เพย์โหลดที่ทำเครื่องหมายว่าเป็นข้อมูลละเอียดอ่อนจะถูกปกปิดก่อนจัดเก็บ
-
-### `POST /api/v1/reset`
-
-คืนค่า `ResetResponse`:
-
-```json
-{ "reset": true }
-```
-
-ล้าง conversation ทั้งหมดใน process, pending action, สถานะ backend จำลอง และข้อมูล trace endpoint นี้ใช้สำหรับสภาพแวดล้อมสาธิตที่มีการจัดการเท่านั้น
-
-หมายเหตุสัญญา dormant: isolated VOC component เดิมอาจรักษาเคสที่ submit แล้วเพื่อทดสอบการติดตาม แต่ runtime ปัจจุบันไม่ลงทะเบียน VOC และ public reset จึงไม่มี active VOC state
-
-### `GET /health`
-
-คืนค่า `HealthResponse`:
-
-```json
-{
-  "status": "ok",
-  "llmAdapter": "ready",
-  "knowledgeBackend": "ready",
-  "simulationMode": true
-}
-```
-
-ห้ามเปิดเผย credential, URL ของ endpoint, หมายเลขบัญชี หรือข้อมูลลูกค้า
-
-## ช่องเสียง `/ws/live` (ส่วนเพิ่มเติม — ไม่เปลี่ยนสัญญา HTTP)
-
-**Runtime migration:** `VOICE_RUNTIME=legacy` is the default and retains the
-bridge contract below. `VOICE_RUNTIME=adk` keeps the URL, PCM formats and event
-envelopes. In ADK mode `session.ready` means the input queue/session is ready;
-it does not assert that Gemini has authenticated. A provider failure emits the
-existing safe `error` and closes the socket.
-
-ADK transcription events add optional `replace: true` on final accumulated
-text. The UI replaces the current draft for that role; legacy deltas still append.
-No raw ADK event, hidden thought, resumption handle or provider error is exposed.
-
-In ADK mode the model sees enabled Knowledge/OMS read/prepare actions and VOC
-read actions as individual ADK tools. `voc_intake(message)` preserves the
-existing catalog and consent workflow. `pea_confirm_pending_action` and
-`pea_reject_pending_action` accept a note/reason, never an ID. Submit actions
-are never model-visible. Confirmation requires a later actual user event than
-preparation; same-turn prepare+confirm fails with `confirmation_required`.
-Adapter input errors may include `missingFields` alongside the safe `error`.
-ADK owns conversation events; existing WSC domain envelopes and HTTP contracts
-in `app/contracts.py` are unchanged. Browser JSON still cannot invoke tools.
-New sockets start new conversations; only upstream Live reconnection resumes.
-
-ช่องเสียงเป็นสัญญาเพิ่มเติมสำหรับ Voice Mode (Gemini Live) สัญญา HTTP v1
-ข้างต้นยังคงเป็น frozen ตามเดิม: ฟิลด์ camelCase, state machine, idempotency,
-trace และ redaction ทั้งหมดไม่เปลี่ยนแปลง ช่องเสียงเป็นเพียงช่องทางขนส่งเพิ่มเติม
-ที่ส่งต่อข้อความและคำตัดสินไปยัง Main Agent เดิมผ่าน `VoiceBridge`
-
-### จุดเชื่อมต่อ
-
-- `WS /ws/live` (same-origin; browser → FastAPI → Gemini Live) หนึ่งเซสชัน
-  WebSocket เป็นเจ้าของ Gemini session, `VoiceBridge`, audio queue และ
-  `conversationId` หนึ่งชุด
-- หากไม่ตั้ง `GEMINI_API_KEY` เซิร์ฟเวอร์ตอบ `{"type":"error"}` แล้วปิดด้วย code 1011
-- ไมโครโฟนของเบราว์เซอร์: **PCM16 little-endian 16kHz mono** ส่งเป็น binary frame
-- เสียงตอบกลับ: **PCM16 24kHz mono** ส่งเป็น binary frame; เล่นแบบต่อเนื่อง
-  (gap-free scheduling) และ flush ทันทีเมื่อได้รับ `audio.interrupted`
-
-### Event JSON จากเซิร์ฟเวอร์
-
-| `type` | ความหมาย |
+| `code` | เมื่อใด |
 | --- | --- |
-| `session.ready` | Gemini session เชื่อมต่อพร้อมแล้ว |
-| `transcript.user` | ถอดเสียงผู้ใช้ (fields: `role=user`, `text`, `final`) |
-| `transcript.assistant` | ถอดเสียงผู้ช่วย (fields: `role=assistant`, `text`, `final`) |
-| `agent.response` | ผลลัพธ์จาก bridge: `{ "operation": "chat" \| "confirm" \| "reject" \| "unknown", "response": {...} }` |
-| `audio.interrupted` | ผู้ใช้พูดแทรก — ให้ล้างคิวเสียงตอบที่เหลือ |
-| `turn.complete` | รอบการตอบจบแล้ว |
-| `error` | ข้อผิดพลาดปลอดภัยต่อผู้ใช้: `{ "type": "error", "message": "..." }` |
+| `invalid_input` | ว่าง, รูปแบบผิด, ไม่อยู่ใน catalog, เกิน 5 เอกสาร หรือรวมกันเกิน 120,000 ตัวอักษร (ไม่ตัดทอนเอง) |
+| `unavailable` | อ่านไฟล์ที่เลือกไม่ได้ |
+| `internal` | ข้อผิดพลาดที่ไม่คาดคิดในเครื่องมือ |
 
-`agent.response.response` เป็นผลลัพธ์ camelCase JSON เดียวกับสัญญา HTTP:
-`operation=chat` คืนรูป `ChatResponse` (`conversationId`, `traceId`, `message`,
-`citations`, `pendingAction`, `toolResults`) ส่วน `operation=confirm/reject` คืนรูป
-`ActionDecisionResponse` (`pendingAction`, `toolResult`, `traceId`) เมื่อเกิด
-ข้อผิดพลาด fail-closed จะคืน `{ "error": { "code", "message" } }`
-โดย `code` เป็นค่าใดค่าหนึ่งจาก `no_pending_action`, `invalid_input`,
-`action_conflict`, `unknown_function`, `unavailable`
+## 4. การตั้งค่า (environment)
 
-### ฟังก์ชันที่โมเดลเรียกได้ (ผ่าน bridge เท่านั้น)
-
-โมเดล Gemini Live เห็นการประกาศฟังก์ชันสามตัวนี้เท่านั้น และ **ไม่มีฟังก์ชันใด
-รับ `pendingActionId`** — การยืนยัน/ปฏิเสธผูกกับ "รายการปัจจุบันของเซสชัน"
-ที่ bridge เลือกให้เอง:
-
-| ฟังก์ชัน | พารามิเตอร์ | พฤติกรรม |
+| ตัวแปร | ค่าเริ่มต้น | หมายเหตุ |
 | --- | --- | --- |
-| `pea_agent_chat` | `message` (required) | ส่งข้อความไปยัง `MainAgent.handle_chat` |
-| `pea_confirm_pending_action` | `confirmationNote` (optional) | ยืนยันรายการปัจจุบัน → `submit_*` หนึ่งครั้ง → ล้างสถานะสิ้นสุด |
-| `pea_reject_pending_action` | `reason` (required) | ปฏิเสธรายการปัจจุบัน → สถานะสิ้นสุด → ล้างสถานะ |
-
-ข้อบังคับด้านความปลอดภัยของช่องเสียง:
-
-- โมเดลต้องส่งต่อทุกคำขอ PEA ไปยัง `pea_agent_chat` และต้องไม่สร้างข้อเท็จจริง,
-  แหล่งอ้างอิง, สถานะเรื่อง หรือผลการดำเนินการของ PEA ขึ้นเอง
-- เมื่อมี pending action โมเดลต้องสรุปที่ Main Agent คืนมาและถามยืนยัน/ปฏิเสธ
-  อย่างชัดเจน และเรียกฟังก์ชันตัดสินใจเฉพาะเมื่อผู้ใช้ตอบชัดเจนเท่านั้น
-- เมื่อคำตอบกำกวม โมเดลต้องถามย้ำและห้ามเรียกฟังก์ชันตัดสินใจ
-- โมเดลห้ามขอ รับ หรือส่ง `pendingActionId`; action ถูกผูกกับเซสชันโดยระบบ
-
-## ช่องทาง LINE `POST /webhook/line` (ส่วนเพิ่มเติม — ไม่เปลี่ยนสัญญา HTTP)
-
-ช่องทาง LINE เป็นสัญญาเพิ่มเติมอีกช่องทางหนึ่งแบบเดียวกับช่องเสียง: สัญญา HTTP v1
-ข้างต้นยังคง frozen ตามเดิม ช่องทางนี้ส่งต่อข้อความและคำตัดสินไปยัง Main Agent
-เดิมผ่าน `LineBridge` โดยไม่มีนโยบายธุรกิจใด ๆ ในชั้น LINE
-
-### จุดเชื่อมต่อ
-
-- `POST /webhook/line` เปิดเฉพาะเมื่อตั้ง `LINE_CHANNEL_SECRET` และ
-  `LINE_CHANNEL_ACCESS_TOKEN` ครบ (เว้นว่าง = route ไม่ถูกลงทะเบียน)
-- ทุกคำขอต้องมี header `X-Line-Signature` ที่ตรงกับ HMAC-SHA256 ของ
-  raw body ตาม channel secret — ไม่ผ่านตอบ `403` ทันทีโดยไม่ประมวลผล (fail closed)
-- webhook ตอบ `200` ทันทีแล้วประมวลผล event ใน background เพราะ agent loop
-  อาจนานเกินกรอบเวลาของ LINE
-
-### Event ที่รองรับ
-
-| event ของ LINE | พฤติกรรม |
-| --- | --- |
-| `message` (type=text) | ส่งข้อความไปยัง `MainAgent.handle_chat` ผ่าน bridge |
-| `message` (ไม่ใช่ text) | ตอบว่ารับได้เฉพาะข้อความพิมพ์ |
-| `postback` (`action=confirm`) | ยืนยันรายการปัจจุบันของผู้ใช้ → `submit_*` หนึ่งครั้ง → ล้างสถานะสิ้นสุด |
-| `postback` (`action=reject`) | ปฏิเสธรายการปัจจุบัน (เหตุผลเริ่มต้นจากระบบ) → สถานะสิ้นสุด |
-| `follow` | ส่งข้อความต้อนรับพร้อมป้ายระบบสาธิต |
-
-ข้อบังคับด้านความปลอดภัยของช่องทาง LINE:
-
-- **การยืนยัน/ปฏิเสธทำผ่านปุ่ม postback เท่านั้น** — ไม่มีการตีความข้อความแชต
-  เป็นคำยืนยัน (เป็น non-goal ของสัญญา HTTP v1)
-- **ไม่มี pendingActionId ในข้อมูลปุ่ม** — รายการผูกกับ LINE user ปัจจุบัน
-  ที่ bridge เก็บไว้ การกดปุ่มเมื่อไม่มีรายการ fail closed
-- สถานะเป็น in-process ต่อ LINE user (`conversationId`, pending action id)
-  คงอยู่ตลอดอายุ process เท่านั้น — restart ถือเป็นการเริ่มบทสนทนาใหม่
-- ข้อความตอบกลับประกอบด้วย: คำตอบของ agent (ไม่เกิน ~1,900 ตัวอักษร
-  ต่อข้อความ และ 5 ข้อความต่อการส่งหนึ่งครั้ง), รายการ citation, ป้าย simulation
-  เมื่อผลลัพธ์เป็นข้อมูลจำลอง และปุ่มยืนยัน/ยกเลิกเมื่อมี pending action
-- ก่อนเริ่ม agent loop ระบบแสดง loading indicator ("...") ผ่าน LINE API
-  และตอบกลับด้วย reply token เมื่อทำได้ หาก token หมดอายุจะใช้ push แทน
-
-## โมเดลโดเมนที่ตรึงไว้
-
-### `Citation`
-
-| ฟิลด์ | ชนิด | กฎ |
-| --- | --- | --- |
-| `sourceId` | string | พาธสัมพัทธ์หรือรหัสคงที่ของไฟล์ที่ Document Router เลือกจาก `knowledge/source/` |
-| `title` | string | ชื่อไฟล์หรือชื่อเอกสารจริงที่ไม่ว่าง |
-| `uri` | string | logical URI ที่ไม่เปิดเผย absolute path เช่น `knowledge://source/<encoded-relative-path>` และต้องไม่ว่าง |
-| `snippet` | string | ข้อความหลักฐานจากไฟล์ฉบับเต็มที่ใช้ตอบและตรวจสอบได้ว่าอยู่ในไฟล์นั้น สูงสุด 1,000 อักขระ |
-| `page` | integer/null | ต้องเป็นค่าบวกเมื่อระบุ |
-
-### `ToolCall`
-
-| ฟิลด์ | ชนิด | กฎ |
-| --- | --- | --- |
-| `callId` | UUID | สร้างโดย agent/runtime |
-| `name` | enum | enum คงค่า compatibility ไว้ แต่ runtime catalogue เปิดรับเฉพาะ `knowledge_tool` และ `oms_tool`; `voc_tool` ไม่ลงทะเบียน |
-| `action` | enum | หนึ่งใน action ที่อยู่ในตารางด้านล่าง |
-| `input` | object | schema ที่ตรึงไว้และเฉพาะเจาะจงตาม action |
-
-Tool จะปฏิเสธการเรียกที่ `name` ไม่ได้เป็นเจ้าของ `action` ที่ระบุ
-
-### `ToolResult`
-
-| ฟิลด์ | ชนิด | กฎ |
-| --- | --- | --- |
-| `callId` | UUID | เท่ากับ call ต้นทาง |
-| `name` | `ToolName` | เท่ากับ call ต้นทาง |
-| `action` | `ToolAction` | เท่ากับ call ต้นทาง |
-| `status` | `success` / `error` | ผลลัพธ์สถานะสิ้นสุดของ tool |
-| `data` | object/null | output เฉพาะ action ซึ่งมีอยู่เมื่อสำเร็จ |
-| `error` | `ToolError`/null | มีอยู่เมื่อเกิด error |
-| `citations` | `Citation[]` | เฉพาะผลลัพธ์ knowledge ที่สำเร็จเท่านั้นที่มีรายการได้ |
-| `simulation` | boolean | เป็น `false` เฉพาะผลลัพธ์ knowledge |
-
-`ToolError` มี `code` (`invalid_input`, `not_found`, `unavailable`, `conflict`, `confirmation_required`, `internal`) และ `message` ที่ปลอดภัยสำหรับผู้ใช้ (สูงสุด 500 อักขระ)
-
-### `PendingAction`
-
-| ฟิลด์ | ชนิด | กฎ |
-| --- | --- | --- |
-| `pendingActionId` | UUID | สร้างโดย server |
-| `conversationId` | UUID | conversation ที่เป็นเจ้าของ |
-| `toolName` | runtime ปัจจุบันใช้ `oms_tool` เท่านั้น; ค่า Sabuy/VOC คงในโมเดล compatibility แบบ dormant | knowledge ไม่สามารถเขียนได้ |
-| `prepareAction` | prepare action enum | action ต้นฉบับที่ผ่านการตรวจสอบแล้ว |
-| `submitAction` | submit action enum | ใช้ได้เฉพาะ mapping ที่กำหนดไว้ล่วงหน้า |
-| `preparedInput` | object | เปิดเผยเฉพาะฟิลด์ที่ผู้ใช้ระบุเองเพื่อให้ตรวจทานก่อนยืนยัน ฟิลด์ภายในระบบเช่น `idempotencyKey` ถูกปกปิดเป็น `[redacted]` และไม่จัดเก็บ payment token |
-| `summary` | string | ผลที่เสนอในรูปแบบที่มนุษย์อ่านได้ สูงสุด 500 อักขระ |
-| `status` | `pending_confirmation`, `confirmed`, `submitted`, `rejected`, `failed` | ถูกจำกัดตาม state machine |
-| `idempotencyKey` | string | คีย์ภายในระบบ ถูกปกปิดเป็น `[redacted]` เสมอเมื่อออกจาก API และ trace เพราะข้อความของผู้ใช้กำหนดค่านี้ได้ ค่าจริงใช้ภายในเพื่อกันการส่งซ้ำ |
-| `createdAt`, `updatedAt` | UTC datetime | กำหนดโดย server |
-| `submissionResult` | `ToolResult`/null | กำหนดหลังการส่ง |
-
-### `TraceEvent`
-
-| ฟิลด์ | ชนิด | กฎ |
-| --- | --- | --- |
-| `eventId` | UUID | สร้างโดยระบบ |
-| `traceId` | UUID | trace ของคำขอ |
-| `sequence` | positive integer | เพิ่มขึ้นอย่างเคร่งครัดในแต่ละ trace |
-| `at` | UTC datetime | กำหนดโดย server |
-| `kind` | enum | `chat_received`, `llm_requested`, `llm_responded`, `tool_called`, `tool_result`, `action_prepared`, `action_confirmed`, `action_rejected`, `action_submitted`, `error` |
-| `data` | object | ข้อมูลวินิจฉัยแบบมีโครงสร้างที่ปกปิดข้อมูลแล้ว สูงสุด 20 key |
-
-## รายการ tool และ schema ของ action ที่แน่นอน
-
-### 1. `knowledge_tool`
-
-**ระบบเบื้องหลัง:** Document Routing + Full-file Gemini Long Context โดย `simulation = false` และ **ไม่ใช้ RAG/Gemini File Search**
-
-| การดำเนินการ | ข้อมูลนำเข้า | ข้อมูลเมื่อสำเร็จ |
-|---|---|---|
-| `search` | `{ "query": string(1..1000), "maxResults": integer(1..5, default 3) }`; `maxResults` คือจำนวนไฟล์ฉบับเต็มสูงสุดที่เลือกได้ | `{ "answerContext": string(1..4000), "resultCount": integer(0..5) }`; `resultCount` คือจำนวนไฟล์ฉบับเต็มที่ใช้ตอบ พร้อม `Citation` อย่างน้อยหนึ่งรายการต่อไฟล์ที่ใช้เมื่อ `resultCount > 0` |
-
-กฎการทำงานที่บังคับใช้:
-
-1. Document Router เห็นเฉพาะคำถามและ catalog ระดับไฟล์ ได้แก่ `sourceId`, ชื่อไฟล์ และหัวข้อเอกสาร แล้วเลือกรหัสไฟล์จาก allowlist ไม่เกิน `maxResults`
-2. backend ต้องโหลดและแปลงข้อความ **ทั้งไฟล์** ของทุกไฟล์ที่เลือก แล้วส่งข้อความฉบับเต็มพร้อมคำถามให้ Gemini Long Context ห้ามเลือก ตัด หรือจัดอันดับ chunk
-3. ต้องเลือกชุดไฟล์ที่เล็กที่สุดซึ่งครอบคลุมคำถาม ห้ามส่งทั้ง corpus เมื่อมีเพียงบางไฟล์ที่เกี่ยวข้อง
-4. หากคำถามครอบคลุมหลายบริการ สามารถเลือกหลายไฟล์ฉบับเต็มได้ หากคำถามกำกวมหรือไม่มีไฟล์ตรง ให้คืน no-evidence เพื่อให้ Main Agent ถามกลับหรือแจ้งข้อจำกัด
-5. `answerContext` คือคำตอบที่ครบและตรงคำถามซึ่งสร้างจากข้อความฉบับเต็ม ไม่ใช่หัวเอกสาร รายการลิงก์ หรือ citation snippet ดิบ
-6. citation ทุกตัวต้องอ้างถึงไฟล์ที่เลือกจริง และ `snippet` ต้องเป็นข้อความหลักฐานที่ตรวจสอบได้ว่าอยู่ในไฟล์ฉบับเต็มนั้น
-7. หากชุดไฟล์ที่เลือกเกิน context budget ห้ามตัดข้อความท้ายไฟล์โดยเงียบ ต้องลดขอบเขตด้วยคำถามชี้แจงหรือคืน typed failure
-8. เมื่อไม่มีไฟล์หรือหลักฐานตรงกัน tool ต้องคืน `answerContext` ว่าง, `resultCount = 0` และไม่มี citation โดยห้ามใช้ความจำของโมเดลตอบแทน
-
-### 2. Sabuy contracts (dormant, not registered)
-
-สัญญา Sabuy คงไว้เพื่อ compatibility เท่านั้น ไม่เปิดให้ผู้ใช้และไม่อยู่ใน runtime registry
-
-| การดำเนินการ | ข้อมูลนำเข้า | ข้อมูลเมื่อสำเร็จ |
-| --- | --- | --- |
-| `get_account_summary` | `{ "accountRef": string(1..64) }` | `{ "accountRef": string, "customerDisplayName": string, "outstandingBalanceThb": decimal-string, "dueDate": date/null, "paymentStatus": "current"\|"overdue"\|"paid" }` |
-| `prepare_payment` | `{ "accountRef": string(1..64), "amountThb": decimal-string > 0, "paymentMethod": "demo_card"\|"demo_bank", "idempotencyKey": string(1..128) }` | `{ "accountRef": string, "amountThb": decimal-string, "paymentMethod": enum, "summary": string }` |
-| `submit_payment` | สำหรับใช้ภายในเท่านั้น: `{ "pendingActionId": UUID, "idempotencyKey": string }` | `{ "receiptId": string, "accountRef": string, "amountThb": decimal-string, "status": "accepted" }` |
-
-Main Agent เรียกใช้ `submit_payment` ได้หลังการยืนยันเท่านั้น และต้องขจัดรายการซ้ำด้วย `idempotencyKey`
-
-### 3. `voc_tool`
-
-**ระบบเบื้องหลัง:** Agent-side `httpx` connector ไปยัง gateway VOC (endpoint เป็น source of truth) โดย output ทุกรายการประกาศ `simulation: true`; `SimulatedVocBackend` ยังใช้ได้เมื่อสร้าง tool โดยไม่ระบุ `base_url`
-
-**การเปิดเรื่องใหม่ขับด้วย catalog ไม่ผ่านโมเดล:** `externalPayload` ต้องมีรหัส taxonomy, พื้นที่ และ consent
-ที่โมเดลสร้างเองไม่ได้ ระบบจึงใช้ guided flow อ่าน `GET /catalog` แล้วถามทีละขั้นด้วย `choicePrompt`
-จำนวนและลำดับคำถามมาจาก flag ของ journey เอง (`requiresFrequency`, `requiresSeverity`,
-`requiresSubIssue`, `requiresIncidentLocation`, `reporterMode`) การเพิ่ม journey หรือ issue ใน catalog
-จึงเปลี่ยนบทสนทนาได้โดยไม่ต้องแก้โค้ด และ planner ต้องไม่เรียก `prepare_case` เอง
-
-| การดำเนินการ | ข้อมูลนำเข้า | ข้อมูลเมื่อสำเร็จ |
-| --- | --- | --- |
-| `list_categories` | `{}` | `{ "categories": [{ "code": "billing"\|"service"\|"safety"\|"other", "label": string }] }` |
-| `prepare_case` | `{ "category": enum, "subject": string(1..140), "detail": string(1..2000), "contactName": string(1..100), "contactPhone": string(1..32), "location": string(1..500), "contactChannel": "phone"\|"email"\|"none", "idempotencyKey": string(1..128) }` | `{ "category": enum, "subject": string, "summary": string }` |
-| `submit_case` | สำหรับใช้ภายในเท่านั้น: `{ "pendingActionId": UUID, "idempotencyKey": string }` | `{ "caseId": string, "vocId": string, "trackingKey": string, "status": "submitted", "category": enum }` |
-| `get_case` | `{ "vocId": string(1..64), "trackingKey": string(1..64) }` | `{ "vocId": string, "status": "submitted", "category": enum, "createdAt": UTC datetime, "updatedAt": UTC datetime }` |
-
-เมื่อเชื่อม gateway `prepare_case` ต้องมี `externalPayload` (`VocExternalCasePayload`) ที่ประกอบจากคำตอบจริงของผู้ใช้
-ครบทั้ง `journeyCode`, `classification`, `incident`, `consent` และ `frequencyCode`/`severityLevel`/`reporter`
-ตามที่ journey นั้นกำหนด การส่งยังคงผ่าน `prepare_case → confirm → submit_case` เช่นเดิม
-
-### 4. `oms_tool`
-
-**ระบบเบื้องหลัง:** Agent-side `httpx` connector ไปยัง gateway OMS จริง (endpoint เป็น source of truth); ผลลัพธ์ operational ทุกตัวประกาศ `simulation: true`
-
-| การดำเนินการ | ข้อมูลนำเข้า | ข้อมูลเมื่อสำเร็จ |
-| --- | --- | --- |
-| `get_outage_by_ca` | `{ "caNumber": string(12 ASCII digits) }` | `caNumber`, `customerFound: true`, `network`, `activeEvent` หรือ `null` (ภายในมี `location` เป็น `GeoPoint` หรือ `null`), `recommendedAction` |
-| `prepare_outage_with_ca` | `{ "caNumber": string(12 ASCII digits), "description": string, "contactPhone": string/null, "locationNote": string/null, "idempotencyKey": string }` | `{ "summary": string }` (local draft only) |
-| `submit_outage_with_ca` | internal `{ "pendingActionId": UUID, "idempotencyKey": string }` | exact 201: `eventId`, `caNumber`, `level: METER`, `status`, `message`, `location` (`GeoPoint` หรือ `null`) |
-| `prepare_anonymous_outage` | `{ "description": string, "location": string, "contactPhone": string, "idempotencyKey": string }` | `{ "summary": string }` (local draft only) |
-| `submit_anonymous_outage` | internal `{ "pendingActionId": UUID, "idempotencyKey": string }` | exact 201: `reportId`, `status`, `message`, `location` (`GeoPoint` หรือ `null`) |
-
-`GeoPoint` คือ `{ "lat": number/null, "lon": number/null, "gisType": "POINT" \| "AREA" \| null }` — พิกัดโดยประมาณจาก GIS ของ OMS ซึ่งถูกเพิ่มเข้ามาใน gateway จริงภายหลัง (endpoint ของ gateway เป็น source of truth) หาก output ของ OMS มี `safetyMessage` Main Agent จะแสดงข้อความนี้ก่อนข้อความอื่น
-
-## การตรวจสอบ model-to-action ที่จำเป็น
-
-runtime ตรวจสอบ input ผ่านโมเดล Pydantic `*Input` ที่ตรงกันก่อนเรียกใช้ tool และตรวจสอบข้อมูลความสำเร็จผ่านโมเดล `*Output` ที่ตรงกันก่อนสร้าง `ToolResult` โดยมี mapping ขั้นต่ำดังนี้:
-
-```text
-knowledge_tool.search                    KnowledgeSearchInput/Output
-sabuy_tool.get_account_summary           SabuyAccountSummaryInput/Output
-sabuy_tool.prepare_payment               SabuyPreparePaymentInput/Output
-sabuy_tool.submit_payment                SubmitPreparedActionInput/SabuyPaymentReceiptOutput
-voc_tool.list_categories                 EmptyInput/VocCategoryListOutput
-voc_tool.prepare_case                    VocPrepareCaseInput/Output
-voc_tool.submit_case                     SubmitPreparedActionInput/VocCaseOutput
-voc_tool.get_case                        VocGetCaseInput/VocGetCaseOutput
-oms_tool.get_outage_by_ca                  OmsGetOutageByCaInput/OmsGetOutageByCaOutput
-oms_tool.prepare_outage_with_ca            OmsPrepareOutageWithCaInput/OmsPrepareOutageOutput
-oms_tool.submit_outage_with_ca             SubmitPreparedActionInput/OmsCreateOutageWithCaOutput
-oms_tool.prepare_anonymous_outage          OmsPrepareAnonymousOutageInput/OmsPrepareOutageOutput
-oms_tool.submit_anonymous_outage           SubmitPreparedActionInput/OmsCreateAnonymousOutageOutput
-```
-
-### ส่วนเสริม `billCalculation` และ `billOutcome`
-
-`knowledge_tool.search` รับ `billCalculation` แบบ optional เพื่อขอประมาณการค่าไฟจากข้อมูลที่ผู้ใช้ระบุและหลักฐานที่ backend โหลดจริงเท่านั้น ฟิลด์ที่ยอมรับคือ `usage` (Decimal, 0–1,000,000), `billingMonth` (1–12), `billingYear` (2569 หรือ 2026) และ `tariffSubtype` โดยทุกฟิลด์ต้องผ่าน `BillCalculationInput` และ alias camelCase เดิม ห้าม planner เติมเดือน ปี หรือ subtype จากคำว่า “บ้าน”, “ปกติ” หรือประวัติสนทนาเอง
-
-ผลลัพธ์ `KnowledgeSearchOutput.billOutcome` เป็น `null` สำหรับการค้นหาความรู้ทั่วไป หรือเป็นสถานะ typed ดังนี้:
-
-- `clarification`: ข้อมูลไม่ครบ; ไม่มีการคำนวณหรือยอดที่เดาเอง
-- `calculated`: รองรับเฉพาะบ้านอยู่อาศัยอัตราปกติ `1.1.2` ในเดือนกันยายน 2569/2026 และมี `energy`, `service`, `ft`, `subtotalBeforeVat`, `vat`, `finalTotal` (966 หน่วยมี `displayTotal = 4365.47` รวม VAT 7%)
-- `partial`: เดือนตุลาคม–ธันวาคม 2569/2026 มีเฉพาะยอดก่อน VAT; ห้ามแสดงยอดชำระสุดท้าย
-- `unavailable`: TOU/subtype อื่น ช่วงเวลานอกหลักฐาน หรือ evidence ที่ไม่พร้อม; ไม่มี `finalTotal`
-
-ยอด calculated/partial ใช้ได้ต่อเมื่อ citation มาจากเอกสาร tariff ที่ backend ตรวจ hash ตรงกับ source ที่อนุมัติแล้วเท่านั้น; clarification และ unavailable ไม่สร้าง citation ยอดเงิน และ Main Agent ต้อง render จาก `billOutcome` ไม่ใช่ข้อความ planner
-
-## สิ่งที่ไม่ใช่เป้าหมายอย่างชัดเจน
-
-- ไม่มีการชำระเงินจริง CRM หรือการ deploy กับ OMS production; gateway ที่อนุญาตเป็นสภาพแวดล้อมเดโมและ ToolResult ยังคง `simulation=true`
-- ไม่มี tool active อื่นนอกเหนือจาก Knowledge และ OMS และไม่มีการโหลด OpenAPI แบบอัตโนมัติ
-- ไม่มีการยืนยันอัตโนมัติ การส่งในเบื้องหลัง หรือการยืนยันผ่านข้อความแชต
-- ช่องเสียงเป็น bridge บาง ๆ ไปยัง Knowledge และ OMS; ไม่รับ `pendingActionId` จากโมเดล และไม่มีการยืนยันอัตโนมัติด้วยเสียง (ต้องฟังคำตอบชัดเจนจากผู้ใช้ก่อนเรียกฟังก์ชันตัดสินใจ)
-- ไม่มี Gemini File Search, vector database, embedding pipeline, document chunker, chunk retrieval หรือ RAG สำรอง; Knowledge ใช้เฉพาะการเลือกไฟล์ระดับ document แล้วส่งข้อความฉบับเต็มของไฟล์ที่เลือกเข้า Long Context
-- ไม่มีการจัดเก็บถาวรสำหรับ production แบบหลายผู้ใช้ authentication, payments หรือการเสริมความแข็งแกร่งสำหรับ deployment
+| `APP_ENV` | `development` | ป้ายสภาพแวดล้อม |
+| `LOG_LEVEL` | `info` | |
+| `GEMINI_API_KEY` | — | จำเป็นสำหรับโหมดเสียง ห้าม commit หรือ log |
+| `GEMINI_LIVE_MODEL` | `gemini-3.8-live` | |
+| `GEMINI_LIVE_VOICE` | `Puck` | |
+| `KNOWLEDGE_SOURCE_ROOT` | `<repo>/knowledge/source` | root ของเอกสารความรู้ที่อนุมัติ |

@@ -59,6 +59,9 @@ def test_only_health_and_live_routes_are_registered() -> None:
         ("post", "/api/v1/reset"),
         ("post", "/api/v1/line/webhook"),
         ("post", "/webhook/line"),
+        ("get", "/docs"),
+        ("get", "/redoc"),
+        ("get", "/openapi.json"),
     ],
 )
 def test_obsolete_routes_are_absent(method: str, path: str) -> None:

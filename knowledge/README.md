@@ -1,135 +1,56 @@
 # คลังความรู้ PEA
 
-> สถานะ: runtime ใช้ **Document Routing + Full-file Long Context** โดย public contract
-> ของ `knowledge_tool.search` ยังคงเดิม
+> Runtime: Gemini Live (ผ่าน ADK) เลือก `sourceId` จาก catalog แล้วเรียกเครื่องมือ
+> `get_knowledge_documents` ซึ่งคืน **Markdown ฉบับเต็ม** ของเอกสารที่เลือก ฝั่ง Knowledge
+> เป็น deterministic ไม่เรียก LLM ไม่ค้นหาจากคำถาม และไม่แบ่ง chunk
 
-`knowledge_tool` ต้องเลือกเฉพาะเอกสารที่เกี่ยวข้องกับคำถาม แล้วส่ง **ข้อความฉบับเต็ม**
-ของเอกสารที่เลือกให้ Gemini Long Context เพื่อสร้างคำตอบที่ครบและตรงคำถาม ระบบนี้ไม่ใช่
-การแบ่งข้อความเป็นส่วนย่อย และห้ามโหลดทั้ง corpus ทุกครั้งโดยไม่มีความจำเป็น
+## นโยบายแหล่งข้อมูล
 
-## นโยบายแหล่งข้อมูลที่เชื่อถือได้
-
-- แหล่งข้อมูล runtime มีได้เฉพาะเอกสาร Markdown (`.md`, UTF-8) ที่ผ่านการอนุมัติภายใต้ `knowledge/source/`
-- corpus ปัจจุบันประกอบด้วย Markdown ที่ผู้ใช้อนุมัติ 45 ไฟล์ (นับไฟล์ใน `knowledge/source/` ที่ไม่ใช่ README) รวม Approved Q&A 11 ไฟล์ใต้ `knowledge/source/qa/`
-- ชื่อไฟล์ต้องสั้น ชัด และสื่อหัวข้อหลักของเอกสาร เพราะ Document Router เห็น `filename` และ `title` ก่อนเลือกอ่านข้อความฉบับเต็ม; ใช้คำนำหน้า `PEA_` สำหรับเอกสารบริการ/ประกาศ และ `qa_` สำหรับ Approved Q&A
-- Q&A ควรแยกหนึ่งหัวข้อต่อหนึ่งไฟล์ โดยใช้คำถามหลักเป็น heading แรก เพื่อให้ Router จับคู่คำถามที่มีความหมายใกล้เคียงได้จาก catalog
-- `knowledge/source/README.md`, `knowledge/source/qa/README.md`, metadata และไฟล์ซ่อนทุกชนิดไม่ใช่เอกสารความรู้
-- LLM ต้องตอบจากข้อความในไฟล์ที่เลือกเท่านั้น ห้ามใช้ความจำของโมเดลเติมข้อเท็จจริง PEA
-- หากไม่มีไฟล์หรือหลักฐานที่ตรงคำถาม ต้องคืน no-evidence และไม่มี citation
-- ชื่อไฟล์และพาธสัมพัทธ์เป็น identifier ที่ตรวจสอบย้อนหลังได้ ห้ามเปิดเผย absolute path
+- แหล่งข้อมูล runtime มีเฉพาะ Markdown (`.md`, UTF-8) ที่ผ่านการอนุมัติใต้ `knowledge/source/`
+- corpus ปัจจุบัน: 45 ไฟล์ (เอกสารบริการ/ประกาศ 34 ไฟล์ `PEA_*.md` + Approved Q&A 11 ไฟล์ใต้ `qa/`)
+- `README.md` ทุกไฟล์ใน `knowledge/source/`, metadata และไฟล์ซ่อนไม่ใช่เอกสารความรู้
+- ตั้งชื่อไฟล์สั้น ชัด สื่อหัวข้อ เพราะโมเดลเห็นเพียง `sourceId`, `title`, heading และ alias ใน catalog
+  (ใช้ `PEA_` สำหรับเอกสารบริการ และ `qa_` สำหรับ Q&A หนึ่งหัวข้อต่อไฟล์)
+- โมเดลต้องตอบจากเอกสารที่เครื่องมือคืนเท่านั้น หากไม่พบให้บอกข้อจำกัด
+- `sourceId` คือพาธสัมพัทธ์; ห้ามเปิดเผย absolute path
 
 ## โครงสร้าง
 
 ```text
 knowledge/
-  README.md            สเปก Knowledge และนโยบาย corpus
-  aliases/             กฎคำพ้องแบบ deterministic สำหรับเลือกเอกสาร
-    *.md                หนึ่ง intent ต่อหนึ่งไฟล์; ไม่ใช่หลักฐานและไม่เข้า context
-    README.md           รูปแบบและข้อควรระวังของกฎคำพ้อง
-  source/              เอกสาร authoritative ที่ Document Router เลือกได้
-    *.md                แหล่งข้อมูลฉบับเต็มแบบ UTF-8
-    qa/                 Approved Q&A; หนึ่งหัวข้อต่อหนึ่ง Markdown
-      *.md              คำถาม คำตอบ และแหล่งอ้างอิงที่อนุมัติแล้ว
-      README.md         รูปแบบและนโยบาย Q&A; ห้ามนำเข้า context
-    README.md           นโยบายเท่านั้น; ห้ามนำเข้า context
-  tests/               เทสต์ Document Router, full-file loading และ fail-closed
+  README.md          นโยบายนี้
+  aliases/           คำพ้องที่ผู้ดูแลกำหนด (หนึ่ง intent ต่อไฟล์) — ไม่ใช่หลักฐาน
+    README.md        รูปแบบกฎคำพ้อง
+  source/            เอกสาร authoritative
+    PEA_*.md
+    qa/qa_*.md       Approved Q&A
+    README.md, qa/README.md   นโยบายเท่านั้น ไม่เข้า catalog
 ```
 
-> ไม่มีไฟล์ manifest, ดัชนี, embedding cache หรือ state ฝั่งคลาวด์ใด ๆ ในคลังนี้
-> `knowledge/source/` คือแหล่งความจริงเพียงแหล่งเดียว
+ไม่มี manifest, index, embedding cache หรือ state บนคลาวด์ — `knowledge/source/` คือแหล่งความจริงเดียว
 
-## ขั้นตอนทำงานที่บังคับใช้
+## การทำงาน (`app/knowledge/`)
 
-### 1. สร้าง catalog ระดับเอกสาร
+1. **Catalog** — ตอนเริ่มระบบสแกนไฟล์ที่อนุมัติ สร้าง entry: `sourceId`, `title`, `headings`
+   (สูงสุด 12) และ `aliases` จาก `knowledge/aliases/` ที่อ้างถึงไฟล์นั้น catalog ไม่มีเนื้อหาเอกสาร
+2. **Aliases** — ไฟล์ Markdown พร้อม front matter; ทุก `sourceId` ในกฎต้องมีอยู่จริง และ `id`/alias
+   ต้องไม่ซ้ำ มิฉะนั้นเริ่มระบบไม่สำเร็จ alias ใช้เพียงช่วยโมเดลเลือกเอกสาร เซิร์ฟเวอร์ไม่จับคู่คำถามกับ alias
+3. **เลือกเอกสาร** — `get_knowledge_documents(source_ids)` รับ 1–5 `sourceId` จาก catalog เท่านั้น
+4. **โหลดทั้งไฟล์** — อ่านข้อความตามต้นฉบับทั้งหมด (heading, list, URL, ตัวเลข) รวมกันไม่เกิน
+   120,000 ตัวอักษร เกินแล้วคืน error code `invalid_input` ไม่ตัดทอน
+5. **Provenance** — แต่ละเอกสารคืน `sourceId`, `title`, `uri` (`knowledge://source/<sourceId>`)
 
-เมื่อเริ่มระบบ backend ต้องค้นพบไฟล์ที่อนุมัติและสร้าง catalog โดยมีข้อมูลขั้นต่ำ:
+สัญญาเต็มของเครื่องมืออยู่ใน [CONTRACTS.md](../CONTRACTS.md)
 
-- `sourceId`: พาธสัมพัทธ์ เช่น `PEA_ขอใช้ไฟฟ้าใหม่_บุคคลธรรมดา.md`
-- `title`: ชื่อไฟล์หรือหัวข้อแรกของเอกสาร
-- `topics`: หัวข้อบริการระดับเอกสารที่ดึงจากชื่อและ heading โดยไม่สร้างข้อเท็จจริงใหม่
-
-Catalog ห้ามมี chunk, embedding หรือข้อความสรุปที่โมเดลแต่งขึ้น
-
-### 2. เทียบคำพ้องที่ผู้ดูแลกำหนด
-
-ก่อนเรียก Document Router backend จะอ่านกฎ Markdown ใน `knowledge/aliases/` หนึ่งไฟล์ต่อหนึ่ง intent หากข้อความผู้ใช้มี alias ที่ตรงแบบ explicit ระบบจะเลือก `sourceIds` ที่กฎนั้นอ้างไว้โดยตรง (และต้องไม่เกิน `maxResults`) มิฉะนั้นจึงใช้ Document Router ตามปกติ
-
-- กฎเป็น configuration ไม่ใช่เอกสารความรู้: ห้ามใช้สร้างคำตอบหรือ citation และห้ามส่งเข้า long context
-- ทุก `sourceId` ในกฎต้องอยู่ใน catalog จริง; `id` และ alias ต้องไม่ซ้ำข้ามกฎ มิฉะนั้น backend ปฏิเสธการเริ่มระบบ
-- backend โหลดกฎเมื่อเริ่มระบบ ดังนั้นหลังแก้ไขไฟล์ให้ restart process เพื่อใช้ rule ชุดใหม่
-- เพิ่มเฉพาะคำที่มีความหมายแน่ชัดจากเอกสารที่อนุมัติแล้ว; คำกำกวมต้องปล่อยให้ Router เลือกหรือคืน no-evidence
-
-### 3. เลือกไฟล์ที่เกี่ยวข้อง
-
-Document Router รับเฉพาะคำถามและ catalog ระดับเอกสาร แล้วคืน `sourceId` จาก allowlist
-ไม่เกิน `maxResults` รายการ โดยต้องเลือกชุดไฟล์ที่เล็กที่สุดซึ่งครอบคลุมคำถาม
-
-- คำถามหนึ่งบริการ: เลือกไฟล์หลักที่ตรงที่สุด และไฟล์ภาพรวมเฉพาะเมื่อจำเป็น
-- คำถามหลายบริการ: เลือกหลายไฟล์ฉบับเต็มได้
-- คำถามกำกวม: คืน no-evidence เพื่อให้ Main Agent ถามให้ชัดเจน
-- รหัสไฟล์ที่ไม่อยู่ใน catalog ต้องถูกปฏิเสธ ห้ามอ่านพาธจากข้อความที่โมเดลสร้าง
-
-### 4. โหลดข้อความทั้งไฟล์
-
-หลังตรวจ allowlist แล้ว backend ต้องอ่านไฟล์ Markdown (`.md`, UTF-8) ทั้งหมดของเอกสารที่เลือก โดยคงข้อความตามลำดับการอ่าน รวมถึง:
-
-- heading และย่อหน้าทุกส่วน
-- numbered/bulleted list
-- URL และตัวเลขตามต้นฉบับ
-
-ห้ามตัดเฉพาะส่วนต้น ห้ามเลือกเฉพาะย่อหน้าที่คล้ายคำถาม และห้ามแบ่งเป็น chunk เพื่อส่งเข้า
-LLM ข้อความที่แปลงแล้วอาจ cache ใน memory ตาม hash ของไฟล์ได้ แต่ cache ไม่ใช่ search index
-
-### 5. ส่งเข้า Gemini Long Context
-
-Prompt สำหรับตอบประกอบด้วย:
-
-1. คำสั่งให้ใช้เฉพาะเอกสารที่แนบมาและห้ามเดา
-2. คำถามของผู้ใช้
-3. ข้อความฉบับเต็มของแต่ละไฟล์ พร้อมขอบเขต `[SOURCE: <sourceId>] ... [/SOURCE]`
-4. รูปแบบผลลัพธ์แบบมีโครงสร้าง: คำตอบตรงคำถามและหลักฐานแยกตาม `sourceId`
-
-`answerContext` ต้องเป็นคำตอบที่อ่านได้และตรงคำถาม ไม่ใช่การคัดหัวเอกสาร รายการลิงก์ หรือ
-citation snippet มาต่อกัน
-
-### 6. ตรวจ citation
-
-citation ทุกตัวต้องผ่านกฎต่อไปนี้:
-
-- `sourceId` ต้องเป็นไฟล์ที่ Document Router เลือกจริง
-- `title` ต้องเป็นชื่อเอกสารจริง
-- `uri` ใช้ logical URI เช่น `knowledge://source/<encoded-relative-path>`
-- `snippet` ต้องเป็นข้อความหลักฐานจากไฟล์ฉบับเต็มนั้นและตรวจสอบ substring ได้
-- หากคำตอบหรือ snippet อ้างถึงไฟล์อื่น ให้ปฏิเสธผลลัพธ์และ fail closed
-
-## Context budget
-
-- ห้ามส่งทั้ง 45 ไฟล์ทุกคำถาม
-- ห้ามตัดท้ายไฟล์ที่เลือกเพื่อให้พอดี context window
-- หากหลายไฟล์ที่จำเป็นรวมกันเกิน context budget ให้ขอให้ผู้ใช้จำกัดหัวข้อ หรือคืน typed failure
-- สามารถใช้ in-memory extraction cache หรือ provider context cache ต่อชุดไฟล์ได้ แต่ต้องไม่เปลี่ยน
-  เนื้อหา การเลือกไฟล์ หรือกฎการอ้างอิง
-
-## การกำหนดค่าเป้าหมาย
+## การตั้งค่า
 
 | ตัวแปร | ความหมาย |
 | --- | --- |
-| `KNOWLEDGE_PROVIDER` | `gemini` (ค่าเริ่มต้น) |
-| `GEMINI_API_KEY` | คีย์ Google AI Studio; ห้ามบันทึกใน repository หรือ trace |
-| `GEMINI_LONG_CONTEXT_MODEL` | โมเดล Google สำหรับ Document Router และ full-file answer; ค่าเริ่มต้นคือ `gemini-3.5-flash` |
-| `KNOWLEDGE_SOURCE_ROOT` | root ของ corpus; ค่าเริ่มต้นคือ `<repo>/knowledge/source` |
+| `KNOWLEDGE_SOURCE_ROOT` | root ของ corpus; ค่าเริ่มต้น `<repo>/knowledge/source` (alias อ่านจากโฟลเดอร์ `aliases/` ที่อยู่ข้าง root นี้) |
 
-runtime อ่านเอกสารจาก `KNOWLEDGE_SOURCE_ROOT` โดยไม่ต้องใช้ชื่อ store หรือขั้นตอนอัปโหลดเอกสาร
-ใด ๆ `knowledge_tool` ต้องส่งเฉพาะเอกสารที่ Document Router เลือก พร้อมข้อความฉบับเต็มของ
-แต่ละ Markdown ให้ provider ที่กำหนด ทั้งสอง provider ใช้กฎ citation และ fail-closed ชุดเดียวกัน
+แก้/เพิ่มเอกสารหรือ alias แล้วต้อง restart server
 
-## เกณฑ์ยอมรับ
+## เอกสารอ้างอิงอื่น
 
-- คำถาม “ต้องการขอใช้ไฟฟ้าต้องมีเอกสารอะไรบ้าง” เลือกไฟล์ขอใช้ไฟฟ้าที่เกี่ยวข้อง
-  และคำตอบต้องใช้หัวข้อเอกสารจากส่วนใดก็ได้ของไฟล์ ไม่ใช่เฉพาะ 1,000 อักขระแรก
-- เทสต์ยืนยันว่า fact ที่อยู่ท้าย Markdown ยังปรากฏในคำตอบได้
-- เทสต์ยืนยันว่าไฟล์ที่ไม่เกี่ยวข้องไม่ถูกส่งเข้า Long Context
-- เทสต์ยืนยันว่าคำถามหลายหัวข้อโหลดหลายไฟล์ฉบับเต็ม
-- เทสต์ยืนยันว่า router ไม่สามารถเลือกพาธนอก allowlist
-- เทสต์ยืนยันว่า no-match, context overflow, parse error และ citation mismatch ทำงานแบบ fail closed
-- ไม่มี dependency หรือคำขอ runtime ไปยัง vector DB, embedding หรือ chunk retrieval
+`docs/research/electricity-tariff-sep-2569.md` เป็นบันทึกค้นคว้าอัตราค่าไฟ เก็บไว้เป็นข้อมูลความรู้
+แต่อยู่นอก `KNOWLEDGE_SOURCE_ROOT` จึงไม่อยู่ใน catalog runtime

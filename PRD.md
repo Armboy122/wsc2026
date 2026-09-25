@@ -1,426 +1,72 @@
-# PEA One Agent — Product Requirements Document (MVP)
+# PEA Knowledge Voice Agent — Product Requirements (MVP)
 
-**สถานะเอกสาร:** Working product baseline  
-**ประเภทผลิตภัณฑ์:** Hackathon / MVP demo  
-**ภาษาหลัก:** ไทย  
-**สถานะเผยแพร่:** Not ready for production
+**สถานะ:** Working product baseline (Voice-only)  
+**ประเภท:** Hackathon / MVP demo — ไม่พร้อมใช้งาน production  
+**ภาษาหลัก:** ไทย
 
-## 1. Executive Summary
+## 1. สรุป
 
-PEA One Agent คือผู้ช่วยสนทนาหนึ่งจุดสำหรับการค้นหาความรู้ PEA และการตรวจหรือเตรียมแจ้งเหตุไฟฟ้าขัดข้องผ่าน OMS โดยรายการเขียนต้องได้รับการยืนยันจากมนุษย์ก่อนดำเนินการ
+ผู้ช่วยเสียงภาษาไทยที่ผู้ใช้คุยด้วยแบบเรียลไทม์ และได้คำตอบเรื่องบริการของ กฟภ. จากเอกสาร
+ที่ได้รับอนุมัติเท่านั้น ADK + Gemini Live เป็นโมเดลสนทนาเดียว ความสามารถทางธุรกิจเดียวคือ
+ดึงเอกสาร Markdown ในเครื่องแบบ deterministic
 
-MVP นี้ต้องพิสูจน์สามเรื่อง:
+MVP ต้องพิสูจน์:
 
-1. ผู้ใช้ถามคำถามภาษาไทยและได้รับคำตอบจากเอกสารที่ตรวจสอบย้อนกลับได้
-2. Main Agent เลือกและประสาน tool ที่ถูกต้องโดยไม่สร้างข้อมูลปฏิบัติการขึ้นเอง
-3. รายการที่แก้ไขข้อมูลต้องผ่าน `prepare → human confirm → submit` พร้อม idempotency และ trace
+1. ผู้ใช้พูดภาษาไทยและได้ยินคำตอบที่มาจากเอกสารที่อนุมัติ ไม่ใช่ความจำของโมเดล
+2. โมเดลเลือกเอกสารที่เกี่ยวข้องจาก catalog ได้เอง และบอกข้อจำกัดเมื่อไม่มีข้อมูล
+3. สนทนาต่อเนื่องและพูดแทรกได้อย่างเป็นธรรมชาติ
 
-ผลิตภัณฑ์นี้เป็นเดโม ไม่ใช่ระบบบริการลูกค้า PEA สำหรับ production โดย OMS เชื่อม external REST แต่ ToolResult ต้องมี `simulation=true`; Sabuy และ VOC คงเฉพาะ implementation/contracts/isolated tests แบบ dormant และไม่เปิดใช้งาน
+## 2. ผู้ใช้
 
-### One-line pitch
+- **ผู้ใช้ไฟฟ้า** — ถามเรื่องขอใช้ไฟฟ้า ค่าไฟ/อัตรา TOU/Ft, คืนเงินประกัน, ผ่อนชำระ, eBill, EV/Solar ฯลฯ
+- **ผู้สาธิต/กรรมการ** — ทดลองผ่านหน้าเว็บหรือหน้าจำลองโทรศัพท์ 1129
 
-> ผู้ช่วย PEA ภาษาไทยตัวเดียวที่ตอบจากเอกสารจริง ประสานบริการหลายระบบ และให้มนุษย์ควบคุมทุกการเขียนข้อมูล
+## 3. ขอบเขต
 
-## 2. Problem
+### อยู่ในขอบเขต
 
-ข้อมูลและ workflow บริการลูกค้ากระจายอยู่หลายแหล่ง ผู้ใช้ต้องรู้ว่าจะถามที่ไหนหรือใช้ระบบใด ขณะที่คำตอบจาก LLM ทั่วไปมีความเสี่ยงจากการเดาข้อมูล การอ้างอิงที่ตรวจสอบไม่ได้ และการดำเนินการแทนผู้ใช้โดยไม่มีการยืนยันที่ชัดเจน
+- หน้าเว็บเสียง (`/`) และหน้าจำลองโทรศัพท์ (`/phone.html`) พร้อม transcript
+- `WS /ws/live` ผ่าน ADK bidi streaming ไป Gemini Live
+- เครื่องมือเดียว `get_knowledge_documents` คืนเอกสารฉบับเต็มจาก `knowledge/source/`
+- `GET /health`
 
-MVP จึงต้องลดความซับซ้อนหน้าบ้านโดยคงความปลอดภัยหลังบ้าน:
+### นอกขอบเขต (ถูกลบออกแล้ว)
 
-- สนทนาด้วยภาษาธรรมชาติผ่านจุดเดียว
-- ตอบความรู้จากหลักฐานที่เลือกจริง
-- แยกข้อเท็จจริงจริงออกจากข้อมูลจำลอง
-- แสดงสิ่งที่ระบบกำลังจะทำก่อนขอคำยืนยัน
-- มี trace ที่ตรวจสอบได้โดยไม่เปิดเผย chain-of-thought หรือข้อมูลลับ
+แชตแบบพิมพ์, LINE, OMS/แจ้งไฟดับ, VOC/ร้องเรียน, Sabuy, การคำนวณค่าไฟ, pending action/การยืนยัน,
+trace UI, geolocation, REST API ทางธุรกิจ, LLM ตัวที่สอง, vector/RAG, MCP
 
-## 3. Target Users
+## 4. ข้อกำหนดเชิงหน้าที่
 
-### 3.1 ผู้ใช้ไฟฟ้า
-
-ต้องการคำตอบหรือเริ่ม workflow บริการโดยไม่ต้องรู้โครงสร้างระบบภายใน
-
-### 3.2 เจ้าหน้าที่สาธิต/กรรมการ
-
-ต้องการเห็น critical path แบบ end-to-end หลักฐานอ้างอิง การเรียก tool สถานะจำลอง และ human confirmation ที่ตรวจสอบได้
-
-### 3.3 ทีมพัฒนาและผู้ดูแลข้อมูล
-
-ต้องการ contract ที่แน่นอน test ที่ทำซ้ำได้ และขอบเขตชัดเจนระหว่างเอกสารจริงกับระบบจำลอง
-
-## 4. Product Principles
-
-1. **Evidence before fluency** — คำตอบที่ลื่นไหลห้ามมีอำนาจเหนือหลักฐาน
-2. **One agent, explicit tools** — ใช้ Main Agent หนึ่งตัวและ tool ระดับบนสุดที่ประกาศไว้เท่านั้น
-3. **Human-controlled writes** — แชตเตรียมรายการได้ แต่ยืนยันแทนมนุษย์ไม่ได้
-4. **Fail closed** — เมื่อหลักฐาน ข้อมูล หรือ validation ไม่พอ ให้ถามเพิ่มหรือแจ้งข้อจำกัด
-5. **Simulation must be obvious** — ห้ามทำให้ผู้ใช้เข้าใจว่าข้อมูลจำลองมาจากระบบ PEA จริง
-6. **MVP first** — พิสูจน์ critical path ก่อนเพิ่ม infrastructure หรือ abstraction
-7. **Auditable, not introspective** — แสดง trace ของเหตุการณ์และผลลัพธ์ ไม่แสดง reasoning ภายใน
-
-## 5. Goals
-
-### G1 — Trusted knowledge answers
-
-ตอบคำถามจากข้อความฉบับเต็มของเอกสารที่เกี่ยวข้อง พร้อม citation ที่ตรวจสอบได้ว่าอยู่ในไฟล์จริง
-
-### G2 — Correct tool orchestration
-
-เลือก tool/action ตามเจตนาและข้อมูลที่ผู้ใช้ให้ ถ้าข้อมูลไม่ครบต้องถามเฉพาะข้อมูลที่ขาด และห้ามสร้างค่าขึ้นเอง
-
-### G3 — Safe transaction preparation
-
-รองรับการเตรียมรายการเขียน การยืนยันหรือปฏิเสธผ่าน endpoint เฉพาะ และป้องกันการ submit ซ้ำ
-
-### G4 — Transparent demo experience
-
-หน้าเว็บต้องแสดงคำตอบ citation tool result pending action trace และป้าย simulation อย่างเข้าใจง่ายบนมือถือและเดสก์ท็อป
-
-### G5 — Repeatable evaluation
-
-พฤติกรรม deterministic ที่สำคัญต้องตรวจด้วย automated tests/evaluation cases และแยกจากการประเมินคุณภาพภาษาของโมเดล
-
-### G6 — Tariff critical path (additive MVP scope)
-
-รองรับคำถามภาษาไทยที่ระบุจำนวนหน่วยด้วย `billCalculation` แบบ typed ผ่าน `knowledge_tool.search` โดยต้องขอเดือน/ปีและยืนยันบ้านอยู่อาศัยอัตราปกติ `1.1.2` เมื่อข้อมูลไม่ครบ ห้ามอนุมาน subtype จากคำว่า “บ้าน”, “ปกติ” หรือจำนวนหน่วย และหัวข้อใหม่ต้องไม่สืบทอดข้อมูลค่าไฟค้างอยู่
-
-ขอบเขตหลักฐานที่รองรับคือเอกสาร tariff ที่โหลดจริงและตรวจ hash แล้ว: กันยายน 2569/2026 สำหรับ subtype `1.1.2` คืนประมาณการรวม VAT 7% (ตัวอย่าง 966 หน่วย = 4,365.47 บาท); ตุลาคม–ธันวาคมคืนได้เพียงยอดก่อน VAT 4,079.88 บาทสำหรับ 966 หน่วย; TOU, subtype อื่น และช่วงนอกหลักฐานต้องแจ้ง unavailable โดยไม่เดายอด การแสดงผลต้องมาจาก `billOutcome` ที่ typed และ citation ที่ backend คืนเท่านั้น
-
-## 6. Non-goals
-
-MVP นี้ไม่ครอบคลุม:
-
-- การเชื่อม CRM, OMS, billing, payment หรือระบบ PEA production จริง
-- การตัดเงินจริงหรือแก้ไขข้อมูลลูกค้าจริง
-- authentication และ authorization สำหรับ production หลายผู้ใช้
-- persistent production database หรือการรับประกันสถานะหลัง process restart
-- การยืนยันอัตโนมัติ การยืนยันด้วยข้อความแชต หรือ background submission
-- vector database, embedding, chunk retrieval, document chunking หรือ RAG สำรอง
-- multi-agent topology, microservices, event bus หรือ queue
-- ระบบเรียนรู้จากแชตหรือเผยแพร่คำตอบเจ้าหน้าที่โดยอัตโนมัติ
-- production-scale observability, availability หรือ performance hardening
-
-รายละเอียดงานเรียนรู้จากคำถามที่ตอบไม่ได้เป็น roadmap แยกใน `docs/qa-learning-roadmap.md`
-
-## 7. MVP Scope
-
-Contract เป้าหมายกำหนด Main Agent หนึ่งตัวและ tool ที่ลงทะเบียนแบบ typed สองรายการ:
-
-| Capability | Tool | MVP behavior | Data status |
-| --- | --- | --- | --- |
-| ความรู้ PEA | `knowledge_tool` | เลือกเอกสารและตอบจากข้อความเต็มพร้อม citation | เอกสารจริงที่ต้องผ่านการอนุมัติ |
-| ไฟฟ้าขัดข้อง | `oms_tool` | ตรวจ CA และเตรียม/ส่งรายงานผ่าน external REST ของ gateway OMS จริง (endpoint เป็น source of truth) | ToolResult simulation=true |
-
-Sabuy และ VOC ไม่ลงทะเบียนใน runtime catalogue; โค้ด สัญญา และ isolated tests ที่มีอยู่คงไว้แบบ dormant เพื่อ compatibility เท่านั้น
-
-> OMS connector เป็น seam แบบ explicit ใน Agent ใช้ typed contracts และ `httpx` เท่านั้น ไม่โหลดหรือสร้างเครื่องมือจาก OpenAPI โดยอัตโนมัติ; ลิงก์ HTTP(S) จาก Knowledge ต้องปรากฏตรงตัวในข้อความ DOCX ฉบับเต็มที่เลือกและผ่านการตรวจสอบแล้ว
-
-### 7.1 Voice Mode (Gemini Live) — ส่วนเพิ่มเติมของ MVP
-
-โหมดเสียงเป็น **ช่องทางขนส่งเรียลไทม์เพิ่มเติม** บน Main Agent เดิม ไม่ใช่ตัวแทนหรือ
-ขอบเขตความสามารถใหม่:
-
-| รายการ | ค่าใน MVP |
+| ID | ข้อกำหนด |
 | --- | --- |
-| ช่องทางขนส่ง | Gemini Live API (เสียง + การถอดเสียง) ผ่าน WebSocket `/ws/live` เดียวต่อเซสชันเบราว์เซอร์ |
-| ตัวแทนธุรกิจ | Main Agent ตัวเดิมเท่านั้น (`app/agent/main_agent.py`) — Voice Bridge เป็นตัวกลางบาง ๆ ไม่ใช่ตัวแทนแยก |
-| ขอบเขตความสามารถ | Knowledge และ OMS เท่านั้น (ตรงกับ runtime catalogue ที่เปิดใช้) |
-| เมทอดที่เรียก | `handle_chat` / `confirm_pending_action` / `reject_pending_action` เท่านั้น |
-| การยืนยัน/ปฏิเสธด้วยเสียง | ผูกกับเซสชัน — โมเดลไม่รับ/ส่ง `pendingActionId` ระบบเลือก "รายการปัจจุบัน" ของเซสชันเอง และ fail closed เมื่อไม่มีรายการ |
-| ความกำกวม | โมเดลต้องถามย้ำและห้ามเรียกฟังก์ชันตัดสินใจเมื่อคำตอบไม่ชัดเจน |
-| โมเดลเสียง | `gemini-3.8-live` — ต้องยืนยันการเข้าถึงด้วยบัญชีจริงก่อน live acceptance |
-| ข้อมูล OMS | ToolResult ยังคง `simulation=true` เช่นเดียวกับช่องทางข้อความ |
+| FR-1 | ผู้ใช้เริ่ม/หยุดโหมดเสียงด้วยปุ่มเดียว และเห็นสถานะ (เชื่อมต่อ/ฟัง/พูด/ผิดพลาด) |
+| FR-2 | แสดง transcript ของผู้ใช้และผู้ช่วย |
+| FR-3 | คำถามข้อเท็จจริงของ PEA ต้องเรียก `get_knowledge_documents` และตอบจากเอกสารที่ได้ |
+| FR-4 | เลือกได้ไม่เกิน 5 เอกสาร / 120,000 ตัวอักษรต่อครั้ง; เกินแล้วได้ error แบบมีโครงสร้าง ไม่ตัดทอน |
+| FR-5 | ไม่มีข้อมูลในเอกสาร → บอกข้อจำกัดตรงไปตรงมา |
+| FR-6 | พูดแทรกแล้วเสียงหยุดทันที (`audio.interrupted`) |
+| FR-7 | ข้อผิดพลาดแสดงเป็นข้อความภาษาไทยที่ปลอดภัย ไม่เปิดเผยรายละเอียด provider |
 
-### 7.2 Controlled ADK runtime migration
+## 5. ข้อกำหนดที่ไม่ใช่หน้าที่
 
-The 7.1 table describes `VOICE_RUNTIME=legacy`, which remains the default.
-Opt-in `VOICE_RUNTIME=adk` replaces the custom voice/planner execution loop with
-one ADK Live agent and exposes enabled Knowledge, VOC and OMS through thin
-adapters. Existing business rules, VOC consent/intake, pending-action approval,
-citations, static UI and HTTP behavior remain regression boundaries.
+- ไม่มีคีย์หรือข้อมูลลับใน browser/log
+- Knowledge ไม่เรียก LLM และอ่านเฉพาะไฟล์ใน allowlist
+- ไม่ต้องมีฐานข้อมูล; session อยู่ในหน่วยความจำ
+- ประสิทธิภาพ/latency: **ยังไม่ได้วัด** — ไม่มีเกณฑ์ตัวเลขที่ยืนยันแล้ว
 
-Acceptance requires Thai microphone input/output, interruption, tool return to
-the same conversation, grounded follow-ups, no redundant questions for supplied
-information and asking only for missing data. Offline adapter/transport tests
-do not establish this live acceptance. No telephony or UI redesign is included.
+## 6. เกณฑ์ยอมรับ
 
-## 8. Critical User Journeys
-
-### J1 — Ask a knowledge question
-
-```text
-ผู้ใช้ถามภาษาไทย
-→ Main Agent เลือก knowledge search
-→ Document Router เลือกไฟล์จาก allowlist
-→ โหลดข้อความเต็มของไฟล์ที่เลือก
-→ โมเดลตอบจากข้อความนั้นเท่านั้น
-→ ตรวจ citation/snippet
-→ แสดงคำตอบและแหล่งอ้างอิง
-```
-
-หากไม่มีหลักฐาน ต้องคืน no-evidence หรือขอคำชี้แจง ห้ามตอบจากความจำโมเดล
-
-### J2 — Continue a knowledge conversation
-
-คำถามต่อเนื่องต้องใช้บริบทก่อนหน้าเพื่อระบุหัวข้อเท่านั้น และเรียก knowledge search ใหม่เพื่อสร้างหลักฐานสำหรับคำตอบรอบปัจจุบัน
-
-### J3 — Prepare and confirm a write
-
-```text
-ผู้ใช้ขอดำเนินการ
-→ ตรวจข้อมูลที่จำเป็น
-→ ถามข้อมูลที่ขาด
-→ prepare_* และแสดงสรุป
-→ ผู้ใช้กดยืนยันผ่าน confirm endpoint
-→ submit_* หนึ่งครั้ง
-→ แสดงผลลัพธ์และ trace
-```
-
-การยืนยันซ้ำต้องคืนผลเดิมและไม่สร้าง side effect ซ้ำ
-
-### J4 — Reject a prepared write
-
-ผู้ใช้ปฏิเสธผ่าน reject endpoint รายการต้องเข้าสถานะ terminal และ submit ภายหลังไม่ได้
-
-### J5 — ตรวจและแจ้งเหตุไฟฟ้าขัดข้องผ่าน OMS
-
-เมื่อมี CA ระบบต้องเรียก `get_outage_by_ca` ก่อนเสมอและห้าม prepare ซ้ำเมื่อมี active event; หากไม่พบ CA ให้เสนอ flow แบบ anonymous ผู้ใช้ต้องให้รายละเอียด ตำแหน่ง และเบอร์ติดต่อก่อน `prepare_anonymous_outage` การส่งจริงเกิดได้เฉพาะหลัง explicit confirm และ internal submit เท่านั้น
-
-### J6 — Inspect and reset the demo
-
-ผู้สาธิตเปิดดู trace ที่เรียงตามลำดับและปกปิดข้อมูลแล้ว จากนั้น reset conversation, pending actions, simulated state และ traces เพื่อเริ่มเดโมใหม่ได้
-
-### J7 — Voice conversation with spoken confirmation/rejection
-
-```text
-ผู้ใช้กดปุ่มไมโครโฟนและพูด
-→ เบราว์เซอร์ส่ง PCM16 16kHz เป็น binary ผ่าน /ws/live (same-origin WebSocket)
-→ Gemini Live ถอดเสียง → เรียก pea_agent_chat → Voice Bridge ส่งต่อ Main Agent
-→ Main Agent ตอบ/เตรียมรายการ → bridge เก็บเฉพาะ pendingActionId ปัจจุบันของเซสชัน
-→ ผู้ช่วยเสียงสรุปและถามยืนยัน/ปฏิเสธอย่างชัดเจน
-→ ผู้ใช้พูด "ยืนยัน" → pea_confirm_pending_action (ไม่รับ id จากโมเดล)
-→ submit_* หนึ่งครั้งผ่าน Main Agent → ล้างสถานะสิ้นสุดของเซสชัน
-→ หากคำตอบกำกวม ให้ถามย้ำ ห้ามเรียกฟังก์ชันตัดสินใจ
-```
-
-## 9. Functional Requirements
-
-### FR-1 Conversation
-
-- รับข้อความที่ไม่ว่างผ่าน `POST /api/v1/chat`
-- รักษา `conversationId` สำหรับบทสนทนาต่อเนื่อง
-- ส่งคืน `traceId`, message, citations, tool results และ pending action ตาม contract
-- ถ้าไม่มี tool ที่ตรง ให้แจ้งว่าไม่รองรับโดยไม่เลือก tool แบบคาดเดา
-
-### FR-2 Knowledge grounding
-
-- Router เห็นเฉพาะ query และ catalog ระดับเอกสาร
-- เลือกเฉพาะ `sourceId` ใน allowlist และไม่เกิน `maxResults`
-- ส่งข้อความเต็มของไฟล์ที่เลือกให้โมเดลโดยไม่ตัดท้ายอย่างเงียบ ๆ
-- citation ต้องอ้างไฟล์ที่เลือกและ snippet ต้องพบในข้อความจริง
-- เมื่อหลักฐานไม่พอ ให้ fail closed
-
-### FR-3 Tool safety
-
-- Tool/action/input/output ต้องผ่าน typed validation
-- runtime ต้องปฏิเสธ tool ที่ไม่รู้จัก action ที่ไม่ตรง tool และ submit action จากแชต
-- ข้อเท็จจริงด้านเหตุไฟฟ้าขัดข้องต้องมาจาก typed OMS tool result เท่านั้น
-
-### FR-4 Pending actions
-
-- Chat เรียกได้เฉพาะ read action และ `prepare_*`
-- เฉพาะ confirm endpoint เท่านั้นที่นำไปสู่ `submit_*`
-- Confirm และ reject ต้อง idempotent ตาม terminal state
-- `idempotencyKey` ต้องป้องกัน duplicate submission
-
-### FR-5 Trace and redaction
-
-- บันทึก event ตามลำดับด้วย sequence ที่เพิ่มขึ้น
-- ปกปิด payload ที่ละเอียดอ่อนก่อนจัดเก็บหรือแสดง
-- ไม่เก็บหรือแสดง chain-of-thought, hidden prompt หรือ credential
-
-### FR-6 Demo UI
-
-- ใช้ API v1 จาก same origin
-- รองรับสถานะ loading, validation, network error, 404, 409, 422 และ 5xx
-- แสดง citations, pending action, confirm/reject, trace และ simulation labels
-- รองรับ keyboard, focus, screen-reader announcements, reduced motion และ touch target ที่เหมาะสม
-
-### FR-7 Configuration
-
-- Main, Knowledge และ Judge เลือก provider/model แยกกันผ่านไฟล์ LLM settings ที่ไม่มี credential; environment ใช้เก็บ key และ override ชั่วคราว
-- Credential ต้องไม่ปรากฏใน repository, health response, logs หรือ object representation
-- ห้ามอ้างว่า provider ทำงานจริงจนกว่าจะยืนยันด้วย real request
-
-## 10. Product Safety Requirements
-
-1. **Human confirmation:** ไม่มี write ใดเกิดจาก chat message เพียงอย่างเดียว
-2. **Idempotency:** confirm ซ้ำไม่สร้างรายการซ้ำ
-3. **Simulation disclosure:** ทุก operational result ต้องมีและแสดง `simulation: true`
-4. **Knowledge provenance:** ทุก factual knowledge answer ต้องย้อนกลับไปยังเอกสารที่เลือกได้
-5. **No secret exposure:** health, trace, log และ UI ห้ามเปิดเผย credential หรือ sensitive payload
-6. **No prompt disclosure:** ปฏิเสธคำขอ system prompt, chain-of-thought และ reasoning ภายใน
-7. **Electrical safety:** OMS output ต้องมี safety message และแสดงก่อนคำอธิบายอื่น
-8. **No false escalation:** ห้ามอ้างว่าสร้าง ticket หรือส่งต่อสำเร็จจนกว่าระบบปลายทางจริงตอบรับ
-
-## 11. UX Requirements
-
-- ภาษาไทยเป็นค่าเริ่มต้นและใช้ถ้อยคำธรรมชาติ
-- แยกคำตอบ หลักฐาน ข้อมูลจำลอง และ action ที่รอยืนยันให้เห็นชัด
-- ผู้ใช้ต้องเข้าใจสิ่งที่จะเกิดขึ้นก่อนกดยืนยัน
-- Error message ต้องบอกข้อจำกัดหรือสิ่งที่ต้องแก้โดยไม่เปิดเผยรายละเอียดภายใน
-- Critical path ต้องใช้งานได้บน viewport มือถือ
-- UI สำหรับเดโมควรเรียบง่ายและไม่พึ่ง build pipeline โดยไม่จำเป็น
-
-## 12. Success Metrics
-
-เกณฑ์ต่อไปนี้ใช้เป็น product acceptance ไม่ใช่ production SLA:
-
-| Metric | MVP target |
+| เกณฑ์ | สถานะ |
 | --- | --- |
-| Contract compliance | ชุดทดสอบ route/schema ที่เกี่ยวข้องผ่านทั้งหมด |
-| Citation validity | citation ที่คืนต้องอ้างไฟล์ที่เลือกและ snippet ตรวจพบได้ทั้งหมด |
-| Unsupported/no-evidence safety | ไม่สร้างคำตอบหรือ tool call ทดแทนเมื่อไม่มีหลักฐาน/ความสามารถ |
-| Write safety | ทุก write path ผ่าน prepare/confirm/submit และ duplicate confirm ไม่ submit ซ้ำ |
-| Trace safety | event เรียงลำดับและไม่พบข้อมูลลับ/chain-of-thought ใน trace |
-| Simulation clarity | operational result และ UI ระบุ SIMULATED ชัดเจน |
-| Critical journey completion | เส้นทางเดโมที่เปิดใช้งานจริงทำงาน end-to-end |
-| Evaluation quality | evaluator ที่กำหนดสำหรับ capability ที่ release ผ่านเกณฑ์ที่ทีมอนุมัติ |
+| เทสต์อัตโนมัติทั้งหมดผ่าน (ไม่เรียก provider จริง) | ✅ |
+| Route surface มีเพียง static UI, `/health`, `/ws/live` | ✅ (เทสต์) |
+| Knowledge ไม่มี generative call, มีเครื่องมือเดียว | ✅ (เทสต์) |
+| สนทนาเสียงจริงภาษาไทยตอบถูกตามเอกสาร | ⏳ pending — ต้องทดสอบด้วยมือ (README checklist) |
+| พูดแทรกทำงานกับ Gemini Live จริง | ⏳ pending |
+| วัด latency | ⏳ pending |
 
-ตัวเลขจำนวนเอกสารและจำนวน test เปลี่ยนได้ตาม repository จึงควรดึงจากผลรันล่าสุดสำหรับสไลด์ ไม่ควรคัดลอกตัวเลขเก่าจากเอกสารโดยไม่ตรวจซ้ำ
+## 7. ข้อจำกัดที่ทราบ
 
-## 13. Demo Story for Slides
-
-### Slide 1 — Problem
-
-บริการและความรู้กระจายหลายระบบ ขณะที่ AI ที่ไม่มีหลักฐานอาจตอบผิดหรือดำเนินการเกินสิทธิ์
-
-### Slide 2 — Solution
-
-Main Agent หนึ่งตัวเชื่อม knowledge และ operational tools ผ่านบทสนทนาภาษาไทย พร้อม human confirmation
-
-### Slide 3 — Trusted Knowledge
-
-Document Router เลือกเอกสารที่เกี่ยวข้อง ส่งข้อความเต็มเข้า long context และตรวจ citation กับไฟล์จริง
-
-### Slide 4 — Safe Actions
-
-แชตทำได้เพียง prepare ผู้ใช้ต้องยืนยันผ่าน endpoint เฉพาะ และระบบป้องกัน duplicate submit
-
-### Slide 5 — Transparent Demo
-
-UI แสดง source, tool, pending action, simulation status และ redacted trace โดยไม่เปิดเผย reasoning
-
-### Slide 6 — Validation and Next Step
-
-แสดงผล test/evaluation ล่าสุดที่รันจริง สิ่งที่ยังจำลอง และ gate ก่อน production
-
-## 14. Acceptance Criteria
-
-MVP ถือว่าพร้อมสำหรับการสาธิตเมื่อ:
-
-- แอปเริ่มทำงานและหน้าเว็บเรียก API v1 ได้
-- Knowledge journey ที่เลือกสำหรับเดโมตอบจากเอกสารจริงพร้อม citation ที่ผ่าน validation
-- Capability ที่ประกาศว่าเปิดใช้ในเดโมผ่านเส้นทาง end-to-end จริง
-- Prepare/confirm/reject แสดง state transition และ idempotency ได้
-- Trace แสดง event ตามลำดับและปกปิดข้อมูลสำคัญ
-- UI แสดง simulation status อย่างต่อเนื่อง
-- Automated checks ที่เกี่ยวข้องผ่าน
-- ข้อจำกัดและ capability ที่ยังไม่เปิดใช้ถูกสื่อสารตรงตามจริง
-
-MVP ยังไม่พร้อม production จนกว่า:
-
-- เจ้าของข้อมูลอนุมัติ source documents และความเป็นปัจจุบัน
-- live evaluation ครบชุดที่กำหนดผ่านเกณฑ์
-- real integrations ผ่าน security/privacy review
-- authentication, authorization, persistence, monitoring และ operational controls ถูกออกแบบและตรวจสอบ
-- ผู้ใช้อนุมัติการ deploy อย่างชัดเจน
-
-## 15. Current Status and Known Gaps
-
-สถานะต้องตรวจจาก code และผลรันล่าสุดก่อนนำเสนอ เนื่องจากเอกสารเดิมบางส่วนมีตัวเลขหรือ capability claim ต่างกัน
-
-Known gaps ณ baseline นี้:
-
-- Runtime tool catalogue เปิด Knowledge และ OMS แบบ typed เท่านั้น; Sabuy และ VOC ไม่ลงทะเบียนและคงเฉพาะ implementation/contracts/isolated tests แบบ dormant
-- OMS ใช้ external REST connector ไปยัง gateway ที่กำหนดโดยถือ endpoint จริงเป็น source of truth แต่ผล ToolResult ยังคง `simulation=true`
-- Knowledge live verification ที่บันทึกไว้เป็นเพียงบางกรณี ไม่ใช่ full live evaluation
-- จำนวน DOCX และจำนวน tests ที่ระบุใน `README.md` กับ `docs/integration_report.md` ไม่ตรงกันและอาจล้าสมัย
-- ข้อมูลใน process สูญหายเมื่อ restart
-- ยังไม่มี authentication/authorization สำหรับ production
-- Workflow ส่งคำถามที่ตอบไม่ได้ให้เจ้าหน้าที่เป็นข้อความแจ้งเท่านั้น ยังไม่มี ticket integration จริง
-- โหมดเสียงตั้งค่า `gemini-3.8-live`; การเชื่อมต่อรุ่นนี้กับ Gemini Live จริงและการทดสอบไมโครโฟน/ลำโพงยังไม่ได้ทำ ต้องตรวจด้วยบัญชีจริงก่อน live acceptance
-- โหมดเสียงเป็น bridge บาง ๆ ไปยังความสามารถ Knowledge และ OMS ของ Main Agent และต้องใช้เบราว์เซอร์ที่รองรับ AudioWorklet/getUserMedia (แนะนำ Chrome/Edge ล่าสุด)
-
-ก่อนทำสไลด์ release/demo ให้รัน test/evaluator และอัปเดตหลักฐานสถานะในเอกสารที่เกี่ยวข้อง
-
-## 16. Roadmap
-
-### Phase 0 — Current MVP
-
-- Knowledge grounded by full-document evidence
-- Simulated operational workflows
-- Human confirmation and audit trace
-- Single-page Thai demo UI
-
-### Phase 1 — Demo completeness
-
-- พิจารณา production OMS authentication/authorization และ controls หลัง security/privacy review
-- ทำ live evaluation ครบชุดที่ประกาศ
-- ยืนยันและจัด version ของ knowledge sources
-- ทำ demo script และ evidence snapshot ที่สร้างซ้ำได้
-
-### Phase 2 — Controlled learning loop
-
-- persistent redacted conversation log
-- unanswered queue
-- staff review and approval
-- versioned Approved Q&A lifecycle
-
-### Phase 3 — Production discovery
-
-- identity, authorization, consent และ privacy requirements
-- real backend contracts and sandbox environments
-- reliability, monitoring, incident response และ data retention
-- security review ก่อน real write integration
-
-แต่ละ phase ต้องเริ่มเมื่อ requirement และ owner ชัดเจนเท่านั้น ห้ามสร้าง production infrastructure ล่วงหน้าเพื่อรองรับสมมติฐาน
-
-## 17. Risks and Mitigations
-
-| Risk | Mitigation |
-| --- | --- |
-| Hallucinated knowledge | Full-document grounding, citation validation, no-evidence fallback |
-| Wrong tool/action | Fixed catalogue, typed schemas, allowlist, fail-closed validation |
-| Accidental or duplicate write | Prepare/confirm/submit state machine and idempotency |
-| Demo mistaken for production | Persistent SIMULATED labels and explicit release status |
-| Sensitive data leakage | Redaction, secret-safe configuration, bounded trace fields |
-| Stale or unapproved documents | Data-owner approval and version/inventory gate |
-| Documentation drift | Verify against code/tests and record current evidence before claims |
-| Overengineering delays MVP | Vertical slices, risk-driven tests, smallest safe change |
-
-## 18. Source-of-Truth Hierarchy
-
-ใช้ลำดับนี้เมื่อเอกสารขัดแย้งกัน:
-
-1. Direct user-approved product decision
-2. `PRD.md` — product goals, scope, user journeys, acceptance
-3. `CONTRACTS.md` และ `app/contracts.py` — public/tool contracts; ต้องสอดคล้องกัน
-4. `ARCHITECTURE.md` — technical topology, boundaries, and design decisions
-5. Executable code and automated tests — current implementation evidence
-6. `docs/integration_report.md` — dated verification evidence
-7. `README.md` และ component README — setup and operational guidance
-8. Optional plans/research — non-binding future work
-
-หาก product intent กับ current implementation ไม่ตรงกัน ให้รายงาน gap และขอ/บันทึกการตัดสินใจ ห้ามแก้เอกสารหรือโค้ดให้ดูสอดคล้องโดยซ่อนความแตกต่าง
-
-## 19. Reference Map
-
-- Product requirements and presentation baseline: `PRD.md`
-- Coding-agent working rules: `AGENTS.md`
-- Technical architecture: `ARCHITECTURE.md`
-- Frozen API/tool contracts: `CONTRACTS.md`
-- Executable schemas: `app/contracts.py`
-- Setup and current headline status: `README.md`
-- Verification evidence: `docs/integration_report.md`
-- Optional QA learning roadmap: `docs/qa-learning-roadmap.md`
-- Web demo behavior: `web/README.md`
+- ต้องใช้ `GEMINI_API_KEY` และเครือข่าย; ไม่มีเสียงแบบ offline
+- เชื่อมต่อใหม่เริ่มบทสนทนาใหม่
+- คุณภาพการเลือกเอกสารขึ้นกับโมเดลและ catalog (ชื่อไฟล์, heading, alias)

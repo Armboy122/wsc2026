@@ -24,46 +24,6 @@ class SafeError(BaseModel):
     request_id: str | None = Field(default=None, serialization_alias="requestId")
 
 
-class PlatformException(Exception):
-    """คลาสพื้นฐานสำหรับข้อผิดพลาด HTTP ที่ตั้งใจให้เกิดภายในตัวจัดการ"""
-
-    def __init__(
-        self,
-        status_code: int,
-        error: str,
-        detail: str | None = None,
-    ) -> None:
-        self.status_code = status_code
-        self.error = error
-        self.detail = detail
-
-
-class NotFoundException(PlatformException):
-    def __init__(self, error: str = "not_found", detail: str | None = None) -> None:
-        super().__init__(status.HTTP_404_NOT_FOUND, error, detail)
-
-
-class ConflictException(PlatformException):
-    def __init__(self, error: str = "conflict", detail: str | None = None) -> None:
-        super().__init__(status.HTTP_409_CONFLICT, error, detail)
-
-
-class BadGatewayException(PlatformException):
-    def __init__(self, error: str = "bad_gateway", detail: str | None = None) -> None:
-        super().__init__(status.HTTP_502_BAD_GATEWAY, error, detail)
-
-
-def _build_safe_response(exc: PlatformException, request_id: str | None) -> JSONResponse:
-    body = SafeError(error=exc.error, detail=exc.detail, request_id=request_id)
-    return JSONResponse(status_code=exc.status_code, content=body.model_dump(by_alias=True))
-
-
-async def platform_exception_handler(request: Request, exc: PlatformException) -> JSONResponse:
-    from app.core.middleware import get_request_id
-
-    return _build_safe_response(exc, get_request_id())
-
-
 async def validation_exception_handler(request: Request, exc: RequestValidationError) -> JSONResponse:
     from app.core.middleware import get_request_id
 
@@ -89,6 +49,5 @@ async def catchall_exception_handler(request: Request, exc: Exception) -> JSONRe
 
 
 def register_exception_handlers(app: Any) -> None:
-    app.add_exception_handler(PlatformException, platform_exception_handler)
     app.add_exception_handler(RequestValidationError, validation_exception_handler)
     app.add_exception_handler(Exception, catchall_exception_handler)

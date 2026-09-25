@@ -11,7 +11,7 @@ approved local PEA Markdown documents.
 | Purpose | Command |
 | --- | --- |
 | Create venv (CPython 3.11) | `uv venv --python 3.11 .venv` |
-| Install deps | `uv pip install --python .venv/bin/python 'fastapi>=0.115,<1.0' 'pydantic>=2.8,<3.0' 'uvicorn[standard]>=0.30,<1.0' 'httpx>=0.27' 'pyyaml>=6.0,<7.0' 'google-genai>=1.0,<3.0' 'google-adk==2.9.1' 'pytest>=8.0' 'pytest-asyncio>=0.24'` |
+| Install deps | `uv pip install --python .venv/bin/python 'fastapi>=0.115,<1.0' 'pydantic>=2.8,<3.0' 'uvicorn[standard]>=0.30,<1.0' 'httpx>=0.27' 'google-genai>=1.0,<3.0' 'google-adk==2.9.1' 'pytest>=8.0' 'pytest-asyncio>=0.24'` |
 | Run tests | `.venv/bin/python -m pytest -q` |
 | Run server | `.venv/bin/python -m uvicorn app.main:app --reload --port 8000` |
 
@@ -20,7 +20,7 @@ Notes verified during audit:
 - `pytest` exists only inside the project virtualenv. `python3 -m pytest` fails with
   `No module named pytest`.
 - `uv pip install -e .` fails: setuptools rejects the flat layout
-  (`Multiple top-level packages discovered: ['app', 'web', 'data', 'knowledge', 'evaluation']`).
+  (multiple top-level packages, e.g. `app`, `web`, `knowledge`).
   Installing dependencies only is correct — `pyproject.toml` already sets `pythonpath = "."`.
 
 ## Architecture Overview
@@ -46,9 +46,9 @@ Browser microphone → WS /ws/live → ADK Runner.run_live() → Gemini Live
 
 ### Directory Structure
 
-- `app/` — FastAPI app, ADK agent/runtime, tools, knowledge, prompts, config
+- `app/` — FastAPI app (`api/`, `core/`), ADK agent (`agent/`), Live runtime (`runtime/`), deterministic knowledge (`knowledge/`), prompt, contracts
 - `knowledge/source/` — approved Markdown documents, the only authoritative knowledge
-- `knowledge/aliases/` — deterministic query→sourceId alias rules
+- `knowledge/aliases/` — maintainer alias metadata shown in the catalog (no server-side query matching)
 - `web/` — existing voice UI (keep, do not redesign)
 - `tests/`, plus colocated `*/tests/` packages
 

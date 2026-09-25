@@ -5,8 +5,8 @@
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <meta name="color-scheme" content="light">
   <meta name="theme-color" content="#2A1D52">
-  <title>PEA One Agent · ระบบสาธิต</title>
-  <meta name="description" content="ส่วนติดต่อสาธิตการแข่งขันแบบคงที่สำหรับ PEA One Agent — ใช้ระบบหลังบ้านจำลองเท่านั้น ไม่มีข้อมูลจากระบบใช้งานจริง">
+  <title>PEA Knowledge Voice Agent</title>
+  <meta name="description" content="ผู้ช่วยเสียง PEA ตอบจากเอกสารความรู้ที่ได้รับอนุมัติ">
   <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='7' fill='%232A1D52'/%3E%3Cpath d='M18 5 9.2 17.6h5.4L13.4 27l8.9-12.6h-5.4L18 5z' fill='%23FFD9A0'/%3E%3C/svg%3E">
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
@@ -14,7 +14,7 @@
   <link rel="stylesheet" href="styles.css">
 </head>
 <body>
-  <a class="skip-link" href="#message-input">ข้ามไปยังช่องพิมพ์ข้อความ</a>
+  <a class="skip-link" href="#voice-toggle">ข้ามไปยังปุ่มโหมดเสียง</a>
 
   <div class="app">
     <header class="app-header">
@@ -23,105 +23,37 @@
           <svg viewBox="0 0 24 24" width="22" height="22" fill="currentColor"><path d="M13.6 1.6 4.9 13.9h4.9L8.6 22.4l9.1-12.7h-5l.9-8.1z"/></svg>
         </span>
         <div class="brand-text">
-          <h1 class="brand-title">PEA One Agent</h1>
-          <p class="brand-sub">ผู้ช่วยบริการลูกค้าไฟฟ้า · ระบบสาธิต</p>
+          <h1 class="brand-title">PEA Knowledge Voice Agent</h1>
+          <p class="brand-sub">ผู้ช่วยเสียงตอบจากเอกสารความรู้ PEA</p>
         </div>
       </div>
       <div class="header-actions">
-        <span class="sim-badge" role="status">
-          <span class="sim-dot" aria-hidden="true"></span>
-          SIMULATED BACKEND · ข้อมูลจำลอง
-          <span class="be-sep" aria-hidden="true">·</span>
-          <span class="be-dot" id="be-status-dot" aria-hidden="true"></span>
-          <span id="be-status-label">กำลังตรวจสอบ BE…</span>
-        </span>
         <div class="header-buttons">
           <a id="phone-btn" class="ghost-btn" href="phone.html" title="เปิดหน้าจำลองโทรศัพท์ 1129">
             <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M22 16.92v3a2 2 0 0 1-2.18 2 19.79 19.79 0 0 1-8.63-3.07 19.5 19.5 0 0 1-6-6 19.79 19.79 0 0 1-3.07-8.67A2 2 0 0 1 4.11 2h3a2 2 0 0 1 2 1.72 12.84 12.84 0 0 0 .7 2.81 2 2 0 0 1-.45 2.11L8.09 9.91a16 16 0 0 0 6 6l1.27-1.27a2 2 0 0 1 2.11-.45 12.84 12.84 0 0 0 2.81.7A2 2 0 0 1 22 16.92z"/></svg>
             <span>โทร 1129</span>
           </a>
-          <button id="trace-toggle" class="ghost-btn" type="button" aria-expanded="false" aria-controls="trace-panel">
-            <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><path d="M4 6h16M4 12h10M4 18h7"/><circle cx="18" cy="16" r="3"/></svg>
-            <span>การตรวจสอบ</span>
-          </button>
-          <button id="reset-btn" class="ghost-btn" type="button">
-            <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3 12a9 9 0 1 0 2.6-6.3L3 8"/><path d="M3 3v5h5"/></svg>
-            <span>รีเซ็ต</span>
-          </button>
         </div>
       </div>
     </header>
 
     <main class="thread" id="thread" role="log" aria-label="บทสนทนา">
       <section class="notice notice-welcome" id="welcome">
-        <h2>ยินดีต้อนรับสู่ระบบสาธิต</h2>
-        <p>
-          หน้านี้เชื่อมต่อกับ <strong>ข้อมูลจำลอง (Simulated Backend)</strong> เท่านั้น —
-          ไม่มีการเข้าถึงข้อมูลลูกค้าจริง ระบบชำระเงินจริง หรือระบบการผลิตของ กฟภ. ไม่ว่ากรณีใด ๆ
-        </p>
-        <p>
-          การกระทำที่มีผลต่อข้อมูล (แจ้งไฟดับ)
-          จะแสดงตัวอย่างให้ตรวจสอบก่อน และเกิดขึ้นได้เฉพาะเมื่อคุณกด <strong>ยืนยัน</strong> เท่านั้น
-        </p>
-        <p>เริ่มต้นด้วยปุ่มสถานการณ์สาธิตด้านล่าง หรือพิมพ์คำถามของคุณเอง</p>
+        <h2>ยินดีต้อนรับ</h2>
+        <p>กดปุ่ม <strong>🎙 โหมดเสียง</strong> แล้วถามเรื่องบริการของ กฟภ. ผู้ช่วยจะตอบจากเอกสารความรู้ที่ได้รับอนุมัติเท่านั้น</p>
       </section>
     </main>
 
-    <section class="composer" aria-label="ส่งข้อความ">
-      <div class="prompts" role="group" aria-label="สถานการณ์สาธิต 3 เรื่อง">
-        <button class="prompt-chip" type="button" data-prompt="ค้นหาข้อมูลอัตราค่าไฟ On-Peak และช่วงเวลาที่ใช้" title="ค้นหาข้อมูลอัตราค่าไฟ On-Peak และช่วงเวลาที่ใช้">
-          <span class="prompt-num" aria-hidden="true">01</span>
-          <span class="prompt-label">ค้นหาอัตราค่าไฟ On-Peak</span>
-        </button>
-        <button class="prompt-chip" type="button" data-prompt="ตรวจสอบสถานะไฟฟ้าดับ BKK-01 และค้นหาข้อมูลนโยบายความปลอดภัย" title="ตรวจสอบสถานะไฟฟ้าดับ BKK-01 และค้นหาข้อมูลนโยบายความปลอดภัย">
-          <span class="prompt-num" aria-hidden="true">03</span>
-          <span class="prompt-label">ไฟดับ BKK-01 + ความปลอดภัย</span>
-        </button>
-      </div>
-      <form id="composer-form" class="composer-form" novalidate>
-        <label class="visually-hidden" for="message-input">ข้อความถึงผู้ช่วย</label>
-        <textarea id="message-input" rows="1" maxlength="4000" placeholder="พิมพ์ข้อความ เช่น ค้นหาข้อมูลอัตราค่าไฟ…" autocomplete="off"></textarea>
-        <button type="button" id="geo-btn" class="voice-btn" aria-pressed="false" aria-label="ค้นหาตำแหน่งโดยประมาณจาก IP" title="ค้นหาตำแหน่งโดยประมาณจาก IP (ระดับอำเภอ/จังหวัด) — ใช้แนบพิกัดให้แจ้งเหตุที่ไม่ทราบหมายเลขผู้ใช้ไฟ">
-          <span aria-hidden="true">📍</span><span class="visually-hidden">ตำแหน่งโดยประมาณ</span>
-        </button>
+    <section class="composer" aria-label="โหมดเสียง">
+      <div class="composer-form">
         <button type="button" id="voice-toggle" class="voice-btn" aria-pressed="false" aria-label="เริ่มโหมดเสียง" title="เริ่มโหมดเสียง">
           <span aria-hidden="true">🎙</span><span class="visually-hidden">โหมดเสียง</span>
         </button>
-        <button type="submit" id="send-btn" class="send-btn" aria-label="ส่งข้อความ">
-          <svg viewBox="0 0 24 24" width="20" height="20" fill="currentColor" aria-hidden="true"><path d="M2.4 20.6 22 12 2.4 3.4l.02 6.78L16 12 2.42 13.82z"/></svg>
-        </button>
-      </form>
+      </div>
       <p class="voice-status" id="voice-status" role="status" hidden></p>
-      <p class="composer-meta">การสนทนานี้เป็นการสาธิตบนข้อมูลจำลองทั้งหมด · ไม่มีการแสดงลำดับความคิด (chain-of-thought) ของโมเดล</p>
+      <p class="composer-meta">ไม่มีการแสดงลำดับความคิด (chain-of-thought) ของโมเดล</p>
     </section>
   </div>
-
-  <div class="trace-backdrop" id="trace-backdrop" hidden></div>
-  <aside id="trace-panel" class="trace-panel" hidden aria-label="บันทึกการตรวจสอบ (Trace)">
-    <header class="trace-head">
-      <div class="trace-head-titles">
-        <h2>การตรวจสอบ (Trace)</h2>
-        <p class="trace-id mono" id="trace-id-label">— ยังไม่มีรอบการทำงาน —</p>
-      </div>
-      <div class="trace-head-actions">
-        <button id="trace-refresh" class="ghost-btn light" type="button">
-          <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3 12a9 9 0 1 0 2.6-6.3L3 8"/><path d="M3 3v5h5"/></svg>
-          <span>รีเฟรช</span>
-        </button>
-        <button id="trace-close" class="icon-btn" type="button" aria-label="ปิดแผงการตรวจสอบ">
-          <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><path d="M5 5l14 14M19 5 5 19"/></svg>
-        </button>
-      </div>
-    </header>
-    <div class="trace-body">
-      <ol class="trace-events" id="trace-events"></ol>
-      <p class="trace-empty" id="trace-empty">ยังไม่มีเหตุการณ์ — ส่งข้อความเพื่อเริ่มต้น</p>
-      <p class="trace-note">
-        แสดงเฉพาะเหตุการณ์ตามสัญญา (chat / llm / tool / action) ซึ่งระบบหลังบ้านปิดบังข้อมูลอ่อนไหวก่อนจัดเก็บแล้ว —
-        แผงนี้ไม่แสดง chain-of-thought ของโมเดลภายใต้ทุกเงื่อนไข
-      </p>
-    </div>
-  </aside>
 
   <p class="sr-status" role="status" aria-live="polite" id="sr-status"></p>
 

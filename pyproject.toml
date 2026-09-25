@@ -8,13 +8,11 @@ dependencies = [
   "pydantic>=2.8,<3.0",
   "uvicorn[standard]>=0.30,<1.0",
   "httpx>=0.27",
-  # ใช้อ่าน plugin manifest ตอน startup (เดิมติดมากับ uvicorn[standard] โดยบังเอิญ)
-  "pyyaml>=6.0,<7.0",
 ]
 
 [project.optional-dependencies]
-# google-genai คือ SDK ของ Gemini ที่ "โหมดเสียง" (app/live/) ต้องใช้แบบ hard dependency
-# ส่วน Knowledge นำเข้าแบบ lazy
+# google-genai คือ SDK ของ Gemini Live ที่ runtime เสียง (app/runtime/) ใช้ผ่าน ADK
+# Knowledge เป็น deterministic ไม่เรียก LLM
 voice = [
   "google-genai>=1.0,<3.0",
 ]
@@ -26,7 +24,7 @@ dev = [
 ]
 
 [tool.pytest.ini_options]
-testpaths = ["app/api/tests", "app/core/tests", "app/live/tests", "app/llm/tests", "tests", "knowledge/tests", "app/tools/tests", "app/backends/tests", "app/plugins/tests"]
+testpaths = ["app/api/tests", "app/core/tests", "tests"]
 pythonpath = "."
 asyncio_mode = "auto"
 asyncio_default_fixture_loop_scope = "function"

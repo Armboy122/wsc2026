@@ -16,7 +16,7 @@ import re
 from dataclasses import dataclass
 from pathlib import Path
 
-from app.backends.knowledge_aliases import load_alias_rules
+from app.knowledge.aliases import load_alias_rules
 
 APPROVED_SUFFIX = ".md"
 MAX_CATALOG_HEADINGS = 12

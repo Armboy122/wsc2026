@@ -17,8 +17,9 @@ def create_platform_app(settings: Settings) -> FastAPI:
     app = FastAPI(
         title="PEA Knowledge Voice Agent",
         version="0.1.0",
-        docs_url="/docs" if settings.app_env == "development" else None,
-        redoc_url="/redoc" if settings.app_env == "development" else None,
+        docs_url=None,
+        redoc_url=None,
+        openapi_url=None,
     )
     app.add_middleware(RequestIdMiddleware)
     register_exception_handlers(app)
