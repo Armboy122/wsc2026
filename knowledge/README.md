@@ -1,17 +1,17 @@
 # คลังความรู้ PEA
 
-> Runtime: Gemini Live (ผ่าน ADK) เลือก `sourceId` จาก catalog แล้วเรียกเครื่องมือ
-> `get_knowledge_documents` ซึ่งคืน **Markdown ฉบับเต็ม** ของเอกสารที่เลือก ฝั่ง Knowledge
-> เป็น deterministic ไม่เรียก LLM ไม่ค้นหาจากคำถาม และไม่แบ่ง chunk
+> Runtime: Gemini Live (ผ่าน ADK) เรียกเครื่องมือ `search_knowledge` ด้วยคำถามภาษาไทย
+> แล้วได้รับ approved Q&A ก่อน และตามด้วย chunk ของเอกสารที่เกี่ยวข้องพร้อมแหล่งอ้างอิง
+> ฝั่ง Knowledge เป็น deterministic ไม่เรียก generative model และไม่สร้างคำตอบเอง
 
 ## นโยบายแหล่งข้อมูล
 
 - แหล่งข้อมูล runtime มีเฉพาะ Markdown (`.md`, UTF-8) ที่ผ่านการอนุมัติใต้ `knowledge/source/`
 - corpus ปัจจุบัน: 45 ไฟล์ (เอกสารบริการ/ประกาศ 34 ไฟล์ `PEA_*.md` + Approved Q&A 11 ไฟล์ใต้ `qa/`)
 - `README.md` ทุกไฟล์ใน `knowledge/source/`, metadata และไฟล์ซ่อนไม่ใช่เอกสารความรู้
-- ตั้งชื่อไฟล์สั้น ชัด สื่อหัวข้อ เพราะโมเดลเห็นเพียง `sourceId`, `title`, heading และ alias ใน catalog
+- ตั้งชื่อไฟล์สั้น ชัด สื่อหัวข้อ เพราะ index ใช้ `sourceId`, `title` และ heading ในการค้นหา
   (ใช้ `PEA_` สำหรับเอกสารบริการ และ `qa_` สำหรับ Q&A หนึ่งหัวข้อต่อไฟล์)
-- โมเดลต้องตอบจากเอกสารที่เครื่องมือคืนเท่านั้น หากไม่พบให้บอกข้อจำกัด
+- โมเดลต้องตอบจากเนื้อหาที่เครื่องมือคืนเท่านั้น หากไม่พบให้ถามกลับหรือแนะนำศูนย์บริการ 1129
 - `sourceId` คือพาธสัมพัทธ์; ห้ามเปิดเผย absolute path
 
 ## โครงสร้าง
@@ -24,21 +24,23 @@ knowledge/
   source/            เอกสาร authoritative
     PEA_*.md
     qa/qa_*.md       Approved Q&A
-    README.md, qa/README.md   นโยบายเท่านั้น ไม่เข้า catalog
+    README.md, qa/README.md   นโยบายเท่านั้น ไม่เข้า index
 ```
 
-ไม่มี manifest, index, embedding cache หรือ state บนคลาวด์ — `knowledge/source/` คือแหล่งความจริงเดียว
+index เป็น derived artefact: cache อยู่ใต้ `KNOWLEDGE_INDEX_DIR` (ค่าเริ่มต้น `.cache/knowledge-index`,
+gitignored) และสร้างใหม่ได้เสมอ — `knowledge/source/` ยังคงเป็นแหล่งความจริงเดียว
 
 ## การทำงาน (`app/knowledge/`)
 
-1. **Catalog** — ตอนเริ่มระบบสแกนไฟล์ที่อนุมัติ สร้าง entry: `sourceId`, `title`, `headings`
-   (สูงสุด 12) และ `aliases` จาก `knowledge/aliases/` ที่อ้างถึงไฟล์นั้น catalog ไม่มีเนื้อหาเอกสาร
+1. **Catalog** — ตอนสร้าง index สแกนไฟล์ที่อนุมัติ (ข้าม README และไฟล์ซ่อน) เพื่อทำหน้าที่เป็น
+   allowlist ของ `sourceId`/`title`/`path`; ไม่มีเนื้อหาเอกสารถูกฝังใน instruction
 2. **Aliases** — ไฟล์ Markdown พร้อม front matter; ทุก `sourceId` ในกฎต้องมีอยู่จริง และ `id`/alias
-   ต้องไม่ซ้ำ มิฉะนั้นเริ่มระบบไม่สำเร็จ alias ใช้เพียงช่วยโมเดลเลือกเอกสาร เซิร์ฟเวอร์ไม่จับคู่คำถามกับ alias
-3. **เลือกเอกสาร** — `get_knowledge_documents(source_ids)` รับ 1–5 `sourceId` จาก catalog เท่านั้น
-4. **โหลดทั้งไฟล์** — อ่านข้อความตามต้นฉบับทั้งหมด (heading, list, URL, ตัวเลข) รวมกันไม่เกิน
-   120,000 ตัวอักษร เกินแล้วคืน error code `invalid_input` ไม่ตัดทอน
-5. **Provenance** — แต่ละเอกสารคืน `sourceId`, `title`, `uri` (`knowledge://source/<sourceId>`)
+   ต้องไม่ซ้ำ มิฉะนั้นสร้าง index ไม่สำเร็จ alias ใช้ขยายคำค้นของ index (deterministic ไม่ใช้ LLM)
+3. **Chunk + Index** — chunk แบบ heading-aware, แยก Q&A ใต้ `qa/` เป็น lane ของตัวเอง,
+   ใช้ BM25 (PyThaiNLP) + dense cosine หลอมด้วย RRF
+4. **ค้นหา** — `search_knowledge(query)` รับคำถาม 1–500 ตัวอักษร แล้วคืน approved Q&A ก่อนเสมอ
+   ตามด้วย chunk พร้อม `sourceId`, `title`, `uri` (`knowledge://source/<sourceId>`) และ heading
+5. **Provenance** — ทุกผลลัพธ์อ้างอิงกลับไปยังไฟล์ที่อนุมัติได้; เอกสารไม่ถูกแก้ไข ตัดทอน หรือเปลี่ยนชื่อ
 
 สัญญาเต็มของเครื่องมืออยู่ใน [CONTRACTS.md](../CONTRACTS.md)
 
@@ -47,10 +49,12 @@ knowledge/
 | ตัวแปร | ความหมาย |
 | --- | --- |
 | `KNOWLEDGE_SOURCE_ROOT` | root ของ corpus; ค่าเริ่มต้น `<repo>/knowledge/source` (alias อ่านจากโฟลเดอร์ `aliases/` ที่อยู่ข้าง root นี้) |
+| `KNOWLEDGE_INDEX_DIR` | cache ของ derived index (ค่าเริ่มต้น `.cache/knowledge-index`, gitignored) |
+| `KNOWLEDGE_EMBEDDER` | `bge-m3` (ค่าเริ่มต้น, self-host) หรือ `fake` สำหรับเทสต์ออฟไลน์ |
 
-แก้/เพิ่มเอกสารหรือ alias แล้วต้อง restart server
+เพิ่ม/แก้/ลบเอกสารหรือ alias แล้วระบบ rebuild index ให้อัตโนมัติ ไม่ต้อง restart
 
 ## เอกสารอ้างอิงอื่น
 
 `docs/research/electricity-tariff-sep-2569.md` เป็นบันทึกค้นคว้าอัตราค่าไฟ เก็บไว้เป็นข้อมูลความรู้
-แต่อยู่นอก `KNOWLEDGE_SOURCE_ROOT` จึงไม่อยู่ใน catalog runtime
+แต่อยู่นอก `KNOWLEDGE_SOURCE_ROOT` จึงไม่อยู่ใน index runtime

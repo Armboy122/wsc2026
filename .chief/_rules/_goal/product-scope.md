@@ -20,11 +20,13 @@ No pending action system. No confirmation tools.
 
 1. Exactly ONE conversational/reasoning model: Gemini Live used by the ADK agent.
 2. Knowledge performs ZERO generative model calls. The path is
-   `Gemini Live → Knowledge Tool → local documents → Gemini Live`.
-3. Gemini Live selects which source documents it needs from a compact deterministic catalog;
-   the server validates every requested sourceId against the allowlist.
-4. Full approved Markdown is returned without silent truncation. Over-budget fails safely
-   with a structured result so Gemini can ask the user to narrow the topic.
+   `Gemini Live → search_knowledge → local hybrid index → Gemini Live`. Embedding models
+   (self-hosted `BAAI/bge-m3` behind the `Embedder` protocol) are not generative and are allowed.
+3. Gemini Live sends one Thai query to `search_knowledge`; the deterministic local index
+   validates the query and returns approved Q&A first, then source-attributed document chunks.
+4. Approved documents are never edited, reformatted, deleted or renamed. The index is a derived
+   artefact; results are bounded to a small, relevant, source-attributed context, and empty or
+   invalid queries fail safely with a structured error.
 5. ADK is the only voice runtime. No `VOICE_RUNTIME` selector.
 6. Do not preserve architecture "just in case" — git history already preserves removed code.
 

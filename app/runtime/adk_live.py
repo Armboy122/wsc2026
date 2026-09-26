@@ -10,7 +10,10 @@ from uuid import uuid4
 from fastapi import WebSocket, WebSocketDisconnect
 from google import genai
 from google.adk.agents.live_request_queue import LiveRequestQueue
-from google.adk.agents.run_config import RunConfig, StreamingMode  # pyright: ignore[reportPrivateImportUsage]
+from google.adk.agents.run_config import (
+    RunConfig,
+    StreamingMode,  # pyright: ignore[reportPrivateImportUsage]
+)
 from google.adk.events import Event
 from google.adk.runners import Runner
 from google.adk.sessions import BaseSessionService, InMemorySessionService
@@ -18,7 +21,7 @@ from google.genai import types
 
 from app.agent.adk_agent import AdkKnowledgeTool, create_adk_agent
 from app.core.logging import get_logger
-from app.knowledge.service import KnowledgeDocumentService
+from app.knowledge.index import IndexManager
 
 logger = get_logger(__name__)
 APP_NAME = "wsc_voice"
@@ -59,7 +62,7 @@ class AdkLiveSession:
         api_key: str,
         model: str,
         voice: str,
-        knowledge_service: KnowledgeDocumentService,
+        index_manager: IndexManager,
         session_service: BaseSessionService | None = None,
     ) -> None:
         self._id = str(uuid4())
@@ -73,7 +76,7 @@ class AdkLiveSession:
             http_options=types.HttpOptions(api_version="v1alpha"),
         )
         self._service = session_service or InMemorySessionService()
-        self._knowledge_tool = AdkKnowledgeTool(knowledge_service)
+        self._knowledge_tool = AdkKnowledgeTool(index_manager)
         self._runner = Runner(
             app_name=APP_NAME,
             agent=create_adk_agent(
@@ -103,7 +106,7 @@ class AdkLiveSession:
                 task.result()
         except WebSocketDisconnect:
             logger.info("adk_live_browser_disconnected")
-        except Exception:
+        except Exception:  # noqa: BLE001 - isolate one failed browser session
             logger.error("adk_live_session_failed")
             with suppress(Exception):
                 await websocket.send_json(_ERROR)

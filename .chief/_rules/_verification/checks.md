@@ -27,6 +27,11 @@ Any later count must be explainable by tickets that intentionally added or delet
 
 - The active Knowledge implementation must not import or call a generative provider:
   no `generate_content`, no `google.genai` client construction, no OpenAI-compatible client.
+- The ADK tool surface must expose exactly one Knowledge tool, `search_knowledge`. The removed
+  catalog tool (`get_knowledge_documents`) and its catalog JSON must not remain in `app/` code,
+  prompts or tests.
+- The `search_knowledge` tool must run the index off the event loop (`asyncio.to_thread`) and
+  may log only status, result counts and latency — never the query text or returned content.
 - The voice runtime must not import `MainAgent`.
 - OMS, VOC, pending actions, and confirm/reject tools must be absent from the ADK tool surface.
 

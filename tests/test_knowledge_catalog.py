@@ -41,7 +41,6 @@ def test_catalog_is_ordered_and_derives_metadata_from_markdown(source_root: Path
     ]
     first = catalog.documents[0]
     assert first.title == "บริการคืนเงินประกัน"
-    assert first.headings == ("บริการคืนเงินประกัน", "เงื่อนไข")
     assert len(catalog) == 3
     assert "qa/qa-one.md" in catalog
     assert catalog.get("missing.md") is None
@@ -52,20 +51,7 @@ def test_catalog_rebuild_is_deterministic(source_root: Path) -> None:
     first = KnowledgeCatalog(source_root, alias_root=alias_root)
     second = KnowledgeCatalog(source_root, alias_root=alias_root)
 
-    assert first.entries() == second.entries()
-
-
-def test_catalog_entries_are_compact_metadata_without_content(source_root: Path) -> None:
-    catalog = KnowledgeCatalog(source_root, alias_root=source_root.parent / "aliases")
-
-    entries = catalog.entries()
-    assert [entry["sourceId"] for entry in entries] == [
-        "a-service.md",
-        "b-service.md",
-        "qa/qa-one.md",
-    ]
-    assert all("content" not in entry for entry in entries)
-    assert "สำเนาบัตรประชาชน" not in str(entries)
+    assert first.documents == second.documents
 
 
 def test_catalog_excludes_readme_dotfiles_non_markdown_and_symlinks(
@@ -98,10 +84,12 @@ def test_catalog_missing_root_is_empty(tmp_path: Path) -> None:
     catalog = KnowledgeCatalog(tmp_path / "absent")
 
     assert len(catalog) == 0
-    assert catalog.entries() == ()
+    assert catalog.documents == ()
 
 
-def test_catalog_attaches_approved_alias_metadata(source_root: Path, tmp_path: Path) -> None:
+def test_catalog_accepts_alias_rules_for_known_source_ids(
+    source_root: Path, tmp_path: Path
+) -> None:
     alias_root = tmp_path / "aliases"
     _write(
         alias_root / "connection.md",
@@ -117,10 +105,7 @@ def test_catalog_attaches_approved_alias_metadata(source_root: Path, tmp_path: P
 
     catalog = KnowledgeCatalog(source_root, alias_root=alias_root)
 
-    assert catalog.get("b-service.md").aliases == ("ขอไฟใหม่", "ขอใช้ไฟฟ้าใหม่")  # type: ignore[union-attr]
-    entry = next(item for item in catalog.entries() if item["sourceId"] == "b-service.md")
-    assert entry["aliases"] == ["ขอไฟใหม่", "ขอใช้ไฟฟ้าใหม่"]
-    assert all("aliases" not in item for item in catalog.entries() if item["sourceId"] != "b-service.md")
+    assert "b-service.md" in catalog
 
 
 def test_catalog_rejects_alias_rules_for_unknown_source_ids(

@@ -23,24 +23,27 @@ from google.adk.sessions import InMemorySessionService
 from google.genai import types
 from pydantic import PrivateAttr
 
-from app.runtime.adk_live import AdkLiveSession, forward_event, live_run_config
 from app.agent.adk_agent import AdkKnowledgeTool, create_adk_agent
-from app.knowledge.catalog import KnowledgeCatalog
-from app.knowledge.service import KnowledgeDocumentService
-
-
-
+from app.knowledge.index import FakeEmbedder, IndexManager
+from app.runtime.adk_live import AdkLiveSession, forward_event, live_run_config
 
 ALPHA_MARKDOWN = "# บริการอัลฟ่า\n\n## ขั้นตอน\n\nยื่นคำขอที่สำนักงาน PEA\n"
 
 
 @pytest.fixture
-def knowledge_service(tmp_path):
+def index_manager(tmp_path):
     source = tmp_path / "source"
     source.mkdir()
     (source / "alpha.md").write_text(ALPHA_MARKDOWN, encoding="utf-8")
     (source / "beta.md").write_text("# บริการบีต้า\n\nเนื้อหาบีต้า\n", encoding="utf-8")
-    return KnowledgeDocumentService(KnowledgeCatalog(source, alias_root=tmp_path / "aliases"))
+    manager = IndexManager(
+        source_root=source,
+        index_dir=tmp_path / "index",
+        embedder=FakeEmbedder(),
+        watch=False,
+    )
+    assert manager.rebuild() is True
+    return manager
 
 
 class Wire:
@@ -90,7 +93,7 @@ class Connection(BaseLlmConnection):
     async def send_realtime(self, blob):
         self.audio.append(blob)
         name, args = (self.plans[len(self.audio) - 1] if self.plans else
-                      ("get_knowledge_documents", {"source_ids": ["alpha.md"]}))
+                      ("search_knowledge", {"query": "ขั้นตอน"}))
         await self.events.put(LlmResponse(input_transcription=types.Transcription(text="ขอใช้ไฟ", finished=True)))
         await self.events.put(LlmResponse(content=types.Content(role="model", parts=[types.Part(
             function_call=types.FunctionCall(id=f"call-{len(self.audio)}", name=name, args=args),
@@ -132,8 +135,8 @@ class LiveModel(BaseLlm):
 
 
 @pytest.mark.asyncio
-async def test_real_adk_runner_returns_selected_documents_into_same_live_session(
-    knowledge_service, monkeypatch
+async def test_real_adk_runner_returns_search_results_into_same_live_session(
+    index_manager, monkeypatch
 ):
     from google.genai import models as genai_models
 
@@ -148,7 +151,7 @@ async def test_real_adk_runner_returns_selected_documents_into_same_live_session
     connection = Connection()
     service = InMemorySessionService()
     await service.create_session(app_name="test", user_id="user", session_id="session")
-    knowledge_tool = AdkKnowledgeTool(knowledge_service)
+    knowledge_tool = AdkKnowledgeTool(index_manager)
     runner = Runner(
         app_name="test",
         agent=Agent(name="pea", model=LiveModel(connection), tools=[knowledge_tool]),
@@ -170,15 +173,13 @@ async def test_real_adk_runner_returns_selected_documents_into_same_live_session
     assert len(connection.responses) == 2
     for content in connection.responses:
         response = content.parts[0].function_response
-        assert response.name == "get_knowledge_documents"
+        assert response.name == "search_knowledge"
         assert response.response["status"] == "success"
-        assert response.response["documents"] == [{
-            "sourceId": "alpha.md",
-            "title": "บริการอัลฟ่า",
-            "uri": "knowledge://source/alpha.md",
-            "content": ALPHA_MARKDOWN,
-        }]
+        assert response.response["approvedQa"] == []
+        assert response.response["chunks"][0]["sourceId"] == "alpha.md"
+        assert response.response["chunks"][0]["content"] == ALPHA_MARKDOWN
         assert response.response["sources"][0]["sourceId"] == "alpha.md"
+        assert response.response["sources"][0]["uri"] == "knowledge://source/alpha.md"
     assert generative_calls == []
     saved = await service.get_session(app_name="test", user_id="user", session_id="session")
     assert saved is not None
@@ -187,15 +188,15 @@ async def test_real_adk_runner_returns_selected_documents_into_same_live_session
 
 
 @pytest.mark.asyncio
-async def test_invalid_model_selection_returns_safe_failure_into_same_live_session(knowledge_service):
+async def test_invalid_model_search_returns_safe_failure_into_same_live_session(index_manager):
     connection = Connection([
-        ("get_knowledge_documents", {"source_ids": ["../secrets.md"]}),
+        ("search_knowledge", {"query": ""}),
     ])
     service = InMemorySessionService()
     await service.create_session(app_name="test", user_id="user", session_id="session")
     runner = Runner(
         app_name="test",
-        agent=Agent(name="pea", model=LiveModel(connection), tools=[AdkKnowledgeTool(knowledge_service)]),
+        agent=Agent(name="pea", model=LiveModel(connection), tools=[AdkKnowledgeTool(index_manager)]),
         session_service=service,
     )
     queue = LiveRequestQueue()
@@ -207,30 +208,33 @@ async def test_invalid_model_selection_returns_safe_failure_into_same_live_sessi
     response = connection.responses[0].parts[0].function_response.response
     assert response["status"] == "error"
     assert response["error"]["code"] == "invalid_input"
-    assert "documents" not in response
+    assert "approvedQa" not in response
+    assert "chunks" not in response
 
 
-def test_live_agent_instruction_carries_compact_catalog_and_one_tool(knowledge_service):
+def test_live_agent_instruction_carries_one_search_tool_without_a_catalog(index_manager):
     from google.genai import Client
 
     client = Client(api_key="test")
     try:
-        tool = AdkKnowledgeTool(knowledge_service)
+        tool = AdkKnowledgeTool(index_manager)
         agent = create_adk_agent(model="fake-live", client=client, knowledge_tool=tool)
     finally:
         client.close()
     assert agent.tools == [tool]
-    assert '"sourceId":"alpha.md"' in agent.instruction
-    assert '"title":"บริการอัลฟ่า"' in agent.instruction
-    assert "get_knowledge_documents" in agent.instruction
-    # The catalog is metadata only; document bodies are fetched through the tool.
-    assert "ยื่นคำขอที่สำนักงาน PEA" not in agent.instruction
+    instruction = str(agent.instruction)
+    assert "search_knowledge" in instruction
+    assert "get_knowledge" + "_documents" not in instruction
+    assert "catalog" not in instruction.lower()
+    assert '"sourceId"' not in instruction
+    # The catalog is gone; only the prompt remains, with no document bodies.
+    assert "ยื่นคำขอที่สำนักงาน PEA" not in instruction
 
 
 @pytest.mark.asyncio
-async def test_socket_cleanup_and_provider_error_are_isolated(knowledge_service):
+async def test_socket_cleanup_and_provider_error_are_isolated(index_manager):
     live = AdkLiveSession(
-        api_key="test", model="fake", voice="Puck", knowledge_service=knowledge_service
+        api_key="test", model="fake", voice="Puck", index_manager=index_manager
     )
     wire = Wire()
 
@@ -246,7 +250,7 @@ async def test_socket_cleanup_and_provider_error_are_isolated(knowledge_service)
     assert await live._service.get_session(app_name="wsc_voice", user_id=live._user_id, session_id=live._id) is None
     # A second socket can still connect and close cleanly.
     second = AdkLiveSession(
-        api_key="test", model="fake", voice="Puck", knowledge_service=knowledge_service
+        api_key="test", model="fake", voice="Puck", index_manager=index_manager
     )
     other = Wire()
     await other.incoming.put({"type": "websocket.disconnect", "code": 1000})
@@ -334,9 +338,10 @@ async def test_binary_audio_and_json_cannot_invoke_writes():
 
 def test_fastapi_websocket_always_uses_adk_without_runtime_selector(monkeypatch):
     from fastapi.testclient import TestClient
-    from app.main import app
-    from app.core.config import Settings
+
     from app.api import live
+    from app.core.config import Settings
+    from app.main import app
 
     selected = []
     monkeypatch.setenv("VOICE_RUNTIME", "legacy")
@@ -351,12 +356,11 @@ def test_fastapi_websocket_always_uses_adk_without_runtime_selector(monkeypatch)
             await websocket.close()
 
     monkeypatch.setattr("app.runtime.adk_live.AdkLiveSession", Session)
-    monkeypatch.setattr(live, "get_knowledge_service", lambda: object())
     monkeypatch.setattr(live, "load_settings", lambda: Settings(gemini_api_key="test"))
 
     with TestClient(app).websocket_connect("/ws/live") as websocket:
         assert websocket.receive_json()["type"] == "session.ready"
 
     assert len(selected) == 1
-    assert "knowledge_service" in selected[0]
+    assert "index_manager" in selected[0]
     assert not hasattr(Settings, "voice_runtime")

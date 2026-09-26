@@ -104,11 +104,31 @@ def test_all_knowledge_documents_are_retained() -> None:
 
     source_root = ROOT / "knowledge" / "source"
     catalog = KnowledgeCatalog(source_root, alias_root=ROOT / "knowledge" / "aliases")
-    assert len(catalog.entries()) >= 45
+    assert len(catalog.documents) >= 45
     assert len(list(source_root.glob("PEA_*.md"))) >= 34
     assert len(list(source_root.joinpath("qa").glob("qa_*.md"))) >= 10
     assert len(list(ROOT.joinpath("knowledge", "aliases").glob("*.md"))) >= 4
     assert ROOT.joinpath("docs", "research", "electricity-tariff-sep-2569.md").is_file()
+
+
+def test_obsolete_catalog_tool_is_absent_from_app_code() -> None:
+    """Story 4 replaced the catalog tool; the string must not survive in app code."""
+    obsolete = "get_knowledge" + "_documents"
+    offenders = [
+        str(path.relative_to(ROOT))
+        for path in ROOT.joinpath("app").rglob("*.py")
+        if obsolete in path.read_text(encoding="utf-8")
+    ]
+    assert offenders == []
+
+
+def test_adk_agent_exposes_only_the_search_knowledge_tool() -> None:
+    from app.agent.adk_agent import KNOWLEDGE_TOOL_NAME
+
+    assert KNOWLEDGE_TOOL_NAME == "search_knowledge"
+    source = ROOT.joinpath("app", "agent", "adk_agent.py").read_text(encoding="utf-8")
+    assert "catalog_instruction" not in source
+    assert "get_knowledge" + "_documents" not in source
 
 
 def test_knowledge_index_package_has_no_generative_or_adk_imports() -> None:

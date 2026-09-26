@@ -39,19 +39,20 @@ Target runtime (this branch), single conversational model only:
 
 ```text
 Browser microphone → WS /ws/live → ADK Runner.run_live() → Gemini Live
-  → Knowledge Tool → approved local Markdown → same Gemini Live session → speaker
+  → search_knowledge(query) → local hybrid index (Q&A first + chunks) → same Gemini Live session → speaker
 ```
 
 - Gemini Live via ADK is the ONLY conversational/reasoning model and the only orchestrator.
-- Knowledge is deterministic infrastructure: it selects nothing and answers nothing, it only
-  returns trusted approved documents chosen by Gemini Live.
-- Knowledge must perform zero generative model calls.
+- Knowledge is deterministic infrastructure: it answers nothing and never calls a generative
+  model. Gemini Live calls `search_knowledge(query)`; the tool returns approved Q&A first and
+  then source-attributed chunks from the local hybrid index.
 
 ### Directory Structure
 
 - `app/` — FastAPI app (`api/`, `core/`), ADK agent (`agent/`), Live runtime (`runtime/`), deterministic knowledge (`knowledge/`), prompt, contracts
 - `knowledge/source/` — approved Markdown documents, the only authoritative knowledge
-- `knowledge/aliases/` — maintainer alias metadata shown in the catalog (no server-side query matching)
+- `knowledge/aliases/` — maintainer alias metadata used to expand index queries (not evidence)
+- `.cache/knowledge-index/` — derived, gitignored index cache (never a source of truth)
 - `web/` — existing voice UI (keep, do not redesign)
 - `tests/`, plus colocated `*/tests/` packages
 
@@ -61,11 +62,12 @@ Browser microphone → WS /ws/live → ADK Runner.run_live() → Gemini Live
 - Never expose credentials, API keys, or customer-sensitive data in code, logs, or responses.
 - Knowledge stays fail-closed: allowlisted local files only, relative source IDs, no path
   traversal, no arbitrary filesystem reads, no hallucinated citations.
-- Do not silently truncate authoritative documents; exceed-budget is a structured failure.
-- Do not add vector DB, embeddings, RAG, MCP, queues, or extra agents/LLMs.
-  (Owner approved decision D0 on 2026-09-26: Story 4 replaces this with a local hybrid index
-  with embeddings (RAG, Q&A first). Ticket 003 rewrites this rule; see
-  `.chief/story-4/_decisions/pending-decisions.md`.)
+- Knowledge performs zero generative model calls. Embedding models (`BAAI/bge-m3` behind the
+  `Embedder` protocol) are allowed and are not generative.
+- Approved documents are never edited, reformatted, deleted or renamed by code or tickets;
+  the index is a derived artefact that rebuilds automatically.
+- Do not add another conversational model, MCP, queues, or extra agents/LLMs. Vector DB
+  servers, RAGFlow and Gemini File Search stay out of scope.
 
 ## Stories
 
@@ -74,4 +76,4 @@ Browser microphone → WS /ws/live → ADK Runner.run_live() → Gemini Live
 | story-1 | ADK-only Voice core | done |
 | story-2 | Single-model deterministic Knowledge | done |
 | story-3 | Remove platform scope (Voice-only) | done |
-| story-4 | RAG redesign: hybrid local Knowledge search (`search_knowledge`) | in progress — owner decisions D0–D7 recorded (`.chief/story-4/_decisions/pending-decisions.md`) |
+| story-4 | RAG redesign: hybrid local Knowledge search (`search_knowledge`) | in progress — tickets 001–003 implemented; owner decisions D0–D7 recorded (`.chief/story-4/_decisions/pending-decisions.md`) |

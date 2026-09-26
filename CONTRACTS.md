@@ -1,7 +1,7 @@
 # CONTRACTS — PEA Knowledge Voice Agent
 
 สัญญาสาธารณะของระบบมีเพียงสามส่วน: `GET /health`, `WS /ws/live` และเครื่องมือ ADK
-`get_knowledge_documents` ที่ Gemini Live เรียกได้ นอกจากนี้คือไฟล์ static ของหน้าเว็บเสียงใน `web/`
+`search_knowledge` ที่ Gemini Live เรียกได้ นอกจากนี้คือไฟล์ static ของหน้าเว็บเสียงใน `web/`
 (เสิร์ฟที่ `/`, เช่น `/index.html`, `/phone.html`)
 
 Python primitives ที่ใช้ร่วมกันอยู่ใน `app/contracts.py` (`FrozenModel`, `ToolErrorCode`,
@@ -15,7 +15,12 @@ Python primitives ที่ใช้ร่วมกันอยู่ใน `app
 ตอบ `200` เสมอ (JSON, camelCase):
 
 ```json
-{ "status": "ok", "knowledgeBackend": "ready", "liveVoice": "configured" }
+{
+  "status": "ok",
+  "knowledgeBackend": "ready",
+  "liveVoice": "configured",
+  "knowledgeIndex": { "status": "ready", "documents": 45, "chunks": 1234 }
+}
 ```
 
 | ฟิลด์ | ค่า | ความหมาย |
@@ -23,8 +28,9 @@ Python primitives ที่ใช้ร่วมกันอยู่ใน `app
 | `status` | `ok` \| `degraded` | `ok` เมื่อ catalog มีเอกสารอย่างน้อยหนึ่งไฟล์ **และ** ตั้ง `GEMINI_API_KEY` แล้ว |
 | `knowledgeBackend` | `ready` \| `unavailable` | catalog ความรู้โหลดได้และไม่ว่าง |
 | `liveVoice` | `configured` \| `not_configured` | มี `GEMINI_API_KEY` หรือไม่ (ไม่ได้เรียก provider จริง) |
+| `knowledgeIndex` | object | วงจรชีวิตของ derived index: `status` (`building` \| `ready` \| `stale` \| `error`) พร้อมจำนวน `documents` และ `chunks` |
 
-health ไม่เปิดเผยคีย์, path แบบ absolute หรือรายละเอียดข้อผิดพลาดของ provider
+health ไม่เปิดเผยคีย์, path แบบ absolute, เนื้อหาเอกสาร หรือรายละเอียดข้อผิดพลาดของ provider
 
 ## 2. `WS /ws/live`
 
@@ -52,36 +58,34 @@ health ไม่เปิดเผยคีย์, path แบบ absolute ห�
 
 ไม่มี raw ADK event, thought, tool payload หรือข้อผิดพลาดของ provider ส่งถึง browser
 
-## 3. เครื่องมือ ADK `get_knowledge_documents`
+## 3. เครื่องมือ ADK `search_knowledge`
 
 เป็นเครื่องมือเดียวที่ agent (`app/agent/adk_agent.py`) เปิดให้ Gemini Live เรียก
-Gemini Live เลือก `sourceId` จาก catalog ที่ฝังอยู่ใน instruction (ฟิลด์ `sourceId`, `title`,
-`headings` ≤ 12, `aliases` ถ้ามี — ไม่มีเนื้อหาเอกสาร) แล้วเรียกเครื่องมือเพื่อรับเอกสารฉบับเต็ม
-
-เครื่องมือไม่ค้นหาจากคำถาม ไม่ตอบคำถาม และไม่เรียก model ใด ๆ (deterministic)
+Gemini Live ส่งคำถามภาษาไทยหนึ่งคำถาม แล้วเครื่องมือค้นหาด้วย local hybrid index
+(BM25 + dense cosine, RRF) โดย approved Q&A มาก่อน document chunks เสมอ
+เครื่องมือไม่ตอบคำถามเองและไม่เรียก generative model ใด ๆ (embedding ไม่ใช่ generative)
 
 ### Input
 
 ```json
-{ "source_ids": ["PEA_ขอใช้ไฟฟ้าใหม่_บุคคลธรรมดา.md"] }
+{ "query": "ขอคืนเงินประกันการใช้ไฟฟ้าต้องทำอย่างไร" }
 ```
 
-- `source_ids`: array ของ string (1–5 รายการ, แต่ละรายการ ≤ 300 ตัวอักษร) ต้องเป็น `sourceId`
-  ที่อยู่ใน catalog เท่านั้น (relative path, ห้าม absolute/`..`/ไฟล์ซ่อน); ห้ามมี key อื่น
+- `query`: string ยาว 1–500 ตัวอักษร; ห้ามมี key อื่น
 
 ### Success
 
 ```json
 {
   "status": "success",
-  "documents": [
-    { "sourceId": "…", "title": "…", "uri": "knowledge://source/<sourceId>", "content": "<Markdown ทั้งไฟล์>" }
-  ],
-  "sources": [ { "sourceId": "…", "title": "…", "uri": "knowledge://source/…" } ]
+  "approvedQa": [ { "sourceId": "…", "title": "…", "uri": "knowledge://source/…", "content": "<ข้อความ Q&A ฉบับเต็ม>" } ],
+  "chunks":     [ { "sourceId": "…", "title": "…", "uri": "knowledge://source/…", "heading": "…", "content": "<ข้อความ chunk>" } ],
+  "sources":    [ { "sourceId": "…", "title": "…", "uri": "knowledge://source/…" } ]
 }
 ```
 
-เนื้อหาส่งทั้งไฟล์ ไม่ตัดทอน ไม่แบ่ง chunk
+- `approvedQa` มาก่อน `chunks` เสมอ; `heading` คือ heading path ของ chunk
+- เนื้อหาเป็นข้อความจากเอกสารที่อนุมัติ ไม่ตัดทอนเอง; ผลลัพธ์ทั้งหมดถูกจำกัดขนาดรวมประมาณ 4K tokens
 
 ### Error
 
@@ -91,8 +95,8 @@ Gemini Live เลือก `sourceId` จาก catalog ที่ฝังอ�
 
 | `code` | เมื่อใด |
 | --- | --- |
-| `invalid_input` | ว่าง, รูปแบบผิด, ไม่อยู่ใน catalog, เกิน 5 เอกสาร หรือรวมกันเกิน 120,000 ตัวอักษร (ไม่ตัดทอนเอง) |
-| `unavailable` | อ่านไฟล์ที่เลือกไม่ได้ |
+| `invalid_input` | query ว่าง, ผิดรูปแบบ, เกิน 500 ตัวอักษร หรือมี key อื่น |
+| `unavailable` | index ยังสร้างไม่เสร็จ (ยังไม่มี index ที่พร้อมใช้) |
 | `internal` | ข้อผิดพลาดที่ไม่คาดคิดในเครื่องมือ |
 
 ## 4. การตั้งค่า (environment)
@@ -105,3 +109,5 @@ Gemini Live เลือก `sourceId` จาก catalog ที่ฝังอ�
 | `GEMINI_LIVE_MODEL` | `gemini-3.8-live` | |
 | `GEMINI_LIVE_VOICE` | `Puck` | |
 | `KNOWLEDGE_SOURCE_ROOT` | `<repo>/knowledge/source` | root ของเอกสารความรู้ที่อนุมัติ |
+| `KNOWLEDGE_INDEX_DIR` | `<repo>/.cache/knowledge-index` | derived index cache (gitignored) ลบแล้วสร้างใหม่ได้ |
+| `KNOWLEDGE_EMBEDDER` | `bge-m3` | embedder ของ index; `fake` สำหรับเทสต์ออฟไลน์ |

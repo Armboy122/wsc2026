@@ -1,12 +1,12 @@
 # PEA Knowledge Voice Agent
 
-ผู้ช่วยเสียงภาษาไทยที่ตอบคำถามบริการของ กฟภ. (PEA) **จากเอกสารความรู้ที่ได้รับอนุมัติเท่านั้น**
-ADK + Gemini Live เป็นโมเดลสนทนาเดียว และความสามารถทางธุรกิจเดียวคือการดึงเอกสาร Markdown
-ในเครื่องแบบ deterministic
+ผู้ช่วยเสียงภาษาไทยที่ตอบข้อถามบริการของ กฟภ. (PEA) **จากเอกสารความรู้ที่ได้รับอนุมัติเท่านั้น**
+ADK + Gemini Live เป็นโมเดลสนทนาเดียว และความสามารถทางธุรกิจเดียวคือการค้นหา Markdown
+ในเครื่องแบบ deterministic ผ่านเครื่องมือ `search_knowledge`
 
 ```text
 ไมโครโฟน (browser) → WS /ws/live → ADK Runner.run_live() → Gemini Live
-  → get_knowledge_documents → knowledge/source/*.md (ฉบับเต็ม) → Gemini Live session เดิม → ลำโพง
+  → search_knowledge(query) → local hybrid index (approved Q&A ก่อน + chunks) → Gemini Live session เดิม → ลำโพง
 ```
 
 ไม่มีแชตแบบพิมพ์, LINE, OMS/VOC, การคำนวณค่าไฟ, pending action หรือ REST API ทางธุรกิจ
@@ -26,9 +26,9 @@ ADK + Gemini Live เป็นโมเดลสนทนาเดียว แ�
 ```bash
 git clone https://github.com/Armboy122/wsc2026.git
 cd wsc2026
-uv sync --frozen --extra dev --extra voice --extra adk
+uv sync --frozen --all-extras
 cp .env.example .env          # แล้วใส่ GEMINI_API_KEY=...
-uv run --frozen uvicorn app.main:app --reload --host 127.0.0.1 --port 8000
+uv run --frozen --all-extras uvicorn app.main:app --reload --host 127.0.0.1 --port 8000
 ```
 
 เปิด <http://127.0.0.1:8000> กดปุ่มไมโครโฟน อนุญาตสิทธิ์ แล้วถาม เช่น
@@ -46,15 +46,19 @@ uv run --frozen uvicorn app.main:app --reload --host 127.0.0.1 --port 8000
 | `GEMINI_LIVE_MODEL` | `gemini-3.8-live` | โมเดล Gemini Live |
 | `GEMINI_LIVE_VOICE` | `Puck` | เสียงสังเคราะห์ |
 | `KNOWLEDGE_SOURCE_ROOT` | `knowledge/source` | root ของเอกสารความรู้ |
+| `KNOWLEDGE_INDEX_DIR` | `.cache/knowledge-index` | cache ของ index (derived, gitignored, ลบได้) |
+| `KNOWLEDGE_EMBEDDER` | `bge-m3` | embedder ของ index (`fake` สำหรับเทสต์ออฟไลน์) |
 
 ## เอกสารความรู้
 
 - `knowledge/source/*.md` — เอกสารบริการ/ประกาศที่อนุมัติ และ `knowledge/source/qa/*.md` — Q&A ที่อนุมัติ
-  (catalog ปัจจุบัน 45 ไฟล์; README ไม่นับเป็นความรู้)
-- `knowledge/aliases/*.md` — คำพ้องที่ผู้ดูแลกำหนด แสดงใน catalog เพื่อช่วยโมเดลเลือกเอกสาร
-- `docs/research/electricity-tariff-sep-2569.md` — บันทึกค้นคว้าอัตราค่าไฟ (เก็บไว้เป็นข้อมูลอ้างอิง ไม่อยู่ใน catalog runtime)
+  (corpus ปัจจุบัน 45 ไฟล์; README ไม่นับเป็นความรู้) ระบบ chunk และ index ไฟล์เหล่านี้เอง
+- `knowledge/aliases/*.md` — คำพ้องที่ผู้ดูแลกำหนด ใช้ขยายคำค้นของ local index (ไม่ใช่หลักฐาน)
+- `docs/research/electricity-tariff-sep-2569.md` — บันทึกค้นคว้าอัตราค่าไฟ (เก็บไว้เป็นข้อมูลอ้างอิง ไม่อยู่ใน index runtime)
 
-รายละเอียดนโยบายอยู่ใน [knowledge/README.md](knowledge/README.md) เพิ่ม/แก้เอกสารแล้วต้อง restart server
+รายละเอียดนโยบายอยู่ใน [knowledge/README.md](knowledge/README.md) เพิ่ม/แก้/ลบเอกสารแล้วระบบ
+rebuild index ให้อัตโนมัติ (ไม่ต้อง restart) ส่วนการเรียกครั้งแรกจะดาวน์โหลดโมเดล `BAAI/bge-m3`
+(~2.3 GB) ครั้งเดียวและเก็บไว้ในเครื่อง
 
 ## ทดสอบ
 
@@ -67,7 +71,8 @@ node --check web/app.js web/gemini-live-client.js web/phone.js web/media-handler
 
 ## สถานะการตรวจรับ (ตามจริง)
 
-- ✅ เทสต์อัตโนมัติ: health, route surface, wire protocol (ด้วย event จำลอง), เครื่องมือ Knowledge, catalog, สถาปัตยกรรม
+- ✅ เทสต์อัตโนมัติ: health, route surface, wire protocol (ด้วย event จำลอง), เครื่องมือ `search_knowledge`
+  (schema, payload, การ off-load), local index/catalog, สถาปัตยกรรม
 - ⏳ **ยังไม่ได้ทำ**: ทดสอบเสียงจริงกับ Gemini Live, ไมโครโฟนจริง, คุณภาพเสียงภาษาไทย, การพูดแทรก (barge-in)
 - ⏳ **ยังไม่ได้วัด**: latency/ประสิทธิภาพใด ๆ — ไม่มีตัวเลขที่ยืนยันแล้ว
 
@@ -87,5 +92,5 @@ node --check web/app.js web/gemini-live-client.js web/phone.js web/media-handler
 - ต้องใช้ `GEMINI_API_KEY` และเครือข่ายไปยัง Gemini Live; ไม่มีโหมด offline สำหรับเสียง
 - ชื่อโมเดล/เสียงขึ้นกับบัญชีและรุ่น API (`v1alpha`) ที่ใช้; ถ้าเชื่อมต่อไม่ได้ browser จะได้ event `error`
 - session อยู่ในหน่วยความจำ (InMemorySessionService) — เชื่อมต่อใหม่ = บทสนทนาใหม่
-- เอกสารที่เลือกรวมกันต้องไม่เกิน 5 ไฟล์ / 120,000 ตัวอักษรต่อการเรียกหนึ่งครั้ง
+- เอกสารที่เลือกในผลลัพธ์หนึ่งครั้งถูกจำกัดขนาดรวมประมาณ 4K tokens (approved Q&A ก่อน แล้วตามด้วย chunk)
 - ระบบนี้เป็นเดโม ไม่เชื่อมต่อระบบจริงของ กฟภ. และไม่เข้าถึงข้อมูลลูกค้า

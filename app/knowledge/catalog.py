@@ -1,13 +1,14 @@
-"""Deterministic catalog of approved local Markdown knowledge documents.
+"""Deterministic allowlist of approved local Markdown knowledge documents.
 
 Catalog construction is offline and deterministic: it reads approved files under one
-configured source root, derives metadata from the Markdown itself, and attaches
-maintainer-approved alias phrases. It never calls a model, embedding service, or network.
+configured source root and derives a title from the Markdown itself. It never calls a model,
+embedding service, or network.
 
-The catalog is the only allowlist for Knowledge source IDs. Anything that is not an
-approved local Markdown file inside the root is absent from it and therefore cannot be
-selected. Symlinks, dot-prefixed paths, ``README.md`` files, and paths whose resolution
-escapes the root are excluded.
+The catalog is the only allowlist for Knowledge source IDs. Anything that is not an approved
+local Markdown file inside the root is absent from it and therefore cannot enter the index.
+Symlinks, dot-prefixed paths, ``README.md`` files, and paths whose resolution escapes the root
+are excluded. Alias configuration is validated here as well; the index loads the same rules for
+query expansion.
 """
 
 from __future__ import annotations
@@ -19,7 +20,6 @@ from pathlib import Path
 from app.knowledge.aliases import load_alias_rules
 
 APPROVED_SUFFIX = ".md"
-MAX_CATALOG_HEADINGS = 12
 _DEFAULT_ALIAS_DIRNAME = "aliases"
 
 _TITLE_HEADING_LEVEL = 1
@@ -34,23 +34,10 @@ class KnowledgeDocument:
     source_id: str
     path: Path
     title: str
-    headings: tuple[str, ...]
-    aliases: tuple[str, ...] = ()
-
-    def as_catalog_entry(self) -> dict[str, object]:
-        """Compact model-facing metadata: identifiers and topics, never document content."""
-        entry: dict[str, object] = {
-            "sourceId": self.source_id,
-            "title": self.title,
-            "headings": list(self.headings[:MAX_CATALOG_HEADINGS]),
-        }
-        if self.aliases:
-            entry["aliases"] = list(self.aliases)
-        return entry
 
 
 class KnowledgeCatalog:
-    """Immutable, deterministically ordered view of one approved source root."""
+    """Immutable, deterministically ordered allowlist of one approved source root."""
 
     def __init__(
         self,
@@ -64,17 +51,10 @@ class KnowledgeCatalog:
             else self._source_root.parent / _DEFAULT_ALIAS_DIRNAME
         )
         documents = self._build_documents()
-        aliases = self._build_aliases(alias_path, {document.source_id for document in documents})
-        self._documents: tuple[KnowledgeDocument, ...] = tuple(
-            KnowledgeDocument(
-                source_id=document.source_id,
-                path=document.path,
-                title=document.title,
-                headings=document.headings,
-                aliases=aliases.get(document.source_id, ()),
-            )
-            for document in documents
-        )
+        if self._source_root.is_dir():
+            # Fail fast on invalid alias configuration; the index loads the rules itself.
+            load_alias_rules(alias_path, {document.source_id for document in documents})
+        self._documents: tuple[KnowledgeDocument, ...] = tuple(documents)
         self._by_id: dict[str, KnowledgeDocument] = {
             document.source_id: document for document in self._documents
         }
@@ -85,14 +65,11 @@ class KnowledgeCatalog:
 
     @property
     def documents(self) -> tuple[KnowledgeDocument, ...]:
-        """Approved documents, ordered by source ID for reproducible catalogs."""
+        """Approved documents, ordered by source ID for reproducible builds."""
         return self._documents
 
     def get(self, source_id: str) -> KnowledgeDocument | None:
         return self._by_id.get(source_id)
-
-    def entries(self) -> tuple[dict[str, object], ...]:
-        return tuple(document.as_catalog_entry() for document in self._documents)
 
     def __len__(self) -> int:
         return len(self._documents)
@@ -104,15 +81,11 @@ class KnowledgeCatalog:
         documents: list[KnowledgeDocument] = []
         for source_id, path in sorted(self._approved_files()):
             try:
-                title, headings = _read_markdown_metadata(path)
+                title = _read_markdown_title(path)
             except (OSError, UnicodeError):
-                # An unreadable approved file must not remove the rest of the catalog.
+                # An unreadable approved file must not remove the rest of the allowlist.
                 continue
-            documents.append(
-                KnowledgeDocument(
-                    source_id=source_id, path=path, title=title, headings=headings
-                )
-            )
+            documents.append(KnowledgeDocument(source_id=source_id, path=path, title=title))
         return documents
 
     def _approved_files(self) -> list[tuple[str, Path]]:
@@ -134,20 +107,6 @@ class KnowledgeCatalog:
             approved.append((relative.as_posix(), candidate))
         return approved
 
-    def _build_aliases(
-        self, alias_root: Path, known_source_ids: set[str]
-    ) -> dict[str, tuple[str, ...]]:
-        if not self._source_root.is_dir():
-            return {}
-        aliases: dict[str, list[str]] = {}
-        for rule in load_alias_rules(alias_root, known_source_ids):
-            for source_id in rule.source_ids:
-                bucket = aliases.setdefault(source_id, [])
-                for alias in rule.aliases:
-                    if alias not in bucket:
-                        bucket.append(alias)
-        return {source_id: tuple(values) for source_id, values in aliases.items()}
-
 
 def _is_excluded_relative_path(relative: Path) -> bool:
     if relative.name.lower() == "readme.md":
@@ -155,11 +114,11 @@ def _is_excluded_relative_path(relative: Path) -> bool:
     return any(part.startswith(".") for part in relative.parts)
 
 
-def _read_markdown_metadata(path: Path) -> tuple[str, tuple[str, ...]]:
-    """Derive title and headings from Markdown text without a model or interpretation."""
+def _read_markdown_title(path: Path) -> str:
+    """Derive a title from the first Markdown heading without a model or interpretation."""
     text = path.read_text(encoding="utf-8")
-    headings: list[str] = []
     in_fence = False
+    fallback: str | None = None
     for line in text.splitlines():
         if _FENCE.match(line):
             in_fence = not in_fence
@@ -170,17 +129,10 @@ def _read_markdown_metadata(path: Path) -> tuple[str, tuple[str, ...]]:
         if match is None:
             continue
         heading = match.group("text").strip()
-        if heading and heading not in headings:
-            headings.append(heading)
-    level_one = next(
-        (
-            match.group("text").strip()
-            for line in text.splitlines()
-            if not _FENCE.match(line)
-            and (match := _HEADING.match(line)) is not None
-            and len(match.group("level")) == _TITLE_HEADING_LEVEL
-        ),
-        None,
-    )
-    title = level_one or (headings[0] if headings else path.stem)
-    return title, tuple(headings)
+        if not heading:
+            continue
+        if len(match.group("level")) == _TITLE_HEADING_LEVEL:
+            return heading
+        if fallback is None:
+            fallback = heading
+    return fallback or path.stem
