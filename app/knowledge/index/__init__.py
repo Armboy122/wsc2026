@@ -21,6 +21,13 @@ from app.knowledge.index.fusion import (
     ranks_from_scores,
     rrf,
 )
+from app.knowledge.index.manager import (
+    IndexHealth,
+    IndexManager,
+    IndexState,
+    IndexUnavailableError,
+    build_embedder,
+)
 from app.knowledge.index.models import (
     Chunk,
     ChunkHit,
@@ -55,6 +62,10 @@ __all__ = [
     "ChunkHit",
     "Embedder",
     "FakeEmbedder",
+    "IndexHealth",
+    "IndexManager",
+    "IndexState",
+    "IndexUnavailableError",
     "InvalidQueryError",
     "KnowledgeIndex",
     "QaHit",
@@ -62,6 +73,7 @@ __all__ = [
     "SearchResult",
     "Searcher",
     "as_python_float",
+    "build_embedder",
     "chunk_markdown",
     "expand_query",
     "order_by_score",

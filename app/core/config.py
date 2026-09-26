@@ -7,13 +7,16 @@ level, Gemini Live credentials/model/voice, and the approved Knowledge source ro
 from __future__ import annotations
 
 import os
+from collections.abc import Mapping
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Mapping
 
 _DEFAULT_KNOWLEDGE_SOURCE_ROOT = Path(__file__).resolve().parents[2] / "knowledge" / "source"
+# Derived index cache. Never a source of truth; safe to delete and rebuild.
+_DEFAULT_KNOWLEDGE_INDEX_DIR = Path(__file__).resolve().parents[2] / ".cache" / "knowledge-index"
 # Field names whose values must never appear in repr/str/logging.
 _SECRET_FIELD_NAMES: frozenset[str] = frozenset({"gemini_api_key"})
+SUPPORTED_KNOWLEDGE_EMBEDDERS: frozenset[str] = frozenset({"bge-m3", "fake"})
 
 
 @dataclass(frozen=True)
@@ -26,6 +29,8 @@ class Settings:
     live_model: str = "gemini-3.8-live"
     live_voice: str = "Puck"
     knowledge_source_root: Path = field(default_factory=lambda: _DEFAULT_KNOWLEDGE_SOURCE_ROOT)
+    knowledge_index_dir: Path = field(default_factory=lambda: _DEFAULT_KNOWLEDGE_INDEX_DIR)
+    knowledge_embedder: str = "bge-m3"
 
     @classmethod
     def from_env(cls, environ: Mapping[str, str] | None = None) -> Settings:
@@ -44,7 +49,18 @@ class Settings:
             knowledge_source_root=Path(
                 _get("KNOWLEDGE_SOURCE_ROOT") or _DEFAULT_KNOWLEDGE_SOURCE_ROOT
             ),
+            knowledge_index_dir=Path(
+                _get("KNOWLEDGE_INDEX_DIR") or _DEFAULT_KNOWLEDGE_INDEX_DIR
+            ),
+            knowledge_embedder=(_get("KNOWLEDGE_EMBEDDER") or "bge-m3").lower(),
         )
+
+    def __post_init__(self) -> None:
+        if self.knowledge_embedder not in SUPPORTED_KNOWLEDGE_EMBEDDERS:
+            supported = ", ".join(sorted(SUPPORTED_KNOWLEDGE_EMBEDDERS))
+            raise ValueError(
+                f"unsupported KNOWLEDGE_EMBEDDER {self.knowledge_embedder!r}: expected {supported}"
+            )
 
     def __repr__(self) -> str:
         fields = []

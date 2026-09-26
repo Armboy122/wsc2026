@@ -7,6 +7,9 @@ __pycache__/
 .DS_Store
 .agent-teams
 
+# Derived knowledge index cache (rebuildable)
+/.cache/
+
 /.agents/skills/
 /.claude/skills/
 /.pi/

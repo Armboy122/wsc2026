@@ -14,7 +14,7 @@ from app.api.live import router as live_router
 from app.api.routes import router
 from app.core.config import load_settings
 from app.core.di import set_knowledge_service
-from app.core.startup import create_platform_app
+from app.core.startup import create_knowledge_index_manager, create_platform_app
 from app.knowledge.catalog import KnowledgeCatalog
 from app.knowledge.service import KnowledgeDocumentService
 
@@ -22,8 +22,9 @@ settings = load_settings()
 knowledge_catalog = KnowledgeCatalog(settings.knowledge_source_root)
 knowledge_service = KnowledgeDocumentService(knowledge_catalog)
 set_knowledge_service(knowledge_service)
+knowledge_index_manager = create_knowledge_index_manager(settings)
 
-app = create_platform_app(settings)
+app = create_platform_app(settings, index_manager=knowledge_index_manager)
 app.include_router(router)
 app.include_router(live_router)
 

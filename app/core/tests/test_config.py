@@ -18,6 +18,10 @@ def test_default_settings() -> None:
     assert settings.knowledge_source_root == (
         Path(__file__).resolve().parents[3] / "knowledge" / "source"
     )
+    assert settings.knowledge_index_dir == (
+        Path(__file__).resolve().parents[3] / ".cache" / "knowledge-index"
+    )
+    assert settings.knowledge_embedder == "bge-m3"
 
 
 def test_env_override() -> None:
@@ -29,6 +33,8 @@ def test_env_override() -> None:
             "GEMINI_LIVE_MODEL": "gemini-live-other",
             "GEMINI_LIVE_VOICE": "Kore",
             "KNOWLEDGE_SOURCE_ROOT": "/srv/pea-knowledge",
+            "KNOWLEDGE_INDEX_DIR": "/var/cache/pea-index",
+            "KNOWLEDGE_EMBEDDER": "Fake",
         }
     )
     assert settings.app_env == "production"
@@ -37,6 +43,13 @@ def test_env_override() -> None:
     assert settings.live_model == "gemini-live-other"
     assert settings.live_voice == "Kore"
     assert settings.knowledge_source_root == Path("/srv/pea-knowledge")
+    assert settings.knowledge_index_dir == Path("/var/cache/pea-index")
+    assert settings.knowledge_embedder == "fake"
+
+
+def test_unknown_knowledge_embedder_is_rejected() -> None:
+    with pytest.raises(ValueError, match="KNOWLEDGE_EMBEDDER"):
+        Settings.from_env({"KNOWLEDGE_EMBEDDER": "gemini-embedding"})
 
 
 def test_only_voice_and_knowledge_settings_exist() -> None:
@@ -47,6 +60,8 @@ def test_only_voice_and_knowledge_settings_exist() -> None:
         "live_model",
         "live_voice",
         "knowledge_source_root",
+        "knowledge_index_dir",
+        "knowledge_embedder",
     }
 
 

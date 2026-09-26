@@ -33,7 +33,16 @@ class ToolErrorCode(str, Enum):
     INTERNAL = "internal"
 
 
+class KnowledgeIndexHealth(FrozenModel):
+    """Lifecycle status of the derived knowledge index (counts only, no paths or content)."""
+
+    status: Literal["building", "ready", "stale", "error"]
+    documents: int = Field(ge=0)
+    chunks: int = Field(ge=0)
+
+
 class HealthResponse(FrozenModel):
     status: Literal["ok", "degraded"]
     knowledge_backend: Literal["ready", "unavailable"] = Field(serialization_alias="knowledgeBackend")
     live_voice: Literal["configured", "not_configured"] = Field(serialization_alias="liveVoice")
+    knowledge_index: KnowledgeIndexHealth = Field(serialization_alias="knowledgeIndex")

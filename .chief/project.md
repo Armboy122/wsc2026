@@ -22,6 +22,9 @@ Notes verified during audit:
 - `uv pip install -e .` fails: setuptools rejects the flat layout
   (multiple top-level packages, e.g. `app`, `web`, `knowledge`).
   Installing dependencies only is correct — `pyproject.toml` already sets `pythonpath = "."`.
+- Story 4 index settings: `KNOWLEDGE_INDEX_DIR` (derived cache, gitignored, default
+  `.cache/knowledge-index`) and `KNOWLEDGE_EMBEDDER` (`bge-m3` default, or `fake` for the
+  offline test suite). The cache is never written under `knowledge/`.
 
 ## Architecture Overview
 

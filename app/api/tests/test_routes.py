@@ -13,6 +13,7 @@ from app.core.config import Settings
 from app.core.di import get_knowledge_service, set_knowledge_service
 from app.core.startup import create_platform_app
 from app.knowledge.catalog import KnowledgeCatalog
+from app.knowledge.index.manager import IndexManager
 from app.knowledge.service import KnowledgeDocumentService
 
 
@@ -25,11 +26,13 @@ def restore_knowledge_service():
     set_knowledge_service(original)
 
 
-def _health_app(api_key: str | None, source_root: Path) -> TestClient:
+def _health_app(
+    api_key: str | None, source_root: Path, index_manager: IndexManager | None = None
+) -> TestClient:
     set_knowledge_service(
         KnowledgeDocumentService(KnowledgeCatalog(source_root, alias_root=source_root / "none"))
     )
-    app = create_platform_app(Settings(gemini_api_key=api_key))
+    app = create_platform_app(Settings(gemini_api_key=api_key), index_manager=index_manager)
     app.include_router(router)
     return TestClient(app)
 
@@ -91,6 +94,7 @@ def test_health_ok_when_catalog_and_live_key_present(
         "status": "ok",
         "knowledgeBackend": "ready",
         "liveVoice": "configured",
+        "knowledgeIndex": {"status": "error", "documents": 0, "chunks": 0},
     }
     assert "test-key" not in response.text
 
@@ -105,4 +109,5 @@ def test_health_degraded_without_documents_or_live_key(
         "status": "degraded",
         "knowledgeBackend": "unavailable",
         "liveVoice": "not_configured",
+        "knowledgeIndex": {"status": "error", "documents": 0, "chunks": 0},
     }
