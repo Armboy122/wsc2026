@@ -69,6 +69,21 @@ node --check web/app.js web/gemini-live-client.js web/phone.js web/media-handler
 
 เทสต์ทั้งหมดไม่เรียก Gemini จริง
 
+## ประเมินคุณภาพการค้นหาความรู้ (Evaluating Knowledge search)
+
+ชุดประเมินออฟไลน์อยู่ที่ `evaluation/rag/` ใช้ index และ payload ของ production จริง
+(ไม่คัดลอก chunker/retriever) โดยถือคำถามพากย์ (`คำถามใกล้เคียง`) เป็น held-out
+
+```bash
+scripts/eval_rag retrieval --embedder fake   # ตาราง retrieval (ออฟไลน์ ไม่กี่วินาที)
+scripts/eval_rag answer --model stub         # ตอบ + ตรวจ + JSONL/summary (ออฟไลน์)
+```
+
+- เลือกโมเดลได้ด้วย spec `stub`, `pi:<provider/model>` หรือ `gemini:<name>` (สลับ provider ได้โดยไม่แก้โค้ด)
+- ผลลัพธ์ทั้งหมดอยู่ที่ `evaluation/rag/out/` (gitignored) พร้อม cache ของคำตอบ
+- รันด้วยโมเดลจริง/`bge-m3` เป็น**การดำเนินการของเจ้าของ** ไม่รันใน pytest
+- บันทึกตัวเลขจาก research harness อยู่ใน `evaluation/rag/baseline.md`
+
 ## สถานะการตรวจรับ (ตามจริง)
 
 - ✅ เทสต์อัตโนมัติ: health, route surface, wire protocol (ด้วย event จำลอง), เครื่องมือ `search_knowledge`

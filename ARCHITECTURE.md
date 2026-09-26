@@ -76,6 +76,8 @@ Gemini Live ผ่าน ADK เป็นโมเดลสนทนาและ
 - `tests/knowledge_index/`, `tests/test_knowledge_catalog.py`: chunking, hybrid search, Q&A precedence,
   lifecycle/auto-reindex, allowlist
 - `tests/test_architecture.py`: โค้ดแพลตฟอร์มเก่าถูกลบ, ไม่มี import ที่ตายแล้ว, เอกสารความรู้ยังครบ
+- `tests/eval_rag/`, `evaluation/rag/`: ชุดประเมินออฟไลน์ (retrieval + answer/judge) ที่ใช้ index
+  และ payload ของ production; รันด้วย `scripts/eval_rag`, ผลลัพธ์อยู่ใต้ `evaluation/rag/out/` (gitignored)
 - `tests/test_live_frontend_audio.py`: `web/pcm-processor.js`
 
 การทดสอบเสียงจริงและ latency ยังเป็นงาน manual ที่ค้างอยู่ (ดู README.md)

@@ -1,0 +1,15 @@
+#!/usr/bin/env bash
+# Thin wrapper around `python -m evaluation.rag`.
+#
+# Prefers the project virtualenv when it exists (offline, no dependency resolution) and falls
+# back to `uv run --all-extras`, so the command works from a fresh checkout too.
+set -euo pipefail
+
+ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+cd "$ROOT"
+
+if [ -x "$ROOT/.venv/bin/python" ]; then
+  exec "$ROOT/.venv/bin/python" -m evaluation.rag "$@"
+fi
+
+exec uv run --all-extras python -m evaluation.rag "$@"

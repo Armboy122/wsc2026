@@ -26,7 +26,8 @@ DELETED_PATHS = (
     "app/agent/stores.py",
     "app/api/line.py",
     "data/mock",
-    "evaluation",
+    # Story 4 ticket 004 re-introduced ``evaluation/rag`` as an offline regression harness;
+    # the removed platform evaluator must stay gone.
     "scripts/evaluate",
     "scripts/add-plugin",
     "web/linkify.js",

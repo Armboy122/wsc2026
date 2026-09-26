@@ -10,6 +10,9 @@ __pycache__/
 # Derived knowledge index cache (rebuildable)
 /.cache/
 
+# Offline RAG evaluation outputs and response cache (derived; never committed)
+evaluation/rag/out/
+
 /.agents/skills/
 /.claude/skills/
 /.pi/
